@@ -123,11 +123,14 @@ def ns(name):
     return f"{{{TCX_NS}}}{name}"
 
 
-def make_course_point(name, ts, lat, lon, ele, point_type, notes=None):
+def make_course_point(name, ts, lat, lon, ele, point_type, notes=None, allow_empty_name=False):
     cp = ET.Element(ns("CoursePoint"))
     n = ET.SubElement(cp, ns("Name"))
     # CoursePoint Name 은 TCX 스키마상 최대 10자 (실제로는 더 길어도 동작하지만 호환성을 위해 잘라줌)
-    n.text = (name or "Segment")[:32]
+    if allow_empty_name:
+        n.text = (name or "")[:32]
+    else:
+        n.text = (name or "Segment")[:32]
     if ts:
         t = ET.SubElement(cp, ns("Time"))
         t.text = ts
@@ -140,6 +143,63 @@ def make_course_point(name, ts, lat, lon, ele, point_type, notes=None):
     if notes:
         ET.SubElement(cp, ns("Notes")).text = notes[:255]
     return cp
+
+
+def _norm_dist(dist):
+    """'0.71 km' → '0.71km' (예시 포맷에 맞춰 공백 제거)."""
+    if not dist:
+        return ""
+    return str(dist).replace(" ", "")
+
+
+def insert_course_points(course_el, entries, for_rwgps=False):
+    """entries(좌표/메타 정보 리스트)로 CoursePoint 를 만들어 course_el 에 삽입.
+
+    for_rwgps=True 인 경우:
+      - Name 은 사용하지 않음 (빈 값)
+      - Description(Notes): segment 시작점은 거리/경사도만 (예: '3.3km, 5.6%'),
+        정상(종료)점은 segment 이름만 표시
+    """
+    # 기존 CoursePoint 제거 (재실행 시 중복 방지)
+    for c in [c for c in list(course_el) if _local(c.tag) == "CoursePoint"]:
+        course_el.remove(c)
+
+    new_cps = []  # (tp_index, CoursePoint)
+    for e in entries:
+        if for_rwgps:
+            if e["is_start"]:
+                notes = ", ".join(p for p in [_norm_dist(e.get("dist")), e.get("grade")] if p)
+            else:
+                notes = e["seg_name"]
+            cp = make_course_point(
+                name="",
+                ts=e["time"], lat=e["lat"], lon=e["lon"], ele=e["ele"],
+                point_type=e["point_type"], notes=notes, allow_empty_name=True,
+            )
+        else:
+            cp = make_course_point(
+                name=e["name"],
+                ts=e["time"], lat=e["lat"], lon=e["lon"], ele=e["ele"],
+                point_type=e["point_type"], notes=e["notes"],
+            )
+        new_cps.append((e["idx"], cp))
+
+    # trackpoint 인덱스 순서로 정렬
+    new_cps.sort(key=lambda x: x[0])
+
+    # TCX 스키마: Course 안에서 CoursePoint 는 Track 다음에 옵니다.
+    track_indices = [i for i, c in enumerate(list(course_el)) if _local(c.tag) == "Track"]
+    insert_at = (track_indices[-1] + 1) if track_indices else len(list(course_el))
+    for offset, (_idx, cp) in enumerate(new_cps):
+        course_el.insert(insert_at + offset, cp)
+    return len(new_cps)
+
+
+def find_course(root):
+    for el in root.iter():
+        if _local(el.tag) == "Course":
+            return el
+    return None
 
 
 def main():
@@ -169,6 +229,9 @@ def main():
 
     cache_path = args.cache or os.path.join(seg_dir, f"{base}_segments.json")
     out_path = args.out or os.path.join(route_dir, f"{base}_cued.tcx")
+    # rwgps 전용 파일: <out>_for_rwgps.tcx
+    out_base, out_ext = os.path.splitext(out_path)
+    rwgps_out_path = f"{out_base}_for_rwgps{out_ext}"
 
     if not os.path.exists(args.tcx):
         sys.exit(f"❌ TCX 파일 없음: {args.tcx}")
@@ -205,14 +268,8 @@ def main():
     )
     print(f"📄 {os.path.basename(cache_path)}: {len(sorted_items)} segments")
 
-    # 기존 CoursePoint 제거 (재실행 시 중복 방지)
-    existing_cp = [c for c in list(course_el) if _local(c.tag) == "CoursePoint"]
-    for c in existing_cp:
-        course_el.remove(c)
-    if existing_cp:
-        print(f"♻️  기존 CoursePoint {len(existing_cp)} 개 제거")
-
-    new_cps = []  # (tp_index, CoursePoint) - 마지막에 tp_index 순으로 정렬
+    # CoursePoint 메타 정보 수집 (실제 element 생성/삽입은 출력 파일별로 수행)
+    entries = []  # 각 항목: idx/time/lat/lon/ele/point_type/name/notes/seg_name/is_start/dist/grade
     for sid, info in sorted_items:
         if not isinstance(info, dict) or info.get("error"):
             continue
@@ -228,7 +285,7 @@ def main():
             print(f"  ⚠️ segment {sid}: 좌표 없음 - skip")
             continue
 
-        # Notes 에 요약 정보
+        # Notes 에 요약 정보 (기본 _cued.tcx 용)
         notes_bits = []
         if info.get("distance"):
             notes_bits.append(f"Dist {info['distance']}")
@@ -247,16 +304,20 @@ def main():
         idx_s = nearest_idx(pts, start_pt[0], start_pt[1]) if start_pt[0] is not None else None
         if idx_s is not None:
             stype = start_point_type(info.get("climb_category"))
-            cp = make_course_point(
-                name=name,
-                ts=pts[idx_s]["time"],
-                lat=pts[idx_s]["lat"],
-                lon=pts[idx_s]["lon"],
-                ele=pts[idx_s]["ele"],
-                point_type=stype,
-                notes=notes,
-            )
-            new_cps.append((idx_s, cp))
+            entries.append({
+                "idx": idx_s,
+                "time": pts[idx_s]["time"],
+                "lat": pts[idx_s]["lat"],
+                "lon": pts[idx_s]["lon"],
+                "ele": pts[idx_s]["ele"],
+                "point_type": stype,
+                "name": name,
+                "notes": notes,
+                "seg_name": name,
+                "is_start": True,
+                "dist": info.get("distance"),
+                "grade": info.get("avg_grade"),
+            })
             print(f"  + {order:>3}. {(name + ' 시작')[:30]:30s} [{stype}] @ tp#{idx_s}")
 
         # 종료 지점 (시작점 이후만 탐색)
@@ -264,31 +325,34 @@ def main():
             search_from = (idx_s + 1) if idx_s is not None else 0
             idx_e = nearest_idx(pts, end_pt[0], end_pt[1], start_idx=search_from)
             if idx_e is not None:
-                cp = make_course_point(
-                    name=f"{name} 종료",
-                    ts=pts[idx_e]["time"],
-                    lat=pts[idx_e]["lat"],
-                    lon=pts[idx_e]["lon"],
-                    ele=pts[idx_e]["ele"],
-                    point_type="Summit",
-                    notes=notes,
-                )
-                new_cps.append((idx_e, cp))
+                entries.append({
+                    "idx": idx_e,
+                    "time": pts[idx_e]["time"],
+                    "lat": pts[idx_e]["lat"],
+                    "lon": pts[idx_e]["lon"],
+                    "ele": pts[idx_e]["ele"],
+                    "point_type": "Summit",
+                    "name": f"{name} 종료",
+                    "notes": notes,
+                    "seg_name": name,
+                    "is_start": False,
+                    "dist": info.get("distance"),
+                    "grade": info.get("avg_grade"),
+                })
                 print(f"  + {order:>3}. {(name + ' 종료')[:30]:30s} [Summit] @ tp#{idx_e}")
 
-    # trackpoint 인덱스 순서로 정렬
-    new_cps.sort(key=lambda x: x[0])
-
-    # TCX 스키마: Course 안에서 CoursePoint 는 Track 다음, Notes 등 보다 뒤에 옵니다.
-    # 보수적으로 Track 의 끝 다음 위치에 삽입합니다.
-    track_indices = [i for i, c in enumerate(list(course_el)) if _local(c.tag) == "Track"]
-    insert_at = (track_indices[-1] + 1) if track_indices else len(list(course_el))
-    for offset, (_idx, cp) in enumerate(new_cps):
-        course_el.insert(insert_at + offset, cp)
-
-    # 출력
+    # 1) 기본 출력 (_cued.tcx)
+    n = insert_course_points(course_el, entries, for_rwgps=False)
     tree.write(out_path, encoding="utf-8", xml_declaration=True)
-    print(f"✅ {len(new_cps)} 개 CoursePoint 추가 → {out_path}")
+    print(f"✅ {n} 개 CoursePoint 추가 → {out_path}")
+
+    # 2) RWGPS 전용 출력 (_cued_for_rwgps.tcx)
+    #    - Name 미사용 / Description: 시작점=거리·경사도, 정상=이름
+    tree_rwgps = ET.parse(args.tcx)
+    course_el_rwgps = find_course(tree_rwgps.getroot())
+    n_rwgps = insert_course_points(course_el_rwgps, entries, for_rwgps=True)
+    tree_rwgps.write(rwgps_out_path, encoding="utf-8", xml_declaration=True)
+    print(f"✅ {n_rwgps} 개 CoursePoint 추가 (RWGPS) → {rwgps_out_path}")
 
 
 if __name__ == "__main__":

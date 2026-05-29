@@ -82,6 +82,8 @@ def main():
     print(f"   - TCX (원본):       {tcx_raw}")
     print(f"   - segments json:    {cache_path}")
     print(f"   - TCX (CueSheet):   {out_path}")
+    _ob, _oe = os.path.splitext(out_path)
+    print(f"   - TCX (RWGPS):      {_ob}_for_rwgps{_oe}")
 
 
 if __name__ == "__main__":
