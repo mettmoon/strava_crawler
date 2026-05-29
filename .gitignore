@@ -58,7 +58,7 @@ htmlcov/
 # pyenv
 # .python-version
 
-*.gpx
-*.tcx
 cookies.json
-*.csv
+
+# Generated outputs
+output/
