@@ -157,6 +157,16 @@ def _norm_dist(dist):
     return str(dist).replace(" ", "")
 
 
+def _fmt_grade(grade):
+    """경사도를 소수 첫째자리까지로 표기. '7.86396%' → '7.9%', '7%' → '7.0%'."""
+    if grade in (None, ""):
+        return grade
+    m = re.search(r"-?\d+(?:\.\d+)?", str(grade))
+    if not m:
+        return grade
+    return f"{round(float(m.group()), 1):.1f}%"
+
+
 def insert_course_points(course_el, entries, for_rwgps=False):
     """entries(좌표/메타 정보 리스트)로 CoursePoint 를 만들어 course_el 에 삽입.
 
@@ -173,7 +183,7 @@ def insert_course_points(course_el, entries, for_rwgps=False):
     for e in entries:
         if for_rwgps:
             if e["is_start"]:
-                notes = ", ".join(p for p in [_norm_dist(e.get("dist")), e.get("grade")] if p)
+                notes = ", ".join(p for p in [_norm_dist(e.get("dist")), _fmt_grade(e.get("grade"))] if p)
                 notes = "*" + notes  # 시작 지점은 '*' 프리픽스 (Name/Notes 공통)
             else:
                 notes = e["seg_name"]
@@ -298,7 +308,7 @@ def main():
         if info.get("elev_difference"):
             notes_bits.append(f"Elev {info['elev_difference']}")
         if info.get("avg_grade"):
-            notes_bits.append(f"Grade {info['avg_grade']}")
+            notes_bits.append(f"Grade {_fmt_grade(info['avg_grade'])}")
         if info.get("climb_category") not in (None, "", "0", 0):
             notes_bits.append(f"Cat {info['climb_category']}")
         notes_bits.append(f"id:{sid}")
