@@ -1,28 +1,58 @@
 import Foundation
 import StravaTCXKit
 
-/// 앱이 데이터를 얻는 추상 인터페이스. Step 3 에서 Live(StravaClient) 구현으로 교체.
+/// 앱이 데이터를 얻는 추상 인터페이스. Stub(샘플) / Live(실 Strava) 두 구현.
+/// 세그먼트는 ID 목록 → 개별 조회로 나눠 AppModel 이 진행률을 보고할 수 있게 한다.
 protocol StravaDataSource: Sendable {
     func downloadTCX(routeID: String, cookie: String) async throws -> Data
-    func fetchSegments(routeID: String, cookie: String) async throws -> [SegmentInfo]
+    func fetchSegmentIDs(routeID: String, cookie: String) async throws -> [String]
+    func fetchSegment(id: String, cookie: String) async throws -> SegmentInfo
 }
 
-/// Step 2 용 stub — 합성 샘플 데이터로 전체 흐름이 오프라인에서 동작.
+// MARK: - Live (실 Strava 스크래핑)
+
+struct LiveDataSource: StravaDataSource {
+    private func client(_ cookie: String) -> StravaClient {
+        let trimmed = cookie.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cookies = trimmed.isEmpty ? [:] : ["_strava4_session": trimmed]
+        return StravaClient(cookies: cookies)
+    }
+
+    func downloadTCX(routeID: String, cookie: String) async throws -> Data {
+        try await client(cookie).downloadRouteTCX(routeID: routeID)
+    }
+
+    func fetchSegmentIDs(routeID: String, cookie: String) async throws -> [String] {
+        try await client(cookie).fetchSegmentIDs(routeID: routeID)
+    }
+
+    func fetchSegment(id: String, cookie: String) async throws -> SegmentInfo {
+        try await client(cookie).fetchSegment(segmentID: id)
+    }
+}
+
+// MARK: - Stub (합성 샘플, 오프라인 데모)
+
 struct StubDataSource: StravaDataSource {
     func downloadTCX(routeID: String, cookie: String) async throws -> Data {
         try await Task.sleep(nanoseconds: 400_000_000)
         return SampleData.tcxData
     }
 
-    func fetchSegments(routeID: String, cookie: String) async throws -> [SegmentInfo] {
-        try await Task.sleep(nanoseconds: 600_000_000)
-        return SampleData.segments
+    func fetchSegmentIDs(routeID: String, cookie: String) async throws -> [String] {
+        try await Task.sleep(nanoseconds: 300_000_000)
+        return SampleData.segments.map(\.segmentID)
+    }
+
+    func fetchSegment(id: String, cookie: String) async throws -> SegmentInfo {
+        try await Task.sleep(nanoseconds: 250_000_000)
+        return SampleData.segments.first { $0.segmentID == id }
+            ?? SegmentInfo(segmentID: id, name: "Unknown")
     }
 }
 
 /// 합성 트랙/세그먼트 (stub 전용).
 enum SampleData {
-    /// 경로상의 점들 (위/경도/고도)
     static let points: [(lat: Double, lon: Double, ele: Double)] = {
         var arr: [(Double, Double, Double)] = []
         var lat = 37.4500, lon = 128.6600, ele = 300.0
@@ -30,7 +60,7 @@ enum SampleData {
             arr.append((lat, lon, ele))
             lat += 0.0015
             lon += 0.0011
-            ele += (i % 9 < 5 ? 9 : -7)  // 오르락내리락
+            ele += (i % 9 < 5 ? 9 : -7)
         }
         return arr
     }()

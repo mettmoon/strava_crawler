@@ -33,14 +33,16 @@ final class AppModel {
 
     // 입력
     var cookie = ""
-    var routeID = ""
+    var routeID = "" { didSet { if oldValue != routeID { resetDownstream() } } }
     var minCategory: String? = nil   // nil = 전체
+    var demoMode = true { didSet { if oldValue != demoMode { resetDownstream() } } }
 
     // 내비게이션
     var step: Step = .setup
 
     // 진행 상태
     var isBusy = false
+    var progress: Double?            // 0...1, nil 이면 비표시
     var statusMessage = ""
     var errorMessage: String?
 
@@ -50,17 +52,26 @@ final class AppModel {
     var segments: [SegmentInfo] = []
     var entries: [CoursePointEntry] = []
 
-    private let dataSource: StravaDataSource
+    // 데이터 소스 + 캐시
+    private let stub = StubDataSource()
+    private let live = LiveDataSource()
+    private var segmentCache: [String: SegmentInfo] = [:]
+    private var ds: StravaDataSource { demoMode ? stub : live }
 
-    init(dataSource: StravaDataSource = StubDataSource()) {
-        self.dataSource = dataSource
-    }
+    init() {}
 
     var trackPointCount: Int { course?.trackPoints.count ?? 0 }
 
+    private func resetDownstream() {
+        tcxData = nil
+        course = nil
+        segments = []
+        entries = []
+        statusMessage = ""
+    }
+
     // MARK: - 단계별 primary 액션
 
-    /// 현재 단계의 주 버튼 라벨.
     var primaryTitle: String {
         switch step {
         case .setup: return "다음"
@@ -75,6 +86,7 @@ final class AppModel {
         if isBusy { return false }
         switch step {
         case .setup:
+            if demoMode { return true }
             return !cookie.trimmingCharacters(in: .whitespaces).isEmpty
                 && !routeID.trimmingCharacters(in: .whitespaces).isEmpty
         case .download, .segments, .coursePoints, .export:
@@ -115,10 +127,10 @@ final class AppModel {
     // MARK: - 액션 구현
 
     private func runDownload() async {
-        isBusy = true; statusMessage = "TCX 다운로드 중…"
+        isBusy = true; progress = nil; statusMessage = "TCX 다운로드 중…"
         defer { isBusy = false }
         do {
-            let data = try await dataSource.downloadTCX(routeID: routeID, cookie: cookie)
+            let data = try await ds.downloadTCX(routeID: routeID, cookie: cookie)
             let course = try TCXCourse(data: data)
             self.tcxData = data
             self.course = course
@@ -131,12 +143,27 @@ final class AppModel {
     }
 
     private func runSegments() async {
-        isBusy = true; statusMessage = "세그먼트 불러오는 중…"
-        defer { isBusy = false }
+        isBusy = true; progress = 0; statusMessage = "세그먼트 목록 가져오는 중…"
+        defer { isBusy = false; progress = nil }
         do {
-            let segs = try await dataSource.fetchSegments(routeID: routeID, cookie: cookie)
-            self.segments = segs.sorted { ($0.order ?? .max) < ($1.order ?? .max) }
-            statusMessage = "\(segs.count)개 세그먼트"
+            let ids = try await ds.fetchSegmentIDs(routeID: routeID, cookie: cookie)
+            var result: [SegmentInfo] = []
+            for (i, id) in ids.enumerated() {
+                progress = Double(i) / Double(max(ids.count, 1))
+                var info: SegmentInfo
+                if let cached = segmentCache[id] {
+                    info = cached
+                } else {
+                    statusMessage = "세그먼트 \(i + 1)/\(ids.count) (\(id))…"
+                    info = try await ds.fetchSegment(id: id, cookie: cookie)
+                    segmentCache[id] = info
+                }
+                info.order = i + 1
+                result.append(info)
+            }
+            progress = 1
+            segments = result
+            statusMessage = "\(result.count)개 세그먼트"
             advance()
         } catch {
             errorMessage = error.localizedDescription
@@ -146,10 +173,9 @@ final class AppModel {
 
     private func runCoursePoints() {
         guard let course else { errorMessage = "TCX 가 없습니다."; return }
-        let result = Cuesheet.makeEntries(
+        entries = Cuesheet.makeEntries(
             trackPoints: course.trackPoints, segments: segments, minCategory: minCategory
-        )
-        entries = result.entries
+        ).entries
         statusMessage = "\(entries.count)개 CoursePoint"
         advance()
     }
@@ -165,7 +191,6 @@ final class AppModel {
 
     // MARK: - 프리뷰 헬퍼
 
-    /// CoursePoint 의 RWGPS Notes 미리보기 문자열.
     func previewNotes(for e: CoursePointEntry) -> String {
         if e.isStart {
             let body = [Classification.normalizeDistanceText(e.dist), Classification.formatGrade(e.grade)]

@@ -76,7 +76,9 @@ struct NavBarView: View {
             Button("이전") { model.back() }
                 .disabled(!model.canGoBack)
             Spacer()
-            if model.isBusy {
+            if let p = model.progress {
+                ProgressView(value: p).frame(width: 120)
+            } else if model.isBusy {
                 ProgressView().controlSize(.small)
             }
             if !model.statusMessage.isEmpty {
