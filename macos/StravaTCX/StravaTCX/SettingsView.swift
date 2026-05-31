@@ -19,13 +19,12 @@ private struct StravaSettingsView: View {
                     if cookie.isEmpty {
                         Label("로그인되지 않음", systemImage: "person.crop.circle.badge.xmark")
                             .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Strava 로그인…") { showingLogin = true }
                     } else {
                         Label("세션 저장됨", systemImage: "checkmark.seal.fill")
                             .foregroundStyle(.green)
-                    }
-                    Spacer()
-                    Button("Strava 로그인…") { showingLogin = true }
-                    if !cookie.isEmpty {
+                        Spacer()
                         Button("로그아웃") { cookie = "" }
                     }
                 }
@@ -35,15 +34,6 @@ private struct StravaSettingsView: View {
                 Text("로그인하면 세션 쿠키가 자동으로 수집되어 Keychain 에 저장됩니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-
-            Section {
-                SecureField("_strava4_session 값", text: $cookie)
-                Text("로그인 버튼으로 자동 입력되거나, 직접 붙여넣을 수 있습니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } header: {
-                Text("세션 쿠키 (수동)")
             }
         }
         .formStyle(.grouped)
