@@ -2,45 +2,115 @@ import SwiftUI
 import StravaTCXKit
 
 struct ContentView: View {
+    @State private var model = AppModel()
+
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "bicycle")
-                .font(.system(size: 52))
-                .foregroundStyle(.tint)
+        VStack(spacing: 0) {
+            StepHeaderView(current: model.step)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
+            Divider()
 
-            Text("Strava → TCX")
-                .font(.largeTitle.bold())
-            Text("CueSheet 생성기")
-                .foregroundStyle(.secondary)
+            ScrollView {
+                stepContent
+                    .padding(24)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Divider().frame(width: 220)
+            if let err = model.errorMessage {
+                ErrorBanner(message: err)
+            }
+            Divider()
+            NavBarView(model: model)
+        }
+    }
 
-            // StravaTCXKit 링크/동작 확인 (Step 1 스캐폴딩 검증용)
-            VStack(alignment: .leading, spacing: 6) {
-                Label(kitStatus, systemImage: "checkmark.seal.fill")
-                    .foregroundStyle(.green)
-                Text(sampleLine)
-                    .font(.footnote.monospaced())
+    @ViewBuilder private var stepContent: some View {
+        switch model.step {
+        case .setup: SetupStepView(model: model)
+        case .download: DownloadStepView(model: model)
+        case .segments: SegmentsStepView(model: model)
+        case .coursePoints: CoursePointsStepView(model: model)
+        case .export: ExportStepView(model: model)
+        }
+    }
+}
+
+// MARK: - 상단 단계 표시
+
+struct StepHeaderView: View {
+    let current: AppModel.Step
+
+    var body: some View {
+        HStack(spacing: 0) {
+            let steps = AppModel.Step.allCases
+            ForEach(Array(steps.enumerated()), id: \.element.id) { idx, step in
+                Label(step.title, systemImage: step.systemImage)
+                    .labelStyle(.titleAndIcon)
+                    .font(.callout.weight(step == current ? .semibold : .regular))
+                    .foregroundStyle(tint(for: step))
+                if idx < steps.count - 1 {
+                    Image(systemName: "chevron.compact.right")
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 10)
+                }
+            }
+        }
+    }
+
+    private func tint(for step: AppModel.Step) -> Color {
+        if step.rawValue < current.rawValue { return .green }
+        if step == current { return .accentColor }
+        return .secondary
+    }
+}
+
+// MARK: - 하단 내비게이션
+
+struct NavBarView: View {
+    @Bindable var model: AppModel
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button("이전") { model.back() }
+                .disabled(!model.canGoBack)
+            Spacer()
+            if model.isBusy {
+                ProgressView().controlSize(.small)
+            }
+            if !model.statusMessage.isEmpty {
+                Text(model.statusMessage)
+                    .font(.callout)
                     .foregroundStyle(.secondary)
             }
-            .padding(.top, 4)
+            Button(model.primaryTitle) {
+                Task { await model.performPrimary() }
+            }
+            .keyboardShortcut(.defaultAction)
+            .disabled(!model.primaryEnabled)
         }
-        .padding(40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
     }
+}
 
-    private var kitStatus: String {
-        "StravaTCXKit 연결됨"
-    }
-
-    private var sampleLine: String {
-        let g = Classification.gradeClass("7.0%")
-        let cat = Classification.startPointType("Category2")
-        return "grade(7.0%)=\(g.rawValue)\(g.arrow) · cat(2)=\(cat)"
+struct ErrorBanner: View {
+    let message: String
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+            Text(message).font(.callout)
+            Spacer()
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 10)
+        .background(Color.red.opacity(0.85))
     }
 }
 
 #Preview {
     ContentView()
-        .frame(width: 760, height: 560)
+        .frame(width: 820, height: 600)
 }
