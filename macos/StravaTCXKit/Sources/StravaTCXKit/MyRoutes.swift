@@ -21,9 +21,11 @@ public struct MyRoute: Sendable, Identifiable, Hashable {
 public struct MyRoutesPage: Sendable {
     public var routes: [MyRoute]
     public var hasMore: Bool
-    public init(routes: [MyRoute], hasMore: Bool) {
+    public var nextAfter: String?   // 다음 페이지 after 커서 (pageInfo.endCursor+1)
+    public init(routes: [MyRoute], hasMore: Bool, nextAfter: String? = nil) {
         self.routes = routes
         self.hasMore = hasMore
+        self.nextAfter = nextAfter
     }
 }
 
@@ -80,9 +82,36 @@ public enum MyRoutesParser {
         }
         let arr = findRoutesArray(obj) ?? []
         let routes = arr.compactMap(route(from:))
-        let hasMore = boolValue(obj, keys: ["hasMore", "has_more", "hasNextPage", "has_next_page"])
-            ?? (routes.count >= pageSize)
-        return MyRoutesPage(routes: routes, hasMore: hasMore)
+
+        // pageInfo (Relay): hasNextPage + endCursor → 다음 after = endCursor+1
+        let pageInfo = findPageInfo(obj)
+        let hasNext: Bool?
+        if let b = pageInfo?["hasNextPage"] as? Bool { hasNext = b }
+        else if let n = pageInfo?["hasNextPage"] as? NSNumber { hasNext = n.boolValue }
+        else { hasNext = nil }
+        var nextAfter: String?
+        if let end = pageInfo?["endCursor"] as? String, let n = Int(end) {
+            nextAfter = String(n + 1)
+        }
+        let hasMore = hasNext ?? (routes.count >= pageSize)
+        return MyRoutesPage(routes: routes, hasMore: hasMore, nextAfter: nextAfter)
+    }
+
+    /// pageInfo dict 를 재귀 탐색.
+    static func findPageInfo(_ obj: Any) -> [String: Any]? {
+        if let d = obj as? [String: Any] {
+            if let p = d["pageInfo"] as? [String: Any] { return p }
+            if d["hasNextPage"] != nil || d["endCursor"] != nil { return d }
+            for (_, v) in d {
+                if let found = findPageInfo(v) { return found }
+            }
+        }
+        if let a = obj as? [Any] {
+            for v in a {
+                if let found = findPageInfo(v) { return found }
+            }
+        }
+        return nil
     }
 
     // MARK: - 내부
@@ -94,7 +123,7 @@ public enum MyRoutesParser {
             return arr
         }
         if let dict = obj as? [String: Any] {
-            for key in ["routes", "data", "results", "items", "myRoutes", "records"] {
+            for key in ["nodes", "searchRoutes", "routes", "data", "results", "items", "myRoutes", "records", "me"] {
                 if let v = dict[key], let found = findRoutesArray(v) { return found }
             }
             for (_, v) in dict {
@@ -111,8 +140,8 @@ public enum MyRoutesParser {
 
     static func route(from d: [String: Any]) -> MyRoute? {
         guard let id = idString(d) else { return nil }
-        let name = (d["name"] as? String) ?? (d["title"] as? String) ?? "Route \(id)"
-        let distance = doubleValue(d, ["distance"]).flatMap(Classification.formatDistance)
+        let name = (d["title"] as? String) ?? (d["name"] as? String) ?? "Route \(id)"
+        let distance = doubleValue(d, ["length", "distance"]).flatMap(Classification.formatDistance)
         let elevation = doubleValue(d, ["elevation_gain", "elevationGain", "elev_gain", "totalElevationGain"])
             .flatMap(Classification.formatMeters)
         return MyRoute(
@@ -153,6 +182,12 @@ public enum MyRoutesParser {
     }
 
     static func thumbnailURL(_ d: [String: Any]) -> URL? {
+        // themedMapImages: [{lightUrl, darkUrl}]
+        if let imgs = d["themedMapImages"] as? [[String: Any]], let first = imgs.first {
+            for sk in ["lightUrl", "url", "darkUrl", "retina_url"] {
+                if let s = first[sk] as? String, let u = URL(string: s) { return u }
+            }
+        }
         // 직접 키
         for k in ["imgUrl", "image_url", "imageUrl", "thumbnail", "mapImageUrl", "map_image_url"] {
             if let s = d[k] as? String, let u = URL(string: s) { return u }
