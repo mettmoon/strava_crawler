@@ -33,8 +33,19 @@ final class AppModel {
     }
 
     // 입력
-    var routeID = "" { didSet { if oldValue != routeID { resetDownstream() } } }
+    var routeID = "" {
+        didSet {
+            if oldValue != routeID { routeName = nil; resetDownstream() }
+        }
+    }
+    var routeName: String?           // ‘내 경로’에서 가져온 경우 표시 이름
     var minCategory: String? = nil   // nil = 전체
+
+    /// 내 경로 목록에서 선택 시 routeID/이름 채우기.
+    func importRoute(id: String, name: String?) {
+        routeID = id            // didSet 이 routeName=nil 처리 → 아래서 다시 설정
+        routeName = name
+    }
 
     // 쿠키는 전역 설정(설정 화면)에서 가져온다.
     private var cookie: String { AppSettings.cookie }
@@ -207,7 +218,7 @@ final class AppModel {
             StoredCoursePoint(isStart: $0.isStart, pointType: $0.pointType, notes: previewNotes(for: $0))
         }
         let rid = routeID.trimmingCharacters(in: .whitespaces)
-        let title = "Route \(rid)"
+        let title = (routeName?.isEmpty == false) ? routeName! : "Route \(rid)"
         return RouteRecord(
             routeID: rid, title: title, createdAt: Date(),
             minCategory: minCategory, trackPointCount: course.trackPoints.count,
