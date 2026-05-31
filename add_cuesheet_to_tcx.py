@@ -177,9 +177,9 @@ def _resolve_seg_name(name):
 
       1) 'by ...' (by 포함 그 뒤 전부) 제거 → strip
       2) '#...' (# 포함 그 뒤 전부) 제거 → strip
-      3) 맨 앞 특수문자(비 word 문자) 제거 → strip
+      3) 맨 앞뒤 특수문자(비 word 문자) 제거 → strip
 
-    예) '떙기러가즈아~ by 팀바둑이'        → '떙기러가즈아~'
+    예) '떙기러가즈아~ by 팀바둑이'        → '떙기러가즈아'
         '🜲 아우라지-암내교 21km TT #령재치' → '아우라지-암내교 21km TT'
     """
     if not name:
@@ -187,7 +187,7 @@ def _resolve_seg_name(name):
     s = str(name)
     s = re.sub(r"\s*\bby\b.*$", "", s, flags=re.IGNORECASE).strip()  # 1)
     s = re.sub(r"\s*#.*$", "", s).strip()                            # 2)
-    s = re.sub(r"^[^\w]+", "", s, flags=re.UNICODE).strip()          # 3)
+    s = re.sub(r"^[^\w]+|[^\w]+$", "", s, flags=re.UNICODE).strip()  # 3) 앞뒤
     return s
 
 
