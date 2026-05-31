@@ -43,129 +43,6 @@ STAT_LABEL_MAP = [
     ("climb_category", ["Climb Category", "등반 카테고리", "등반카테고리"]),
 ]
 
-# 값으로 인식할 수 있는 단위 (숫자 + 단위 또는 카테고리 숫자)
-VALUE_PATTERN = re.compile(
-    r"^-?[\d,]+\.?\d*\s*(?:km|mi|m|ft|%|°|°)?$|^[0-9]$"
-)
-
-
-def match_stat_key(label_text):
-    if not label_text:
-        return None
-    cleaned = label_text.strip().rstrip(":").strip()
-    for key, labels in STAT_LABEL_MAP:
-        for lbl in labels:
-            if lbl.lower() == cleaned.lower():
-                return key
-    # 부분 매칭 (라벨이 더 큰 텍스트 안에 있는 경우)
-    for key, labels in STAT_LABEL_MAP:
-        for lbl in labels:
-            if lbl in cleaned:
-                return key
-    return None
-
-
-def find_value_near(label_node, label_text):
-    """라벨 노드 주변에서 수치 값을 찾는다."""
-    parent = label_node.find_parent()
-    if not parent:
-        return None
-
-    # 1) 같은 부모 안에 strong/b/span.value 등 강조 태그
-    for tag in parent.find_all(["strong", "b"]):
-        v = tag.get_text(strip=True)
-        if v and v != label_text:
-            return v
-
-    # 2) dt → dd 패턴 (다음 형제)
-    if parent.name == "dt":
-        sib = parent.find_next_sibling("dd")
-        if sib:
-            return sib.get_text(strip=True)
-
-    # 3) td 라벨 → 다음 td 값
-    if parent.name == "td":
-        sib = parent.find_next_sibling("td")
-        if sib:
-            return sib.get_text(strip=True)
-
-    # 4) li 안에 라벨과 값이 함께 (전체 텍스트 - 라벨)
-    full_text = parent.get_text(separator=" ", strip=True)
-    leftover = full_text.replace(label_text, "").strip(": \t")
-    if leftover and VALUE_PATTERN.match(leftover.split()[0] if leftover.split() else ""):
-        return leftover
-
-    # 5) 부모의 부모 단위까지 확장하여 형제에서 수치 검색
-    grand = parent.parent
-    if grand:
-        sib = parent.find_next_sibling()
-        if sib:
-            v = sib.get_text(strip=True)
-            if v:
-                return v
-        sib2 = grand.find_next_sibling()
-        if sib2:
-            v = sib2.get_text(strip=True)
-            if v and len(v) < 30:
-                return v
-
-    return leftover or None
-
-
-def parse_stats(soup, result):
-    """모든 stat 항목 파싱 (신규 레이아웃 + 구 레이아웃 모두 대응)."""
-
-    # A. 구 레이아웃: inline-stats / segment-stats ul
-    stats_lists = soup.find_all(
-        "ul", class_=re.compile(r"inline-stats|segment-stats")
-    )
-    for stats_list in stats_lists:
-        for item in stats_list.find_all("li"):
-            text_content = item.get_text(separator=" ", strip=True)
-            strong_tag = item.find(["strong", "b"])
-            val = strong_tag.get_text(strip=True) if strong_tag else ""
-            key = match_stat_key(text_content)
-            if key and val and not result.get(key):
-                result[key] = val
-
-    # B. 일반 라벨 텍스트 → 값
-    all_labels = []
-    for _key, labels in STAT_LABEL_MAP:
-        all_labels.extend(labels)
-    label_re = re.compile(
-        r"^\s*(?:" + "|".join(re.escape(l) for l in all_labels) + r")\s*:?\s*$"
-    )
-
-    for node in soup.find_all(string=label_re):
-        label_text = str(node).strip().rstrip(":").strip()
-        key = match_stat_key(label_text)
-        if not key or result.get(key):
-            continue
-        val = find_value_near(node, label_text)
-        if val:
-            val = val.strip().strip(":").strip()
-            if val and val != label_text:
-                result[key] = val
-
-    # C. 라벨이 본문에 섞여있는 경우 (예: "Distance 5.04 km")
-    if not all(result.get(k) for k, _ in STAT_LABEL_MAP):
-        text = soup.get_text(separator="\n")
-        patterns = {
-            "distance": r"(?:Distance|거리)[\s:]*([\d,]+\.?\d*\s*(?:km|mi|m))",
-            "elevation_gain": r"(?:Elevation\s*Gain|획득\s*고도)[\s:]*([\d,]+\.?\d*\s*(?:m|ft))",
-            "avg_grade": r"(?:Avg\s*Grade|Average\s*Grade|평균\s*경사도)[\s:]*([\-\d.]+\s*%)",
-            "lowest_elev": r"(?:Lowest\s*Elev(?:ation)?|최저\s*고도)[\s:]*([\d,]+\.?\d*\s*(?:m|ft))",
-            "highest_elev": r"(?:Highest\s*Elev(?:ation)?|최고\s*고도)[\s:]*([\d,]+\.?\d*\s*(?:m|ft))",
-            "elev_difference": r"(?:Elev(?:ation)?\s*Difference|고도\s*차이)[\s:]*([\d,]+\.?\d*\s*(?:m|ft))",
-            "climb_category": r"(?:Climb\s*Category|등반\s*카테고리)[\s:]*([0-9HC]+)",
-        }
-        for key, pat in patterns.items():
-            if result.get(key):
-                continue
-            m = re.search(pat, text, flags=re.IGNORECASE)
-            if m:
-                result[key] = m.group(1).strip()
-
 
 def extract_pageprops(soup):
     """Strava segment 페이지의 __NEXT_DATA__ → props.pageProps 추출."""
@@ -198,14 +75,6 @@ def _latlng_from_streams(streams):
         [float(first[0]), float(first[1])],
         [float(last[0]), float(last[1])],
     )
-
-
-def parse_latlng(soup):
-    """기존 호환용. 내부적으로 extract_pageprops 를 사용."""
-    pageprops = extract_pageprops(soup)
-    if not pageprops:
-        return None, None
-    return _latlng_from_streams(pageprops.get("streams"))
 
 
 # 저장할 pageProps 하위 키 (요청 사양)
@@ -250,6 +119,20 @@ def _format_pct(value):
     return f"{v:g}%"
 
 
+def _normalize_climb_category(value):
+    """climb_category 를 분류기 표준형으로 통일.
+
+    'Category2' → '2', 'CategoryHC' → 'HC', 0/None/'NC' → None.
+    (pageProps 는 'Category2' 형식으로 내려오므로 '2'/'HC' 로 정규화)
+    """
+    if value in (None, "", 0, "0"):
+        return None
+    s = re.sub(r"(?i)^category\s*", "", str(value).strip()).strip().upper()
+    if s in ("", "0", "NC"):
+        return None
+    return s
+
+
 def _result_from_pageprops(pageprops, segment_id):
     """저장된 pageProps subset 으로부터 legacy result dict 복원 (캐시 hit 용)."""
     result = {"segment_id": str(segment_id)}
@@ -272,30 +155,36 @@ def _result_from_pageprops(pageprops, segment_id):
     result["end_point"] = end
 
     def pick(*keys):
-        for k in keys:
-            if isinstance(measurements, dict) and measurements.get(k) is not None:
-                return measurements[k]
+        # measurements 우선, 없으면 metadata 에서도 탐색 (climbCategory 는 metadata 에 있음)
+        for src in (measurements, metadata):
+            if not isinstance(src, dict):
+                continue
+            for k in keys:
+                if src.get(k) is not None:
+                    return src[k]
         return None
 
     result["distance"] = _format_distance(pick("distance"))
     result["elevation_gain"] = _format_meters(
-        pick("elevationGain", "elevation_gain", "totalElevationGain")
+        pick("elevGain", "elevationGain", "elevation_gain", "totalElevationGain")
     )
     result["avg_grade"] = _format_pct(
-        pick("averageGrade", "avgGrade", "average_grade")
+        pick("avgGrade", "averageGrade", "average_grade")
     )
-    result["lowest_elev"] = _format_meters(
-        pick("elevationLow", "lowestElevation", "elevation_low")
+    low = pick("elevLow", "elevationLow", "lowestElevation", "elevation_low")
+    high = pick("elevHigh", "elevationHigh", "highestElevation", "elevation_high")
+    result["lowest_elev"] = _format_meters(low)
+    result["highest_elev"] = _format_meters(high)
+    diff = pick("elevDifference", "elevationDifference", "elev_difference")
+    if diff is None and low is not None and high is not None:
+        try:
+            diff = float(high) - float(low)
+        except (TypeError, ValueError):
+            diff = None
+    result["elev_difference"] = _format_meters(diff)
+    result["climb_category"] = _normalize_climb_category(
+        pick("climbCategory", "climb_category")
     )
-    result["highest_elev"] = _format_meters(
-        pick("elevationHigh", "highestElevation", "elevation_high")
-    )
-    result["elev_difference"] = _format_meters(
-        pick("elevationDifference", "elev_difference")
-    )
-    cc = pick("climbCategory", "climb_category")
-    if cc is not None:
-        result["climb_category"] = str(cc)
 
     for key, _ in STAT_LABEL_MAP:
         result.setdefault(key, None)
@@ -354,38 +243,18 @@ def get_strava_segment_info(segment_id, no_cache=False):
             )
 
         soup = BeautifulSoup(response.text, "html.parser")
-        result = {"segment_id": str(segment_id)}
 
-        # 이름
-        title_heading = soup.find("h1")
-        result["name"] = (
-            title_heading.get_text().replace("☆", "").strip()
-            if title_heading
-            else "Unknown Segment Name"
-        )
-
-        if "Log in to see" in result["name"]:
+        # __NEXT_DATA__ 의 pageProps(JSON) 가 모든 정보의 단일 소스.
+        # HTML DOM 을 긁지 않고, 캐시 hit 경로와 동일하게 JSON 으로만 구성한다.
+        pageprops = extract_pageprops(soup)
+        if not pageprops or not pageprops.get("metadata"):
             return json.dumps(
-                {"error": "쿠키가 만료되었거나 올바르지 않아 로그인 페이지로 리다이렉트되었습니다. cookies.json의 _strava4_session 값을 갱신하세요."},
+                {"error": "segment JSON(__NEXT_DATA__)을 찾지 못했습니다. 쿠키 만료/비공개 또는 페이지 레이아웃 변경일 수 있습니다. cookies.json의 _strava4_session 값을 갱신하세요."},
                 ensure_ascii=False,
                 indent=4,
             )
 
-        # __NEXT_DATA__ pageProps 1회 추출 (좌표/저장 양쪽에서 사용)
-        pageprops = extract_pageprops(soup) or {}
-
-        # 좌표
-        start_point, end_point = _latlng_from_streams(pageprops.get("streams"))
-        result["start_point"] = start_point
-        result["end_point"] = end_point
-
-        # 스탯 (HTML 파싱)
-        parse_stats(soup, result)
-
-        # 누락 키 채우기
-        for key, _ in STAT_LABEL_MAP:
-            result.setdefault(key, None)
-
+        result = _result_from_pageprops(pageprops, segment_id)
         result_json = json.dumps(result, ensure_ascii=False, indent=4)
 
         # 성공 응답만 캐시 저장 — 파일에는 props.pageProps 하위
