@@ -65,3 +65,6 @@ output/
 # Swift / macOS app build artifacts
 macos/**/.build/
 .DS_Store
+macos/**/xcuserdata/
+macos/**/*.xcodeproj/project.xcworkspace/xcuserdata/
+macos/**/DerivedData/
