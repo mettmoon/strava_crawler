@@ -5,6 +5,7 @@ import FoundationNetworking
 
 public enum StravaError: Error, LocalizedError {
     case http(Int, url: String)
+    case notAuthenticated
     case notTCX
     case noSegmentJSON
     case noSegmentIDs
@@ -13,6 +14,8 @@ public enum StravaError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case let .http(code, url): return "HTTP \(code) (URL=\(url))"
+        case .notAuthenticated:
+            return "세션이 만료되었습니다. Strava 에 다시 로그인하세요."
         case .notTCX: return "TCX 응답이 아닙니다. 쿠키 만료 또는 라우트가 비공개일 수 있습니다."
         case .noSegmentJSON:
             return "segment JSON(__NEXT_DATA__)을 찾지 못했습니다. 쿠키 만료/비공개 또는 페이지 레이아웃 변경일 수 있습니다."
@@ -58,6 +61,25 @@ public struct StravaClient: Sendable {
         (response as? HTTPURLResponse)?.statusCode ?? 0
     }
 
+    /// 세션 만료 시 Strava 는 보호 페이지를 로그인 페이지로 302 시킨다.
+    /// URLSession 이 리다이렉트를 자동 추종하므로 최종 URL 이 로그인/세션 페이지면
+    /// 200 이라도 인증 실패로 간주한다.
+    private func isLoginRedirect(_ response: URLResponse) -> Bool {
+        guard let url = response.url else { return false }
+        let path = url.path
+        return path.hasPrefix("/login") || path.hasPrefix("/session") || path.hasPrefix("/onboarding")
+    }
+
+    /// 응답이 200 인지 검증. 로그인 리다이렉트 또는 401/403 은 `notAuthenticated`,
+    /// 그 외 비-200 은 `http` 로 던진다.
+    private func validate(_ response: URLResponse, url: URL) throws {
+        if isLoginRedirect(response) { throw StravaError.notAuthenticated }
+        let code = statusCode(response)
+        // 401/403: 미인증, 419: CSRF(authenticity token) 만료.
+        if code == 401 || code == 403 || code == 419 { throw StravaError.notAuthenticated }
+        guard code == 200 else { throw StravaError.http(code, url: url.absoluteString) }
+    }
+
     // MARK: - 1) 라우트 TCX 다운로드
 
     public func downloadRouteTCX(routeID: String) async throws -> Data {
@@ -65,8 +87,7 @@ public struct StravaClient: Sendable {
         let req = makeRequest(url, accept: "application/vnd.garmin.tcx+xml, application/xml, */*",
                               referer: "https://www.strava.com/routes/\(routeID)")
         let (data, response) = try await session.data(for: req)
-        let code = statusCode(response)
-        guard code == 200 else { throw StravaError.http(code, url: url.absoluteString) }
+        try validate(response, url: url)
         let head = String(data: data.prefix(4096), encoding: .utf8) ?? ""
         if !head.contains("TrainingCenterDatabase") {
             let full = String(data: data, encoding: .utf8) ?? ""
@@ -81,8 +102,7 @@ public struct StravaClient: Sendable {
         let url = URL(string: "https://www.strava.com/routes/\(routeID)")!
         let req = makeRequest(url, accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
         let (data, response) = try await session.data(for: req)
-        let code = statusCode(response)
-        guard code == 200 else { throw StravaError.http(code, url: url.absoluteString) }
+        try validate(response, url: url)
         let html = String(data: data, encoding: .utf8) ?? ""
         let ids = Self.extractSegmentIDs(html: html)
         if ids.isEmpty { throw StravaError.noSegmentIDs }
@@ -116,8 +136,7 @@ public struct StravaClient: Sendable {
         let url = URL(string: "https://www.strava.com/segments/\(segmentID)")!
         let req = makeRequest(url, accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
         let (data, response) = try await session.data(for: req)
-        let code = statusCode(response)
-        guard code == 200 else { throw StravaError.http(code, url: url.absoluteString) }
+        try validate(response, url: url)
         let html = String(data: data, encoding: .utf8) ?? ""
         guard let jsonString = Self.extractNextDataJSON(html: html),
               let pageProps = try NextData.pageProps(from: Data(jsonString.utf8)),
@@ -147,8 +166,7 @@ public struct StravaClient: Sendable {
         let url = URL(string: "https://www.strava.com/athlete/routes")!
         let req = makeRequest(url, accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
         let (data, response) = try await session.data(for: req)
-        let code = statusCode(response)
-        guard code == 200 else { throw StravaError.http(code, url: url.absoluteString) }
+        try validate(response, url: url)
         let html = String(decoding: data, as: UTF8.self)
         guard let token = MyRoutesParser.extractCSRF(html: html) else { throw StravaError.noCSRF }
         return token
@@ -170,8 +188,7 @@ public struct StravaClient: Sendable {
         req.httpBody = MyRoutesParser.requestBody(after: after, pageSize: pageSize)
 
         let (data, response) = try await session.data(for: req)
-        let code = statusCode(response)
-        guard code == 200 else { throw StravaError.http(code, url: url.absoluteString) }
+        try validate(response, url: url)
         return MyRoutesParser.parse(data, pageSize: pageSize)
     }
 }
