@@ -17,7 +17,6 @@ struct RouteListView: View {
                 ForEach(routes) { route in
                     RouteRow(route: route)
                         .tag(route)
-                        .selectionDisabled(route.status == .processing)
                 }
                 .onDelete(perform: delete)
             }
