@@ -172,6 +172,25 @@ GRADE_FLAT_THRESHOLD = 1.5
 GRADE_ARROW = {"up": "↗", "flat": "→", "down": "↘"}
 
 
+def _resolve_seg_name(name):
+    """segment 이름 정리 (종료 지점 Name/Notes 용).
+
+      1) 'by ...' (by 포함 그 뒤 전부) 제거 → strip
+      2) '#...' (# 포함 그 뒤 전부) 제거 → strip
+      3) 맨 앞 특수문자(비 word 문자) 제거 → strip
+
+    예) '떙기러가즈아~ by 팀바둑이'        → '떙기러가즈아~'
+        '🜲 아우라지-암내교 21km TT #령재치' → '아우라지-암내교 21km TT'
+    """
+    if not name:
+        return name or ""
+    s = str(name)
+    s = re.sub(r"\s*\bby\b.*$", "", s, flags=re.IGNORECASE).strip()  # 1)
+    s = re.sub(r"\s*#.*$", "", s).strip()                            # 2)
+    s = re.sub(r"^[^\w]+", "", s, flags=re.UNICODE).strip()          # 3)
+    return s
+
+
 def _grade_class(grade):
     """avgGrade → 'up'(>1.5%) / 'down'(<-1.5%) / 'flat'([-1.5, 1.5]%).
 
@@ -211,7 +230,8 @@ def insert_course_points(course_el, entries, for_rwgps=False):
                 # 시작 지점 prefix: 오르막 ↗ / 평지 → / 내리막 ↘
                 notes = GRADE_ARROW.get(e.get("grade_class"), "→") + body
             else:
-                notes = "🏁" + e["seg_name"]  # 모든 종료 지점 prefix: 🏁
+                # 종료 지점: segment 이름을 정리(by/#/선행 특수문자 제거)한 뒤 🏁 prefix
+                notes = "🏁" + _resolve_seg_name(e["seg_name"])
             cp = make_course_point(
                 name=notes,
                 ts=e["time"], lat=e["lat"], lon=e["lon"], ele=e["ele"],
