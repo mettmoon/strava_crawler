@@ -2,7 +2,7 @@ import Foundation
 import StravaTCXKit
 
 /// 앱이 데이터를 얻는 인터페이스. 세그먼트는 ID 목록 → 개별 조회로 나눠
-/// AppModel 이 진행률을 보고할 수 있게 한다.
+/// ImportCoordinator 가 진행률을 보고할 수 있게 한다.
 protocol StravaDataSource: Sendable {
     func downloadTCX(routeID: String, cookie: String) async throws -> Data
     func fetchSegmentIDs(routeID: String, cookie: String) async throws -> [String]
