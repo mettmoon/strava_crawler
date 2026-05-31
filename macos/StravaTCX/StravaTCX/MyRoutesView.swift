@@ -34,21 +34,42 @@ final class MyRoutesLoader {
         errorMessage = nil
         defer { isLoading = false }
         do {
-            let token: String
-            if let csrf { token = csrf } else {
-                // 로그인 시 저장된 토큰을 우선 사용하고, 없으면 페이지에서 수확.
-                let stored = AppSettings.csrfToken
-                token = stored.isEmpty ? try await client.fetchCSRFToken() : stored
-                csrf = token
-            }
-            let page = try await client.fetchMyRoutes(after: after, pageSize: pageSize, csrfToken: token)
-            routes.append(contentsOf: page.routes)
-            after = page.nextAfter ?? String((Int(after) ?? 0) + pageSize)
-            hasMore = page.hasMore && !page.routes.isEmpty
+            try await fetchPage(retryOnAuthFailure: true)
         } catch {
             errorMessage = error.localizedDescription
             hasMore = false
         }
+    }
+
+    /// 한 페이지를 가져온다. CSRF 만료(notAuthenticated)면 토큰을 재수확해 1회 재시도.
+    private func fetchPage(retryOnAuthFailure: Bool) async throws {
+        let token = try await resolveToken()
+        do {
+            let page = try await client.fetchMyRoutes(after: after, pageSize: pageSize, csrfToken: token)
+            routes.append(contentsOf: page.routes)
+            after = page.nextAfter ?? String((Int(after) ?? 0) + pageSize)
+            hasMore = page.hasMore && !page.routes.isEmpty
+        } catch StravaError.notAuthenticated where retryOnAuthFailure {
+            // 캐시·저장된 CSRF 가 만료됐을 수 있다. 폐기 후 페이지에서 재수확해 1회 재시도.
+            // (세션 자체가 만료됐다면 resolveToken 이 다시 notAuthenticated 를 던져 사용자에게 전달된다.)
+            csrf = nil
+            AppSettings.csrfToken = ""
+            try await fetchPage(retryOnAuthFailure: false)
+        }
+    }
+
+    /// 사용할 CSRF 토큰 확보: 캐시 → 저장값 → 페이지 수확 순. 수확 시 저장값도 갱신.
+    private func resolveToken() async throws -> String {
+        if let csrf { return csrf }
+        let stored = AppSettings.csrfToken
+        if !stored.isEmpty {
+            csrf = stored
+            return stored
+        }
+        let harvested = try await client.fetchCSRFToken()
+        csrf = harvested
+        AppSettings.csrfToken = harvested
+        return harvested
     }
 }
 
