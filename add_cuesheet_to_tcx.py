@@ -161,9 +161,9 @@ def insert_course_points(course_el, entries, for_rwgps=False):
     """entries(좌표/메타 정보 리스트)로 CoursePoint 를 만들어 course_el 에 삽입.
 
     for_rwgps=True 인 경우:
-      - Name 은 사용하지 않음 (빈 값)
       - Description(Notes): segment 시작점은 거리/경사도만 (예: '3.3km, 5.6%'),
         정상(종료)점은 segment 이름만 표시
+      - Name 에도 Notes 와 동일한 값을 넣음 (Name 길이 제한 32자로 잘릴 수 있음)
     """
     # 기존 CoursePoint 제거 (재실행 시 중복 방지)
     for c in [c for c in list(course_el) if _local(c.tag) == "CoursePoint"]:
@@ -177,7 +177,7 @@ def insert_course_points(course_el, entries, for_rwgps=False):
             else:
                 notes = e["seg_name"]
             cp = make_course_point(
-                name="",
+                name=notes,
                 ts=e["time"], lat=e["lat"], lon=e["lon"], ele=e["ele"],
                 point_type=e["point_type"], notes=notes, allow_empty_name=True,
             )
