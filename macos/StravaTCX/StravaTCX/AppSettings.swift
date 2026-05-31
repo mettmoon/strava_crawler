@@ -1,15 +1,9 @@
 import Foundation
 import Security
 
-/// 앱 전역 설정. 데모 모드는 UserDefaults, 쿠키는 Keychain 에 저장.
+/// 앱 전역 설정. Strava 쿠키는 Keychain 에 저장.
 enum AppSettings {
-    static let demoModeKey = "demoMode"
     private static let cookieAccount = "strava_session"
-
-    static var demoMode: Bool {
-        get { UserDefaults.standard.object(forKey: demoModeKey) as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: demoModeKey) }
-    }
 
     static var cookie: String {
         get { Keychain.read(cookieAccount) ?? "" }

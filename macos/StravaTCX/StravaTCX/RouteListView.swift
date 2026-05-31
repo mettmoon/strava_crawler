@@ -65,15 +65,7 @@ struct RouteRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-                Text(route.title).fontWeight(.medium).lineLimit(1)
-                if route.demoMode {
-                    Text("데모")
-                        .font(.caption2)
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Color.secondary.opacity(0.2), in: Capsule())
-                }
-            }
+            Text(route.title).fontWeight(.medium).lineLimit(1)
             Text("\(route.coursePointCount) CoursePoint · \(route.createdAt.formatted(date: .abbreviated, time: .shortened))")
                 .font(.caption)
                 .foregroundStyle(.secondary)

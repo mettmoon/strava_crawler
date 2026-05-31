@@ -65,17 +65,10 @@ struct RouteStepView: View {
         VStack(alignment: .leading, spacing: 18) {
             StepTitle("라우트", "변환할 Strava 라우트 ID 를 입력하세요.")
 
-            if model.demoMode {
-                Label("데모 모드 — 샘플 라우트로 진행합니다. (설정 ⌘, 에서 변경)",
-                      systemImage: "wand.and.stars")
-                    .foregroundStyle(.secondary)
-            }
-
             GroupBox {
                 VStack(alignment: .leading, spacing: 6) {
                     TextField("예: 3495269006478904270", text: $model.routeID)
                         .textFieldStyle(.roundedBorder)
-                        .disabled(model.demoMode)
                     Text("strava.com/routes/<여기 숫자>")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -84,8 +77,8 @@ struct RouteStepView: View {
                 Label("Route ID", systemImage: "number")
             }
 
-            if !model.demoMode && AppSettings.cookie.isEmpty {
-                Label("Strava 쿠키가 설정되지 않았습니다. 설정(⌘,) → Strava 에서 입력하세요.",
+            if AppSettings.cookie.isEmpty {
+                Label("Strava 로그인이 필요합니다. 설정(⌘,) → Strava 에서 로그인하세요.",
                       systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
             }
@@ -217,7 +210,7 @@ struct SaveStepView: View {
 
             GroupBox {
                 VStack(alignment: .leading, spacing: 8) {
-                    InfoRow("Route ID", model.demoMode ? "샘플" : model.routeID)
+                    InfoRow("Route ID", model.routeID)
                     InfoRow("Trackpoint", "\(model.trackPointCount) 개")
                     InfoRow("세그먼트", "\(model.segments.count) 개")
                     InfoRow("최소 카테고리", model.minCategory.map(categoryLabel) ?? "전체")

@@ -36,8 +36,7 @@ final class AppModel {
     var routeID = "" { didSet { if oldValue != routeID { resetDownstream() } } }
     var minCategory: String? = nil   // nil = 전체
 
-    // 데모/쿠키는 전역 설정(설정 화면)에서 가져온다.
-    var demoMode: Bool { AppSettings.demoMode }
+    // 쿠키는 전역 설정(설정 화면)에서 가져온다.
     private var cookie: String { AppSettings.cookie }
 
     // 내비게이션
@@ -59,10 +58,8 @@ final class AppModel {
     var onComplete: ((RouteRecord) -> Void)?
 
     // 데이터 소스 + 캐시
-    private let stub = StubDataSource()
-    private let live = LiveDataSource()
+    private let ds: StravaDataSource = LiveDataSource()
     private var segmentCache: [String: SegmentInfo] = [:]
-    private var ds: StravaDataSource { demoMode ? stub : live }
 
     init() {}
 
@@ -92,7 +89,6 @@ final class AppModel {
         if isBusy { return false }
         switch step {
         case .route:
-            if demoMode { return true }
             return !routeID.trimmingCharacters(in: .whitespaces).isEmpty
         case .download, .segments, .coursePoints, .save:
             return true
@@ -210,10 +206,10 @@ final class AppModel {
         let storedCoursePoints = entries.sorted { $0.idx < $1.idx }.map {
             StoredCoursePoint(isStart: $0.isStart, pointType: $0.pointType, notes: previewNotes(for: $0))
         }
-        let rid = demoMode ? "demo" : routeID.trimmingCharacters(in: .whitespaces)
-        let title = demoMode ? "샘플 라우트" : "Route \(rid)"
+        let rid = routeID.trimmingCharacters(in: .whitespaces)
+        let title = "Route \(rid)"
         return RouteRecord(
-            routeID: rid, title: title, createdAt: Date(), demoMode: demoMode,
+            routeID: rid, title: title, createdAt: Date(),
             minCategory: minCategory, trackPointCount: course.trackPoints.count,
             coursePointCount: cued.count, cuedTCX: cued.data, rwgpsTCX: rwgps.data,
             segments: storedSegments, coursePoints: storedCoursePoints
