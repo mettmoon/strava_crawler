@@ -41,6 +41,11 @@ public struct StravaClient: Sendable {
         self.session = session
     }
 
+    /// 쿠키 딕셔너리를 "k=v; k=v" Cookie 헤더 문자열로.
+    private var cookieHeader: String {
+        cookies.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
+    }
+
     private func makeRequest(_ url: URL, accept: String, referer: String? = nil) -> URLRequest {
         var req = URLRequest(url: url, timeoutInterval: 30)
         req.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
@@ -48,7 +53,6 @@ public struct StravaClient: Sendable {
         req.setValue("ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7", forHTTPHeaderField: "Accept-Language")
         if let referer { req.setValue(referer, forHTTPHeaderField: "Referer") }
         if !cookies.isEmpty {
-            let cookieHeader = cookies.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
             req.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
         }
         if let csrfToken, !csrfToken.isEmpty {
@@ -156,10 +160,6 @@ public struct StravaClient: Sendable {
     }
 
     // MARK: - 내 라우트 (my-routes API)
-
-    private var cookieHeader: String {
-        cookies.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
-    }
 
     /// 인증된 페이지에서 csrf-token 추출.
     public func fetchCSRFToken() async throws -> String {
