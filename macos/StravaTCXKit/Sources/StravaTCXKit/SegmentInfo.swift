@@ -69,7 +69,7 @@ public struct PageProps: Decodable, Sendable {
 }
 
 /// 처리된 segment 정보 (Python result dict 대응). UI/파이프라인에서 사용.
-public struct SegmentInfo: Sendable, Identifiable {
+public struct SegmentInfo: Sendable, Identifiable, Codable {
     public var segmentID: String
     public var name: String
     public var startPoint: [Double]?   // [lat, lng]

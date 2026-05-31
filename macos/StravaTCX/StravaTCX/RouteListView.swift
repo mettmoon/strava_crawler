@@ -1,12 +1,13 @@
 import SwiftUI
 import SwiftData
 
-/// 앱 첫 화면 — 저장된 라우트 목록 + ‘추가하기’.
+/// 앱 첫 화면 — 저장된 라우트 목록 + ‘추가하기’(→ 내 경로 목록).
 struct RouteListView: View {
     @Environment(\.modelContext) private var context
+    @Environment(ImportCoordinator.self) private var coordinator
     @Query(sort: \RouteRecord.createdAt, order: .reverse) private var routes: [RouteRecord]
     @State private var selection: RouteRecord?
-    @State private var showingAdd = false
+    @State private var showingMyRoutes = false
     @State private var showingLogin = false
     @State private var showingLoginAlert = false
 
@@ -14,7 +15,9 @@ struct RouteListView: View {
         NavigationSplitView {
             List(selection: $selection) {
                 ForEach(routes) { route in
-                    RouteRow(route: route).tag(route)
+                    RouteRow(route: route)
+                        .tag(route)
+                        .selectionDisabled(route.status == .processing)
                 }
                 .onDelete(perform: delete)
             }
@@ -25,7 +28,7 @@ struct RouteListView: View {
                     ContentUnavailableView(
                         "저장된 라우트 없음",
                         systemImage: "tray",
-                        description: Text("‘추가하기’ 로 첫 라우트를 변환하세요.")
+                        description: Text("‘추가하기’ 로 내 경로에서 가져오세요.")
                     )
                 }
             }
@@ -43,19 +46,19 @@ struct RouteListView: View {
                 ContentUnavailableView(
                     "라우트를 선택하세요",
                     systemImage: "bicycle",
-                    description: Text("왼쪽 목록에서 라우트를 고르거나 ‘추가하기’ 로 새로 변환하세요.")
+                    description: Text("왼쪽 목록에서 라우트를 고르거나 ‘추가하기’ 로 새로 가져오세요.")
                 )
             }
         }
-        .sheet(isPresented: $showingAdd) {
-            AddRouteView { record in
-                context.insert(record)
-                selection = record
+        .task { coordinator.reconcileOnLaunch(context: context) }
+        .sheet(isPresented: $showingMyRoutes) {
+            MyRoutesView { route in
+                coordinator.importRoute(route, into: context)
             }
         }
         .sheet(isPresented: $showingLogin, onDismiss: {
-            // 로그인 성공(쿠키 확보) 시 자동으로 추가 플로우로 이어감
-            if !AppSettings.cookie.isEmpty { showingAdd = true }
+            // 로그인 성공(쿠키 확보) 시 자동으로 내 경로 목록으로 이어감
+            if !AppSettings.cookie.isEmpty { showingMyRoutes = true }
         }) {
             StravaLoginView { value, csrf in
                 AppSettings.cookie = value
@@ -74,7 +77,7 @@ struct RouteListView: View {
         if AppSettings.cookie.isEmpty {
             showingLoginAlert = true
         } else {
-            showingAdd = true
+            showingMyRoutes = true
         }
     }
 
@@ -86,14 +89,32 @@ struct RouteListView: View {
 }
 
 struct RouteRow: View {
+    @Environment(ImportCoordinator.self) private var coordinator
     let route: RouteRecord
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(route.title).fontWeight(.medium).lineLimit(1)
-            Text("\(route.coursePointCount) CoursePoint · \(route.createdAt.formatted(date: .abbreviated, time: .shortened))")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            switch route.status {
+            case .processing:
+                let p = coordinator.progress(for: route)
+                HStack(spacing: 6) {
+                    if let fraction = p?.fraction {
+                        ProgressView(value: fraction).frame(maxWidth: 120)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                    Text(p?.message ?? "처리 중…")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            case .failed:
+                Label(route.errorMessage ?? "처리 실패", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.orange).lineLimit(1)
+            case .ready:
+                Text("\(route.coursePointCount) CoursePoint · \(route.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.vertical, 2)
     }
