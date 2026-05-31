@@ -40,6 +40,16 @@ func categoryLabel(_ cat: String?) -> String {
     return cat == "HC" ? "HC" : "Cat \(cat)"
 }
 
+func pointTypeColor(_ pointType: String) -> Color {
+    switch pointType {
+    case "Summit": return .green
+    case "Valley": return .blue
+    case "Straight": return .secondary
+    case "Sprint": return .purple
+    default: return .orange   // First~Hors Category
+    }
+}
+
 /// Table 행용 식별 래퍼 (CoursePointEntry 는 Identifiable 아님)
 struct IdentifiedEntry: Identifiable {
     let id: Int
@@ -130,12 +140,18 @@ struct SegmentsStepView: View {
                     TableColumn("#") { s in Text(s.order.map(String.init) ?? "—") }
                         .width(28)
                     TableColumn("이름") { s in Text(s.name) }
-                    TableColumn("카테고리") { s in Text(categoryLabel(s.climbCategory)) }
-                        .width(80)
+                    TableColumn("카테고리") { s in
+                        Text(categoryLabel(s.climbCategory))
+                            .foregroundStyle(s.climbCategory == nil ? Color.secondary : Color.orange)
+                    }
+                    .width(80)
                     TableColumn("거리") { s in Text(s.distanceText ?? "—") }
                         .width(80)
-                    TableColumn("경사") { s in Text(s.avgGrade ?? "—") }
-                        .width(70)
+                    TableColumn("경사") { s in
+                        let g = Classification.gradeClass(s.avgGrade)
+                        Text("\(g.arrow) \(s.avgGrade ?? "—")")
+                    }
+                    .width(90)
                 }
                 .frame(minHeight: 240)
             }
@@ -185,9 +201,14 @@ struct CoursePointsStepView: View {
                             .foregroundStyle(r.entry.isStart ? .primary : .secondary)
                     }
                     .width(48)
-                    TableColumn("PointType") { r in Text(r.entry.pointType) }
-                        .width(130)
-                    TableColumn("Notes (RWGPS)") { r in Text(model.previewNotes(for: r.entry)) }
+                    TableColumn("PointType") { r in
+                        Text(r.entry.pointType)
+                            .foregroundStyle(pointTypeColor(r.entry.pointType))
+                    }
+                    .width(130)
+                    TableColumn("Notes (RWGPS)") { r in
+                        Text(model.previewNotes(for: r.entry)).monospaced()
+                    }
                 }
                 .frame(minHeight: 260)
             }
@@ -201,15 +222,56 @@ struct ExportStepView: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            StepTitle("내보내기", "생성된 TCX 를 저장합니다.")
-            InfoRow("Route ID", model.routeID)
-            InfoRow("Trackpoint", "\(model.trackPointCount) 개")
-            InfoRow("세그먼트", "\(model.segments.count) 개")
-            InfoRow("CoursePoint", "\(model.entries.count) 개")
-            Label("저장 기능은 Step 4 에서 구현됩니다.", systemImage: "info.circle")
-                .foregroundStyle(.secondary)
-                .padding(.top, 4)
+        VStack(alignment: .leading, spacing: 14) {
+            StepTitle("내보내기", "생성된 TCX 를 폴더에 저장합니다.")
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 8) {
+                    InfoRow("Route ID", model.demoMode ? "샘플" : model.routeID)
+                    InfoRow("Trackpoint", "\(model.trackPointCount) 개")
+                    InfoRow("세그먼트", "\(model.segments.count) 개")
+                    InfoRow("최소 카테고리", model.minCategory.map(categoryLabel) ?? "전체")
+                    InfoRow("CoursePoint", "\(model.entries.count) 개")
+                }
+                .padding(8)
+            } label: {
+                Label("요약", systemImage: "doc.text")
+            }
+
+            Text("저장 파일")
+                .font(.subheadline.bold())
+            VStack(alignment: .leading, spacing: 4) {
+                Label("\(model.fileNamePrefix)_cued.tcx", systemImage: "doc")
+                Label("\(model.fileNamePrefix)_cued_for_rwgps.tcx", systemImage: "doc")
+            }
+            .font(.callout.monospaced())
+            .foregroundStyle(.secondary)
+
+            Button {
+                model.runExport()
+            } label: {
+                Label("저장 위치 선택…", systemImage: "folder.badge.plus")
+            }
+            .controlSize(.large)
+
+            if let result = model.exportResult {
+                Divider()
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    Text("저장 완료 · CoursePoint \(result.count)개")
+                        .fontWeight(.medium)
+                    Spacer()
+                    Button {
+                        model.revealInFinder()
+                    } label: {
+                        Label("Finder 에서 열기", systemImage: "magnifyingglass")
+                    }
+                }
+                Text(result.cued.deletingLastPathComponent().path)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
         }
     }
 }
