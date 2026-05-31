@@ -11,7 +11,7 @@ final class MyRoutesLoader {
     var hasMore = true
     var errorMessage: String?
 
-    private var offset = 0
+    private var after = "0"
     private let pageSize = 16
     private var csrf: String?
 
@@ -35,9 +35,9 @@ final class MyRoutesLoader {
                 token = try await client.fetchCSRFToken()
                 csrf = token
             }
-            let page = try await client.fetchMyRoutes(after: String(offset), pageSize: pageSize, csrfToken: token)
+            let page = try await client.fetchMyRoutes(after: after, pageSize: pageSize, csrfToken: token)
             routes.append(contentsOf: page.routes)
-            offset += pageSize
+            after = page.nextAfter ?? String((Int(after) ?? 0) + pageSize)
             hasMore = page.hasMore && !page.routes.isEmpty
         } catch {
             errorMessage = error.localizedDescription

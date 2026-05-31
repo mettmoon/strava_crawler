@@ -173,22 +173,29 @@ final class MyRoutesTests: XCTestCase {
         XCTAssertEqual(MyRoutesParser.extractCSRF(html: html), "abc123==")
     }
 
-    func testParseRoutesFlexible() throws {
+    func testParseRealSchema() throws {
+        // 실제 응답: me.searchRoutes.nodes + pageInfo
         let json = """
-        {"routes":[
-          {"id":3495269006478904270,"name":"만항재 북-남","distance":12345.6,
-           "elevation_gain":678.9,"map_urls":{"url":"https://x/y.png","retina_url":"https://x/y@2x.png"}},
-          {"id_str":"4356964","name":"아우라지","distance":21035.8}
-        ],"hasMore":true}
+        {"me":{"id":"21608570","measurementPreference":"Metric","searchRoutes":{"nodes":[
+          {"title":"충주호 남부 123K","id":"3496036741620946856","isStarred":false,
+           "elevationGain":1628.17,"length":123364.98,"estimatedTime":{"expectedTime":17191.18},
+           "themedMapImages":[{"lightUrl":"https://cdn/a.png"}],"routeType":"Ride",
+           "athlete":{"id":"21608570"},"isPrivate":true},
+          {"title":"2026 FAR01: 정선","id":"3495269006478904270","isStarred":false,
+           "elevationGain":3616.79,"length":198492.01,"themedMapImages":[{"lightUrl":"https://cdn/b.png"}],
+           "routeType":"Ride","athlete":{"id":"21608570"},"isPrivate":true}
+        ],"pageInfo":{"endCursor":"15","startCursor":"0","hasNextPage":true,"hasPreviousPage":false}}}}
         """
         let page = MyRoutesParser.parse(Data(json.utf8), pageSize: 16)
-        XCTAssertTrue(page.hasMore)
         XCTAssertEqual(page.routes.count, 2)
-        XCTAssertEqual(page.routes[0].id, "3495269006478904270")
-        XCTAssertEqual(page.routes[0].name, "만항재 북-남")
-        XCTAssertEqual(page.routes[0].distanceText, "12.35 km")
-        XCTAssertEqual(page.routes[0].thumbnailURL?.absoluteString, "https://x/y@2x.png")
-        XCTAssertEqual(page.routes[1].id, "4356964")
+        XCTAssertTrue(page.hasMore)
+        XCTAssertEqual(page.nextAfter, "16")   // endCursor 15 + 1
+        XCTAssertEqual(page.routes[0].id, "3496036741620946856")
+        XCTAssertEqual(page.routes[0].name, "충주호 남부 123K")
+        XCTAssertEqual(page.routes[0].distanceText, "123.36 km")
+        XCTAssertEqual(page.routes[0].elevationText, "1628 m")
+        XCTAssertEqual(page.routes[0].thumbnailURL?.absoluteString, "https://cdn/a.png")
+        XCTAssertEqual(page.routes[1].id, "3495269006478904270")
     }
 
     func testParseHasMoreHeuristic() {
