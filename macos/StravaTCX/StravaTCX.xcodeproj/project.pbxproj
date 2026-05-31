@@ -15,7 +15,11 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		AA00000000000000000020 /* StravaTCX */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = StravaTCX; sourceTree = "<group>"; };
+		AA00000000000000000020 /* StravaTCX */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = StravaTCX;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -249,7 +253,7 @@
 /* Begin XCLocalSwiftPackageReference section */
 		AA00000000000000000050 /* XCLocalSwiftPackageReference "../StravaTCXKit" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "../StravaTCXKit";
+			relativePath = ../StravaTCXKit;
 		};
 /* End XCLocalSwiftPackageReference section */
 

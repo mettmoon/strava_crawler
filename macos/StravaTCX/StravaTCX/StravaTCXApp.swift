@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 @main
 struct StravaTCXApp: App {
@@ -8,5 +9,10 @@ struct StravaTCXApp: App {
                 .frame(minWidth: 760, minHeight: 560)
         }
         .windowResizability(.contentMinSize)
+        .modelContainer(for: RouteRecord.self)
+
+        Settings {
+            SettingsView()
+        }
     }
 }

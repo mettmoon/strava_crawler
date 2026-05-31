@@ -63,28 +63,12 @@ struct SetupStepView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            StepTitle("설정", "Strava 세션 쿠키와 라우트 ID 를 입력하세요.")
+            StepTitle("라우트", "변환할 Strava 라우트 ID 를 입력하세요.")
 
-            Toggle(isOn: $model.demoMode) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("데모 모드 (샘플 데이터)")
-                    Text("켜면 네트워크 없이 합성 샘플로 전체 흐름을 시연합니다.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            .toggleStyle(.switch)
-
-            GroupBox {
-                VStack(alignment: .leading, spacing: 6) {
-                    SecureField("_strava4_session 값", text: $model.cookie)
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(model.demoMode)
-                    Text("브라우저 개발자도구 → Application → Cookies → strava.com 에서 복사")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(8)
-            } label: {
-                Label("Strava 쿠키 (_strava4_session)", systemImage: "key.fill")
+            if model.demoMode {
+                Label("데모 모드 — 샘플 라우트로 진행합니다. (설정 ⌘, 에서 변경)",
+                      systemImage: "wand.and.stars")
+                    .foregroundStyle(.secondary)
             }
 
             GroupBox {
@@ -98,6 +82,12 @@ struct SetupStepView: View {
                 .padding(8)
             } label: {
                 Label("Route ID", systemImage: "number")
+            }
+
+            if !model.demoMode && AppSettings.cookie.isEmpty {
+                Label("Strava 쿠키가 설정되지 않았습니다. 설정(⌘,) → Strava 에서 입력하세요.",
+                      systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
             }
         }
     }
