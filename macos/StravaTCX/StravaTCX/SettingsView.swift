@@ -4,13 +4,14 @@ import SwiftUI
 struct SettingsView: View {
     var body: some View {
         StravaSettingsView()
-            .frame(width: 480, height: 300)
+            .frame(width: 480, height: 360)
     }
 }
 
 private struct StravaSettingsView: View {
     @State private var cookie = AppSettings.cookie
     @State private var showingLogin = false
+    @State private var segmentInterval = AppSettings.segmentRequestInterval
 
     var body: some View {
         Form {
@@ -35,6 +36,23 @@ private struct StravaSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section {
+                Stepper(value: $segmentInterval, in: 0...60, step: 1) {
+                    HStack {
+                        Text("세그먼트 요청 간격")
+                        Spacer()
+                        Text("\(Int(segmentInterval))초")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text("크롤링")
+            } footer: {
+                Text("세그먼트 정보를 가져올 때 요청 사이의 대기 시간입니다. 값이 작으면 429(요청 과다) 오류가 발생할 수 있습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .onChange(of: cookie) { _, newValue in
@@ -43,6 +61,9 @@ private struct StravaSettingsView: View {
             if newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 AppSettings.csrfToken = ""
             }
+        }
+        .onChange(of: segmentInterval) { _, newValue in
+            AppSettings.segmentRequestInterval = newValue
         }
         .sheet(isPresented: $showingLogin) {
             StravaLoginView { value, csrf in
