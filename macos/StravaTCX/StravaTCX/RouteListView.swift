@@ -7,6 +7,8 @@ struct RouteListView: View {
     @Query(sort: \RouteRecord.createdAt, order: .reverse) private var routes: [RouteRecord]
     @State private var selection: RouteRecord?
     @State private var showingAdd = false
+    @State private var showingLogin = false
+    @State private var showingLoginAlert = false
 
     var body: some View {
         NavigationSplitView {
@@ -29,7 +31,7 @@ struct RouteListView: View {
             }
             .toolbar {
                 ToolbarItem {
-                    Button { showingAdd = true } label: {
+                    Button { addTapped() } label: {
                         Label("추가하기", systemImage: "plus")
                     }
                 }
@@ -50,6 +52,28 @@ struct RouteListView: View {
                 context.insert(record)
                 selection = record
             }
+        }
+        .sheet(isPresented: $showingLogin, onDismiss: {
+            // 로그인 성공(쿠키 확보) 시 자동으로 추가 플로우로 이어감
+            if !AppSettings.cookie.isEmpty { showingAdd = true }
+        }) {
+            StravaLoginView { value in
+                AppSettings.cookie = value
+            }
+        }
+        .alert("로그인해야 합니다", isPresented: $showingLoginAlert) {
+            Button("로그인") { showingLogin = true }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("Strava 라우트를 추가하려면 먼저 Strava 에 로그인해야 합니다.")
+        }
+    }
+
+    private func addTapped() {
+        if AppSettings.cookie.isEmpty {
+            showingLoginAlert = true
+        } else {
+            showingAdd = true
         }
     }
 
