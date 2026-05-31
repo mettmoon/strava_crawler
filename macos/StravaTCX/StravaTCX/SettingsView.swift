@@ -49,9 +49,14 @@ private struct StravaSettingsView: View {
         .formStyle(.grouped)
         .onChange(of: cookie) { _, newValue in
             AppSettings.cookie = newValue
+            // 로그아웃(쿠키 비움) 시 CSRF 토큰도 함께 폐기.
+            if newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                AppSettings.csrfToken = ""
+            }
         }
         .sheet(isPresented: $showingLogin) {
-            StravaLoginView { value in
+            StravaLoginView { value, csrf in
+                if let csrf { AppSettings.csrfToken = csrf }
                 cookie = value   // onChange → Keychain 저장
             }
         }

@@ -1,11 +1,13 @@
 import SwiftUI
 import WebKit
 
-/// Strava 로그인 시트. WKWebView 로 로그인 후 _strava4_session 쿠키를 수확한다.
+/// Strava 로그인 시트. WKWebView 로 로그인 후 _strava4_session 쿠키와
+/// X-Csrf-Token(메타 태그)을 함께 수확한다.
 struct StravaLoginView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var status = "Strava 에 로그인하세요"
-    let onComplete: (String) -> Void
+    /// (세션 쿠키, CSRF 토큰). CSRF 는 수확 실패 시 nil.
+    let onComplete: (String, String?) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,26 +28,27 @@ struct StravaLoginView: View {
             Divider()
 
             StravaWebView(
-                onSession: { value in finish(with: value) },
+                onSession: { session, csrf in finish(with: session, csrf: csrf) },
                 onStatus: { status = $0 }
             )
         }
         .frame(width: 540, height: 700)
     }
 
-    private func finish(with cookie: String) {
+    private func finish(with cookie: String, csrf: String?) {
         status = "세션 수집 완료"
-        onComplete(cookie)
+        onComplete(cookie, csrf)
         dismiss()
     }
 
     /// 자동 감지가 안 될 때를 위한 수동 수확 (기본 데이터 스토어에서 직접 읽음).
+    /// 수동 경로에서는 CSRF 토큰을 얻을 수 없어 nil 로 전달한다.
     @MainActor
     private func harvestFromDefaultStore() async {
         let cookies = await WKWebsiteDataStore.default().httpCookieStore.allCookies()
         if let session = cookies.first(where: { $0.name == "_strava4_session" })?.value,
            !session.isEmpty {
-            finish(with: session)
+            finish(with: session, csrf: nil)
         } else {
             status = "세션을 찾지 못했습니다. 로그인 후 다시 시도하세요."
         }
@@ -54,7 +57,8 @@ struct StravaLoginView: View {
 
 /// Strava 로그인 페이지를 표시하고, 로그인 완료를 감지해 세션 쿠키를 콜백한다.
 struct StravaWebView: NSViewRepresentable {
-    let onSession: (String) -> Void
+    /// (세션 쿠키, CSRF 토큰).
+    let onSession: (String, String?) -> Void
     let onStatus: (String) -> Void
 
     func makeNSView(context: Context) -> WKWebView {
@@ -96,8 +100,18 @@ struct StravaWebView: NSViewRepresentable {
                 guard let session = cookies.first(where: { $0.name == "_strava4_session" })?.value,
                       !session.isEmpty else { return }
                 done = true
-                parent.onSession(session)
+                let csrf = await csrfToken(from: webView)
+                parent.onSession(session, csrf)
             }
+        }
+
+        /// 현재 페이지의 <meta name="csrf-token"> 값을 읽어온다(없으면 nil).
+        @MainActor
+        private func csrfToken(from webView: WKWebView) async -> String? {
+            let js = "document.querySelector('meta[name=\"csrf-token\"]')?.content ?? ''"
+            let value = try? await webView.evaluateJavaScript(js)
+            guard let token = value as? String, !token.isEmpty else { return nil }
+            return token
         }
     }
 }

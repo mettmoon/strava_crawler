@@ -14,7 +14,8 @@ struct LiveDataSource: StravaDataSource {
     private func client(_ cookie: String) -> StravaClient {
         let trimmed = cookie.trimmingCharacters(in: .whitespacesAndNewlines)
         let cookies = trimmed.isEmpty ? [:] : ["_strava4_session": trimmed]
-        return StravaClient(cookies: cookies)
+        let token = AppSettings.csrfToken
+        return StravaClient(cookies: cookies, csrfToken: token.isEmpty ? nil : token)
     }
 
     func downloadTCX(routeID: String, cookie: String) async throws -> Data {

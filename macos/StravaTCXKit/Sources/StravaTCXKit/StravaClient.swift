@@ -25,13 +25,16 @@ public enum StravaError: Error, LocalizedError {
 /// Strava 스크래핑 클라이언트. _strava4_session 쿠키로 인증.
 public struct StravaClient: Sendable {
     public var cookies: [String: String]
+    /// 로그인 시 수확한 X-Csrf-Token 값(있으면 모든 요청에 포함).
+    public var csrfToken: String?
     public var session: URLSession
 
     private static let userAgent =
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-    public init(cookies: [String: String], session: URLSession = .shared) {
+    public init(cookies: [String: String], csrfToken: String? = nil, session: URLSession = .shared) {
         self.cookies = cookies
+        self.csrfToken = csrfToken
         self.session = session
     }
 
@@ -44,6 +47,9 @@ public struct StravaClient: Sendable {
         if !cookies.isEmpty {
             let cookieHeader = cookies.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
             req.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+        }
+        if let csrfToken, !csrfToken.isEmpty {
+            req.setValue(csrfToken, forHTTPHeaderField: "X-Csrf-Token")
         }
         return req
     }

@@ -2,9 +2,10 @@ import Foundation
 import Security
 import os
 
-/// 앱 전역 설정. Strava 쿠키는 Keychain 에 저장.
+/// 앱 전역 설정. Strava 쿠키와 CSRF 토큰은 Keychain 에 저장.
 enum AppSettings {
     private static let cookieAccount = "strava_session"
+    private static let csrfAccount = "strava_csrf"
 
     static var cookie: String {
         get { Keychain.read(cookieAccount) ?? "" }
@@ -12,6 +13,16 @@ enum AppSettings {
             let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty { Keychain.delete(cookieAccount) }
             else { Keychain.write(cookieAccount, trimmed) }
+        }
+    }
+
+    /// 로그인 시 수확한 X-Csrf-Token 값. 요청 시 쿠키와 함께 보낸다.
+    static var csrfToken: String {
+        get { Keychain.read(csrfAccount) ?? "" }
+        set {
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { Keychain.delete(csrfAccount) }
+            else { Keychain.write(csrfAccount, trimmed) }
         }
     }
 }
