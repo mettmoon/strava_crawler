@@ -167,12 +167,36 @@ def _fmt_grade(grade):
     return f"{round(float(m.group()), 1):.1f}%"
 
 
+# 경사도 구분 임계값(%)과 시작점 prefix(↗ 오르막 / → 평지 / ↘ 내리막)
+GRADE_FLAT_THRESHOLD = 1.5
+GRADE_ARROW = {"up": "↗", "flat": "→", "down": "↘"}
+
+
+def _grade_class(grade):
+    """avgGrade → 'up'(>1.5%) / 'down'(<-1.5%) / 'flat'([-1.5, 1.5]%).
+
+    grade 값을 파싱하지 못하면 평지('flat')로 간주.
+    """
+    if grade in (None, ""):
+        return "flat"
+    m = re.search(r"-?\d+(?:\.\d+)?", str(grade))
+    if not m:
+        return "flat"
+    val = float(m.group())
+    if val > GRADE_FLAT_THRESHOLD:
+        return "up"
+    if val < -GRADE_FLAT_THRESHOLD:
+        return "down"
+    return "flat"
+
+
 def insert_course_points(course_el, entries, for_rwgps=False):
     """entries(좌표/메타 정보 리스트)로 CoursePoint 를 만들어 course_el 에 삽입.
 
     for_rwgps=True 인 경우:
-      - Description(Notes): segment 시작점은 거리/경사도만 (예: '3.3km, 5.6%'),
-        정상(종료)점은 segment 이름만 표시
+      - Description(Notes): segment 시작점은 거리/경사도 (예: '↗3.3km, 5.6%'),
+        종료점은 segment 이름 (예: '🏁만항재 북-남')
+      - 시작점 prefix: 오르막 ↗ / 평지 → / 내리막 ↘, 종료점 prefix: 🏁
       - Name 에도 Notes 와 동일한 값을 넣음 (Name 길이 제한 32자로 잘릴 수 있음)
     """
     # 기존 CoursePoint 제거 (재실행 시 중복 방지)
@@ -183,10 +207,11 @@ def insert_course_points(course_el, entries, for_rwgps=False):
     for e in entries:
         if for_rwgps:
             if e["is_start"]:
-                notes = ", ".join(p for p in [_norm_dist(e.get("dist")), _fmt_grade(e.get("grade"))] if p)
-                notes = "*" + notes  # 시작 지점은 '*' 프리픽스 (Name/Notes 공통)
+                body = ", ".join(p for p in [_norm_dist(e.get("dist")), _fmt_grade(e.get("grade"))] if p)
+                # 시작 지점 prefix: 오르막 ↗ / 평지 → / 내리막 ↘
+                notes = GRADE_ARROW.get(e.get("grade_class"), "→") + body
             else:
-                notes = e["seg_name"]
+                notes = "🏁" + e["seg_name"]  # 모든 종료 지점 prefix: 🏁
             cp = make_course_point(
                 name=notes,
                 ts=e["time"], lat=e["lat"], lon=e["lon"], ele=e["ele"],
@@ -316,10 +341,14 @@ def main():
 
         order = info.get("order", "?")
 
+        # 경사도 구분: 오르막/평지/내리막
+        gclass = _grade_class(info.get("avg_grade"))
+
         # 시작 지점
         idx_s = nearest_idx(pts, start_pt[0], start_pt[1]) if start_pt[0] is not None else None
         if idx_s is not None:
-            stype = start_point_type(info.get("climb_category"))
+            # 오르막은 카테고리(또는 Sprint), 평지·내리막은 Straight
+            stype = start_point_type(info.get("climb_category")) if gclass == "up" else "Straight"
             entries.append({
                 "idx": idx_s,
                 "time": pts[idx_s]["time"],
@@ -333,6 +362,7 @@ def main():
                 "is_start": True,
                 "dist": info.get("distance"),
                 "grade": info.get("avg_grade"),
+                "grade_class": gclass,
             })
             print(f"  + {order:>3}. {(name + ' 시작')[:30]:30s} [{stype}] @ tp#{idx_s}")
 
@@ -341,21 +371,24 @@ def main():
             search_from = (idx_s + 1) if idx_s is not None else 0
             idx_e = nearest_idx(pts, end_pt[0], end_pt[1], start_idx=search_from)
             if idx_e is not None:
+                # 내리막 종료는 Valley, 그 외는 Summit
+                etype = "Valley" if gclass == "down" else "Summit"
                 entries.append({
                     "idx": idx_e,
                     "time": pts[idx_e]["time"],
                     "lat": pts[idx_e]["lat"],
                     "lon": pts[idx_e]["lon"],
                     "ele": pts[idx_e]["ele"],
-                    "point_type": "Summit",
+                    "point_type": etype,
                     "name": f"{name} 종료",
                     "notes": notes,
                     "seg_name": name,
                     "is_start": False,
                     "dist": info.get("distance"),
                     "grade": info.get("avg_grade"),
+                    "grade_class": gclass,
                 })
-                print(f"  + {order:>3}. {(name + ' 종료')[:30]:30s} [Summit] @ tp#{idx_e}")
+                print(f"  + {order:>3}. {(name + ' 종료')[:30]:30s} [{etype}] @ tp#{idx_e}")
 
     # 1) 기본 출력 (_cued.tcx)
     n = insert_course_points(course_el, entries, for_rwgps=False)
