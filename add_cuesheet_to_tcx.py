@@ -15,6 +15,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 import xml.etree.ElementTree as ET
 
@@ -91,7 +92,11 @@ CATEGORY_RANK = {"4": 1, "3": 2, "2": 3, "1": 4, "HC": 5}
 def _category_key(climb_category):
     if climb_category in (None, "", 0, "0"):
         return None
-    return str(climb_category).strip().upper()
+    # 'Category2' / 'CategoryHC' 형식도 방어적으로 '2' / 'HC' 로 정규화
+    key = re.sub(r"(?i)^category\s*", "", str(climb_category).strip()).strip().upper()
+    if key in ("", "0", "NC"):
+        return None
+    return key
 
 
 def start_point_type(climb_category):
@@ -126,7 +131,7 @@ def ns(name):
 def make_course_point(name, ts, lat, lon, ele, point_type, notes=None, allow_empty_name=False):
     cp = ET.Element(ns("CoursePoint"))
     n = ET.SubElement(cp, ns("Name"))
-    # CoursePoint Name 은 TCX 스키마상 최대 10자 (실제로는 더 길어도 동작하지만 호환성을 위해 잘라줌)
+    # CoursePoint Name 은 호환성을 위해 32자로 잘라줌 (일부 기기/플랫폼에서 길이 제한)
     if allow_empty_name:
         n.text = (name or "")[:32]
     else:
