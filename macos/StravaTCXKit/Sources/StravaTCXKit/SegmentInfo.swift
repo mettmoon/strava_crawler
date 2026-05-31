@@ -63,13 +63,20 @@ public struct PageProps: Decodable, Sendable {
         public var location: [[Double]]?
     }
 
+    public struct MapImage: Decodable, Sendable {
+        public var url: String?
+        public var width: Int?
+        public var height: Int?
+    }
+
     public var metadata: Metadata?
     public var measurements: Measurements?
     public var streams: Streams?
+    public var mapImages: [MapImage]?
 }
 
 /// 처리된 segment 정보 (Python result dict 대응). UI/파이프라인에서 사용.
-public struct SegmentInfo: Sendable, Identifiable, Codable {
+public struct SegmentInfo: Sendable, Identifiable, Codable, Hashable {
     public var segmentID: String
     public var name: String
     public var startPoint: [Double]?   // [lat, lng]
@@ -82,6 +89,7 @@ public struct SegmentInfo: Sendable, Identifiable, Codable {
     public var highestElev: String?
     public var elevDifference: String?
     public var climbCategory: String?  // 정규화된 "2"/"HC"/nil
+    public var imageURL: String?       // segment 지도 미리보기 이미지 (mapImages 첫 항목)
 
     // extract 단계에서 채워지는 enrich 값
     public var order: Int?
@@ -124,6 +132,7 @@ public struct SegmentInfo: Sendable, Identifiable, Codable {
         }
         r.elevDifference = Classification.formatMeters(diff)
         r.climbCategory = Classification.normalizeClimbCategory(pageProps.metadata?.climbCategory)
+        r.imageURL = pageProps.mapImages?.first(where: { $0.url != nil })?.url
         return r
     }
 }

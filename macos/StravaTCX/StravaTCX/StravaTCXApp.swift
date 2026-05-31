@@ -7,7 +7,7 @@ struct StravaTCXApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RouteListView()
+            MainTabView()
                 .environment(coordinator)
                 .frame(minWidth: 820, minHeight: 560)
         }
