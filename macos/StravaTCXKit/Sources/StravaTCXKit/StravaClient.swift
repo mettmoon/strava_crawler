@@ -1,0 +1,158 @@
+import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
+public enum StravaError: Error, LocalizedError {
+    case http(Int, url: String)
+    case notTCX
+    case noSegmentJSON
+    case noSegmentIDs
+
+    public var errorDescription: String? {
+        switch self {
+        case let .http(code, url): return "HTTP \(code) (URL=\(url))"
+        case .notTCX: return "TCX 응답이 아닙니다. 쿠키 만료 또는 라우트가 비공개일 수 있습니다."
+        case .noSegmentJSON:
+            return "segment JSON(__NEXT_DATA__)을 찾지 못했습니다. 쿠키 만료/비공개 또는 페이지 레이아웃 변경일 수 있습니다."
+        case .noSegmentIDs: return "segment ID 를 추출하지 못했습니다."
+        }
+    }
+}
+
+/// Strava 스크래핑 클라이언트. _strava4_session 쿠키로 인증.
+public struct StravaClient: Sendable {
+    public var cookies: [String: String]
+    public var session: URLSession
+
+    private static let userAgent =
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+    public init(cookies: [String: String], session: URLSession = .shared) {
+        self.cookies = cookies
+        self.session = session
+    }
+
+    private func makeRequest(_ url: URL, accept: String, referer: String? = nil) -> URLRequest {
+        var req = URLRequest(url: url, timeoutInterval: 30)
+        req.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        req.setValue(accept, forHTTPHeaderField: "Accept")
+        req.setValue("ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7", forHTTPHeaderField: "Accept-Language")
+        if let referer { req.setValue(referer, forHTTPHeaderField: "Referer") }
+        if !cookies.isEmpty {
+            let cookieHeader = cookies.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
+            req.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+        }
+        return req
+    }
+
+    private func statusCode(_ response: URLResponse) -> Int {
+        (response as? HTTPURLResponse)?.statusCode ?? 0
+    }
+
+    // MARK: - 1) 라우트 TCX 다운로드
+
+    public func downloadRouteTCX(routeID: String) async throws -> Data {
+        let url = URL(string: "https://www.strava.com/routes/\(routeID)/export_tcx")!
+        let req = makeRequest(url, accept: "application/vnd.garmin.tcx+xml, application/xml, */*",
+                              referer: "https://www.strava.com/routes/\(routeID)")
+        let (data, response) = try await session.data(for: req)
+        let code = statusCode(response)
+        guard code == 200 else { throw StravaError.http(code, url: url.absoluteString) }
+        let head = String(data: data.prefix(4096), encoding: .utf8) ?? ""
+        if !head.contains("TrainingCenterDatabase") {
+            let full = String(data: data, encoding: .utf8) ?? ""
+            if !full.contains("TrainingCenterDatabase") { throw StravaError.notTCX }
+        }
+        return data
+    }
+
+    // MARK: - 2) 라우트 페이지 → segment ID 순서대로
+
+    public func fetchSegmentIDs(routeID: String) async throws -> [String] {
+        let url = URL(string: "https://www.strava.com/routes/\(routeID)")!
+        let req = makeRequest(url, accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        let (data, response) = try await session.data(for: req)
+        let code = statusCode(response)
+        guard code == 200 else { throw StravaError.http(code, url: url.absoluteString) }
+        let html = String(data: data, encoding: .utf8) ?? ""
+        let ids = Self.extractSegmentIDs(html: html)
+        if ids.isEmpty { throw StravaError.noSegmentIDs }
+        return ids
+    }
+
+    /// route HTML 에서 순서대로 segment id 추출 (Python extract_segment_ids 와 동일 우선순위).
+    static func extractSegmentIDs(html: String) -> [String] {
+        var seen = Set<String>()
+        var ids: [String] = []
+        func push(_ s: String) {
+            guard s.allSatisfy(\.isNumber), !s.isEmpty, !seen.contains(s) else { return }
+            seen.insert(s); ids.append(s)
+        }
+        for m in matches(html, #"data-segment-id=[\"'](\d+)[\"']"#, group: 1) { push(m) }
+        for m in matches(html, #"href=\"/segments/(\d+)\""#, group: 1) { push(m) }
+        if let block = firstMatch(html, #"\"segments\"\s*:\s*\[(.*?)\]"#, group: 1, dotMatchesAll: true) {
+            for m in matches(block, #"\"(?:segment_id|id)\"\s*:\s*(\d+)"#, group: 1) { push(m) }
+        }
+        if ids.isEmpty {
+            for m in matches(html, #"segment[_-]?id[\"']?\s*[:=]\s*[\"']?(\d+)"#, group: 1, caseInsensitive: true) {
+                push(m)
+            }
+        }
+        return ids
+    }
+
+    // MARK: - 3) segment 상세
+
+    public func fetchSegment(segmentID: String) async throws -> SegmentInfo {
+        let url = URL(string: "https://www.strava.com/segments/\(segmentID)")!
+        let req = makeRequest(url, accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+        let (data, response) = try await session.data(for: req)
+        let code = statusCode(response)
+        guard code == 200 else { throw StravaError.http(code, url: url.absoluteString) }
+        let html = String(data: data, encoding: .utf8) ?? ""
+        guard let jsonString = Self.extractNextDataJSON(html: html),
+              let pageProps = try NextData.pageProps(from: Data(jsonString.utf8)),
+              pageProps.metadata != nil else {
+            throw StravaError.noSegmentJSON
+        }
+        return SegmentInfo.from(pageProps: pageProps, segmentID: segmentID)
+    }
+
+    /// HTML 에서 __NEXT_DATA__ 스크립트의 JSON 문자열 추출.
+    static func extractNextDataJSON(html: String) -> String? {
+        firstMatch(
+            html,
+            #"<script id=\"__NEXT_DATA__\"[^>]*>(.*?)</script>"#,
+            group: 1, dotMatchesAll: true
+        )
+    }
+}
+
+// MARK: - 정규식 헬퍼
+
+private func regex(_ pattern: String, dotMatchesAll: Bool, caseInsensitive: Bool) -> NSRegularExpression? {
+    var options: NSRegularExpression.Options = []
+    if dotMatchesAll { options.insert(.dotMatchesLineSeparators) }
+    if caseInsensitive { options.insert(.caseInsensitive) }
+    return try? NSRegularExpression(pattern: pattern, options: options)
+}
+
+private func matches(
+    _ s: String, _ pattern: String, group: Int,
+    dotMatchesAll: Bool = false, caseInsensitive: Bool = false
+) -> [String] {
+    guard let re = regex(pattern, dotMatchesAll: dotMatchesAll, caseInsensitive: caseInsensitive) else { return [] }
+    let range = NSRange(s.startIndex..., in: s)
+    return re.matches(in: s, options: [], range: range).compactMap { m in
+        guard let r = Range(m.range(at: group), in: s) else { return nil }
+        return String(s[r])
+    }
+}
+
+private func firstMatch(
+    _ s: String, _ pattern: String, group: Int,
+    dotMatchesAll: Bool = false, caseInsensitive: Bool = false
+) -> String? {
+    matches(s, pattern, group: group, dotMatchesAll: dotMatchesAll, caseInsensitive: caseInsensitive).first
+}

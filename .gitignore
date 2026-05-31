@@ -62,3 +62,6 @@ cookies.json
 
 # Generated outputs
 output/
+# Swift / macOS app build artifacts
+macos/**/.build/
+.DS_Store
