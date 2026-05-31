@@ -57,8 +57,9 @@ struct RouteListView: View {
             // 로그인 성공(쿠키 확보) 시 자동으로 추가 플로우로 이어감
             if !AppSettings.cookie.isEmpty { showingAdd = true }
         }) {
-            StravaLoginView { value in
+            StravaLoginView { value, csrf in
                 AppSettings.cookie = value
+                if let csrf { AppSettings.csrfToken = csrf }
             }
         }
         .alert("로그인해야 합니다", isPresented: $showingLoginAlert) {

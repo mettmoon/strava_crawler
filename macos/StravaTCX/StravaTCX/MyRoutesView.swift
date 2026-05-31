@@ -17,7 +17,11 @@ final class MyRoutesLoader {
 
     private var client: StravaClient {
         let cookie = AppSettings.cookie
-        return StravaClient(cookies: cookie.isEmpty ? [:] : ["_strava4_session": cookie])
+        let token = AppSettings.csrfToken
+        return StravaClient(
+            cookies: cookie.isEmpty ? [:] : ["_strava4_session": cookie],
+            csrfToken: token.isEmpty ? nil : token
+        )
     }
 
     func loadFirstPageIfNeeded() async {
@@ -32,7 +36,9 @@ final class MyRoutesLoader {
         do {
             let token: String
             if let csrf { token = csrf } else {
-                token = try await client.fetchCSRFToken()
+                // 로그인 시 저장된 토큰을 우선 사용하고, 없으면 페이지에서 수확.
+                let stored = AppSettings.csrfToken
+                token = stored.isEmpty ? try await client.fetchCSRFToken() : stored
                 csrf = token
             }
             let page = try await client.fetchMyRoutes(after: after, pageSize: pageSize, csrfToken: token)
