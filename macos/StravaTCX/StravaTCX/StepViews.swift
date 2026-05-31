@@ -60,10 +60,11 @@ struct IdentifiedEntry: Identifiable {
 
 struct RouteStepView: View {
     @Bindable var model: AppModel
+    @State private var showingMyRoutes = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            StepTitle("라우트", "변환할 Strava 라우트 ID 를 입력하세요.")
+            StepTitle("라우트", "변환할 Strava 라우트 ID 를 입력하거나 내 경로에서 가져오세요.")
 
             GroupBox {
                 VStack(alignment: .leading, spacing: 6) {
@@ -71,16 +72,33 @@ struct RouteStepView: View {
                         .textFieldStyle(.roundedBorder)
                     Text("strava.com/routes/<여기 숫자>")
                         .font(.caption).foregroundStyle(.secondary)
+                    if let name = model.routeName {
+                        Label(name, systemImage: "checkmark.circle.fill")
+                            .font(.callout)
+                            .foregroundStyle(.green)
+                    }
                 }
                 .padding(8)
             } label: {
                 Label("Route ID", systemImage: "number")
             }
 
+            Button {
+                showingMyRoutes = true
+            } label: {
+                Label("내 경로에서 가져오기", systemImage: "list.bullet.rectangle.portrait")
+            }
+            .controlSize(.large)
+
             if AppSettings.cookie.isEmpty {
                 Label("Strava 로그인이 필요합니다. 설정(⌘,) → Strava 에서 로그인하세요.",
                       systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
+            }
+        }
+        .sheet(isPresented: $showingMyRoutes) {
+            MyRoutesView { route in
+                model.importRoute(id: route.id, name: route.name)
             }
         }
     }

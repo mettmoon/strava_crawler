@@ -156,6 +156,52 @@ final class CuesheetIntegrationTests: XCTestCase {
     }
 }
 
+final class MyRoutesTests: XCTestCase {
+
+    func testRequestBody() throws {
+        let data = MyRoutesParser.requestBody(after: "16", pageSize: 16)
+        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(obj["after"] as? String, "16")
+        XCTAssertEqual(obj["pageSize"] as? Int, 16)
+        let args = try XCTUnwrap(obj["searchArgs"] as? [String: Any])
+        XCTAssertEqual(args["createdBy"] as? String, "Any")
+        XCTAssertTrue((args["routeTypes"] as? [String])?.contains("GravelRide") ?? false)
+    }
+
+    func testExtractCSRF() {
+        let html = #"<head><meta name="csrf-token" content="abc123=="></head>"#
+        XCTAssertEqual(MyRoutesParser.extractCSRF(html: html), "abc123==")
+    }
+
+    func testParseRoutesFlexible() throws {
+        let json = """
+        {"routes":[
+          {"id":3495269006478904270,"name":"만항재 북-남","distance":12345.6,
+           "elevation_gain":678.9,"map_urls":{"url":"https://x/y.png","retina_url":"https://x/y@2x.png"}},
+          {"id_str":"4356964","name":"아우라지","distance":21035.8}
+        ],"hasMore":true}
+        """
+        let page = MyRoutesParser.parse(Data(json.utf8), pageSize: 16)
+        XCTAssertTrue(page.hasMore)
+        XCTAssertEqual(page.routes.count, 2)
+        XCTAssertEqual(page.routes[0].id, "3495269006478904270")
+        XCTAssertEqual(page.routes[0].name, "만항재 북-남")
+        XCTAssertEqual(page.routes[0].distanceText, "12.35 km")
+        XCTAssertEqual(page.routes[0].thumbnailURL?.absoluteString, "https://x/y@2x.png")
+        XCTAssertEqual(page.routes[1].id, "4356964")
+    }
+
+    func testParseHasMoreHeuristic() {
+        // hasMore 키가 없으면 (받은 개수 >= pageSize) 로 추정
+        let json = #"{"data":{"results":[{"id":1,"name":"a"},{"id":2,"name":"b"}]}}"#
+        let page = MyRoutesParser.parse(Data(json.utf8), pageSize: 2)
+        XCTAssertEqual(page.routes.count, 2)
+        XCTAssertTrue(page.hasMore)
+        let page2 = MyRoutesParser.parse(Data(json.utf8), pageSize: 16)
+        XCTAssertFalse(page2.hasMore)
+    }
+}
+
 final class StravaClientParsingTests: XCTestCase {
 
     func testExtractSegmentIDsOrderAndDedup() {

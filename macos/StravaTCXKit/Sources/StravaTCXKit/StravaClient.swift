@@ -8,6 +8,7 @@ public enum StravaError: Error, LocalizedError {
     case notTCX
     case noSegmentJSON
     case noSegmentIDs
+    case noCSRF
 
     public var errorDescription: String? {
         switch self {
@@ -16,6 +17,7 @@ public enum StravaError: Error, LocalizedError {
         case .noSegmentJSON:
             return "segment JSON(__NEXT_DATA__)을 찾지 못했습니다. 쿠키 만료/비공개 또는 페이지 레이아웃 변경일 수 있습니다."
         case .noSegmentIDs: return "segment ID 를 추출하지 못했습니다."
+        case .noCSRF: return "CSRF 토큰을 찾지 못했습니다. 로그인 상태를 확인하세요."
         }
     }
 }
@@ -126,6 +128,45 @@ public struct StravaClient: Sendable {
             #"<script id=\"__NEXT_DATA__\"[^>]*>(.*?)</script>"#,
             group: 1, dotMatchesAll: true
         )
+    }
+
+    // MARK: - 내 라우트 (my-routes API)
+
+    private var cookieHeader: String {
+        cookies.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
+    }
+
+    /// 인증된 페이지에서 csrf-token 추출.
+    public func fetchCSRFToken() async throws -> String {
+        let url = URL(string: "https://www.strava.com/athlete/routes")!
+        let req = makeRequest(url, accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        let (data, response) = try await session.data(for: req)
+        let code = statusCode(response)
+        guard code == 200 else { throw StravaError.http(code, url: url.absoluteString) }
+        let html = String(decoding: data, as: UTF8.self)
+        guard let token = MyRoutesParser.extractCSRF(html: html) else { throw StravaError.noCSRF }
+        return token
+    }
+
+    /// 내 라우트 한 페이지 조회. after 는 오프셋 커서("0","16",…).
+    public func fetchMyRoutes(after: String, pageSize: Int, csrfToken: String) async throws -> MyRoutesPage {
+        let url = URL(string: "https://www.strava.com/api/next/data/routes/my-routes")!
+        var req = URLRequest(url: url, timeoutInterval: 30)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue(csrfToken, forHTTPHeaderField: "X-Csrf-Token")
+        req.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        req.setValue("https://www.strava.com/athlete/routes", forHTTPHeaderField: "Referer")
+        if !cookies.isEmpty {
+            req.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+        }
+        req.httpBody = MyRoutesParser.requestBody(after: after, pageSize: pageSize)
+
+        let (data, response) = try await session.data(for: req)
+        let code = statusCode(response)
+        guard code == 200 else { throw StravaError.http(code, url: url.absoluteString) }
+        return MyRoutesParser.parse(data, pageSize: pageSize)
     }
 }
 
