@@ -55,10 +55,20 @@ struct SetupStepView: View {
         VStack(alignment: .leading, spacing: 18) {
             StepTitle("설정", "Strava 세션 쿠키와 라우트 ID 를 입력하세요.")
 
+            Toggle(isOn: $model.demoMode) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("데모 모드 (샘플 데이터)")
+                    Text("켜면 네트워크 없이 합성 샘플로 전체 흐름을 시연합니다.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+
             GroupBox {
                 VStack(alignment: .leading, spacing: 6) {
                     SecureField("_strava4_session 값", text: $model.cookie)
                         .textFieldStyle(.roundedBorder)
+                        .disabled(model.demoMode)
                     Text("브라우저 개발자도구 → Application → Cookies → strava.com 에서 복사")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -71,6 +81,7 @@ struct SetupStepView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     TextField("예: 3495269006478904270", text: $model.routeID)
                         .textFieldStyle(.roundedBorder)
+                        .disabled(model.demoMode)
                     Text("strava.com/routes/<여기 숫자>")
                         .font(.caption).foregroundStyle(.secondary)
                 }
