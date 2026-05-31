@@ -168,19 +168,6 @@ public enum MyRoutesParser {
         return nil
     }
 
-    static func boolValue(_ obj: Any, keys: [String]) -> Bool? {
-        if let d = obj as? [String: Any] {
-            for k in keys {
-                if let b = d[k] as? Bool { return b }
-                if let n = d[k] as? NSNumber { return n.boolValue }
-            }
-            for (_, v) in d {
-                if let found = boolValue(v, keys: keys) { return found }
-            }
-        }
-        return nil
-    }
-
     static func thumbnailURL(_ d: [String: Any]) -> URL? {
         // themedMapImages: [{lightUrl, darkUrl}]
         if let imgs = d["themedMapImages"] as? [[String: Any]], let first = imgs.first {
