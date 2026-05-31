@@ -1,0 +1,175 @@
+import XCTest
+@testable import StravaTCXKit
+
+final class ClassificationTests: XCTestCase {
+
+    func testNormalizeClimbCategory() {
+        XCTAssertEqual(Classification.normalizeClimbCategory("2"), "2")
+        XCTAssertEqual(Classification.normalizeClimbCategory("Category2"), "2")
+        XCTAssertEqual(Classification.normalizeClimbCategory("CategoryHC"), "HC")
+        XCTAssertEqual(Classification.normalizeClimbCategory("HC"), "HC")
+        XCTAssertNil(Classification.normalizeClimbCategory("0"))
+        XCTAssertNil(Classification.normalizeClimbCategory("NC"))
+        XCTAssertNil(Classification.normalizeClimbCategory(nil))
+    }
+
+    func testStartPointTypeAndRank() {
+        XCTAssertEqual(Classification.startPointType("Category2"), "Second Category")
+        XCTAssertEqual(Classification.startPointType("4"), "Fourth Category")
+        XCTAssertEqual(Classification.startPointType(nil), "Sprint")
+        XCTAssertEqual(Classification.categoryRank("Category2"), 3)
+        XCTAssertEqual(Classification.categoryRank("HC"), 5)
+        XCTAssertEqual(Classification.categoryRank(nil), 0)
+    }
+
+    func testGradeClassBoundaries() {
+        XCTAssertEqual(Classification.gradeClass("7.0%"), .up)
+        XCTAssertEqual(Classification.gradeClass("1.5%"), .flat)
+        XCTAssertEqual(Classification.gradeClass("1.6%"), .up)
+        XCTAssertEqual(Classification.gradeClass("-1.5%"), .flat)
+        XCTAssertEqual(Classification.gradeClass("-1.6%"), .down)
+        XCTAssertEqual(Classification.gradeClass("-4.2%"), .down)
+        XCTAssertEqual(Classification.gradeClass(nil), .flat)
+    }
+
+    func testFormatGrade() {
+        XCTAssertEqual(Classification.formatGrade("7.86396%"), "7.9%")
+        XCTAssertEqual(Classification.formatGrade("7%"), "7.0%")
+        XCTAssertEqual(Classification.formatGrade("0.49724%"), "0.5%")
+    }
+
+    func testResolveSegmentName() {
+        XCTAssertEqual(Classification.resolveSegmentName("떙기러가즈아~ by 팀바둑이"), "떙기러가즈아")
+        XCTAssertEqual(Classification.resolveSegmentName("🜲 아우라지-암내교 21km TT #령재치"), "아우라지-암내교 21km TT")
+        XCTAssertEqual(Classification.resolveSegmentName("나전고개 서측 #령재치"), "나전고개 서측")
+        XCTAssertEqual(Classification.resolveSegmentName("만항재 북-남"), "만항재 북-남")
+        XCTAssertEqual(Classification.resolveSegmentName("Baby Steps Climb"), "Baby Steps Climb")
+    }
+
+    func testFormatters() {
+        XCTAssertEqual(Classification.formatDistance(7888), "7.89 km")
+        XCTAssertEqual(Classification.formatDistance(505), "505 m")
+        XCTAssertEqual(Classification.formatMeters(529.2), "529 m")
+        XCTAssertEqual(Classification.formatPercent(6.708920001983643), "6.70892%")
+    }
+}
+
+final class SegmentInfoTests: XCTestCase {
+
+    private func fixture(_ name: String) throws -> Data {
+        let url = Bundle.module.url(forResource: "Fixtures/\(name)", withExtension: nil)
+        return try Data(contentsOf: try XCTUnwrap(url))
+    }
+
+    func testFromPageProps() throws {
+        let data = try fixture("segment_9646037.json")
+        let pp = try XCTUnwrap(NextData.pageProps(from: data))
+        let info = SegmentInfo.from(pageProps: pp, segmentID: "9646037")
+
+        XCTAssertEqual(info.name, "만항재 북-남")
+        XCTAssertEqual(info.climbCategory, "2")          // "Category2" → "2"
+        XCTAssertEqual(info.distanceText, "7.89 km")
+        XCTAssertEqual(info.elevationGain, "529 m")
+        XCTAssertEqual(info.lowestElev, "958 m")
+        XCTAssertEqual(info.highestElev, "1487 m")
+        XCTAssertEqual(info.elevDifference, "529 m")     // 1487 - 958
+        XCTAssertNotNil(info.startPoint)
+        XCTAssertEqual(info.startPoint?.count, 2)
+    }
+}
+
+final class CuesheetIntegrationTests: XCTestCase {
+
+    private func fixtureURL(_ name: String) throws -> URL {
+        try XCTUnwrap(Bundle.module.url(forResource: "Fixtures/\(name)", withExtension: nil))
+    }
+
+    /// 실제 라우트 TCX + segments json 으로 cuesheet 생성 → Python 결과(32 CoursePoint)와 대조.
+    func testCuesheetMatchesPython() throws {
+        let tcxData = try Data(contentsOf: try fixtureURL("route.tcx"))
+        let segData = try Data(contentsOf: try fixtureURL("route_segments.json"))
+
+        let course = try TCXCourse(data: tcxData)
+        XCTAssertEqual(course.trackPoints.count, 4648)
+
+        let segments = try RouteSegments.load(data: segData)
+        XCTAssertEqual(segments.count, 30)
+
+        // 전체(필터 없음): 좌표 있는 segment 마다 시작+종료 2개
+        let all = Cuesheet.makeEntries(trackPoints: course.trackPoints, segments: segments)
+        XCTAssertGreaterThan(all.entries.count, 0)
+        XCTAssertEqual(all.entries.count % 2, 0)
+
+        // --min-category 4 → Python 과 동일하게 32개
+        let cat4 = Cuesheet.makeEntries(
+            trackPoints: course.trackPoints, segments: segments, minCategory: "4"
+        )
+        XCTAssertEqual(cat4.entries.count, 32)
+
+        // PointType 분포 검증 (Python: Straight/Valley/Summit/카테고리)
+        let starts = cat4.entries.filter { $0.isStart }
+        let ends = cat4.entries.filter { !$0.isStart }
+        XCTAssertEqual(starts.count, 16)
+        XCTAssertEqual(ends.count, 16)
+        // 내리막 시작은 Straight, 내리막 종료는 Valley
+        for e in cat4.entries where e.gradeClass == .down {
+            XCTAssertEqual(e.pointType, e.isStart ? "Straight" : "Valley")
+        }
+        // 오르막 종료는 Summit
+        for e in ends where e.gradeClass == .up {
+            XCTAssertEqual(e.pointType, "Summit")
+        }
+    }
+
+    /// 생성된 TCX 가 유효한 XML 이고 CoursePoint 가 올바르게 삽입되는지 round-trip 검증.
+    func testBuildProducesValidTCX() throws {
+        let tcxData = try Data(contentsOf: try fixtureURL("route.tcx"))
+        let segData = try Data(contentsOf: try fixtureURL("route_segments.json"))
+        let course = try TCXCourse(data: tcxData)
+        let segments = try RouteSegments.load(data: segData)
+        let result = Cuesheet.makeEntries(
+            trackPoints: course.trackPoints, segments: segments, minCategory: "4"
+        )
+
+        // RWGPS 출력: Name == Notes, 시작 prefix(↗/→/↘), 종료 prefix(🏁)
+        let rwgps = try course.build(entries: result.entries, forRWGPS: true)
+        XCTAssertEqual(rwgps.count, 32)
+
+        let doc = try XMLDocument(data: rwgps.data)
+        let cps = TCXCourse.allElements(in: try XCTUnwrap(doc.rootElement()), localName: "CoursePoint")
+        XCTAssertEqual(cps.count, 32)
+
+        func childText(_ e: XMLElement, _ name: String) -> String? {
+            e.elements(forName: name).first?.stringValue
+        }
+        var prefixes = Set<Character>()
+        for cp in cps {
+            let name = childText(cp, "Name") ?? ""
+            let notes = childText(cp, "Notes") ?? ""
+            XCTAssertEqual(name, String(notes.prefix(32)), "RWGPS Name 은 Notes(32자) 와 동일해야 함")
+            if let first = notes.first { prefixes.insert(first) }
+            // CoursePoint 가 TCX 기본 네임스페이스에 있는지 (xmlns="" 오염 방지)
+            XCTAssertEqual(cp.uri, tcxNamespace)
+        }
+        XCTAssertTrue(prefixes.contains("🏁"))
+        XCTAssertTrue(prefixes.contains("↗") || prefixes.contains("→") || prefixes.contains("↘"))
+    }
+}
+
+final class StravaClientParsingTests: XCTestCase {
+
+    func testExtractSegmentIDsOrderAndDedup() {
+        let html = """
+        <div data-segment-id="111"></div>
+        <a href="/segments/222">x</a>
+        <a href="/segments/111">dup</a>
+        <script>{"segments":[{"id":333},{"segment_id":444}]}</script>
+        """
+        XCTAssertEqual(StravaClient.extractSegmentIDs(html: html), ["111", "222", "333", "444"])
+    }
+
+    func testExtractNextDataJSON() {
+        let html = #"<html><script id="__NEXT_DATA__" type="application/json">{"a":1}</script></html>"#
+        XCTAssertEqual(StravaClient.extractNextDataJSON(html: html), #"{"a":1}"#)
+    }
+}

@@ -1,0 +1,692 @@
+{
+  "7910448": {
+    "segment_id": "7910448",
+    "name": "나전고개 서측 #령재치",
+    "start_point": [
+      37.451168,
+      128.666267
+    ],
+    "end_point": [
+      37.453935,
+      128.67265
+    ],
+    "distance": "0.71 km",
+    "elevation_gain": "30 m",
+    "avg_grade": "4.1%",
+    "lowest_elev": "353 m",
+    "highest_elev": "383 m",
+    "elev_difference": "30 m",
+    "climb_category": null,
+    "order": 1,
+    "start_km": 16.99,
+    "end_km": 17.7,
+    "distance_km": 0.71
+  },
+  "7910742": {
+    "segment_id": "7910742",
+    "name": "장열고개 서측 #령재치",
+    "start_point": [
+      37.465912,
+      128.681439
+    ],
+    "end_point": [
+      37.4641,
+      128.690499
+    ],
+    "distance": "0.91 km",
+    "elevation_gain": "30 m",
+    "avg_grade": "1.4%",
+    "lowest_elev": "359 m",
+    "highest_elev": "381 m",
+    "elev_difference": "22 m",
+    "climb_category": null,
+    "order": 2,
+    "start_km": 19.262,
+    "end_km": 20.172,
+    "distance_km": 0.91
+  },
+  "40372094": {
+    "segment_id": "40372094",
+    "name": "🜲 아우라지-암내교 21km TT #령재치",
+    "start_point": [
+      37.472355,
+      128.73001
+    ],
+    "end_point": [
+      37.476231,
+      128.847572
+    ],
+    "distance": "21.03 km",
+    "elevation_gain": "250 m",
+    "avg_grade": "0.5%",
+    "lowest_elev": "389 m",
+    "highest_elev": "493 m",
+    "elev_difference": "105 m",
+    "climb_category": "4",
+    "order": 3,
+    "start_km": 25.855,
+    "end_km": 46.885,
+    "distance_km": 21.03
+  },
+  "7910527": {
+    "segment_id": "7910527",
+    "name": "새치교깔딱 #령재치",
+    "start_point": [
+      37.464464,
+      128.771439
+    ],
+    "end_point": [
+      37.462055,
+      128.770588
+    ],
+    "distance": "0.32 km",
+    "elevation_gain": "26 m",
+    "avg_grade": "4%",
+    "lowest_elev": "408 m",
+    "highest_elev": "434 m",
+    "elev_difference": "26 m",
+    "climb_category": null,
+    "order": 4,
+    "start_km": 30.125,
+    "end_km": 30.445,
+    "distance_km": 0.32
+  },
+  "22220935": {
+    "segment_id": "22220935",
+    "name": "노일고개 서측 #령재치",
+    "start_point": [
+      37.459313,
+      128.796494
+    ],
+    "end_point": [
+      37.462229,
+      128.799595
+    ],
+    "distance": "0.5 km",
+    "elevation_gain": "38 m",
+    "avg_grade": "7.5%",
+    "lowest_elev": "423 m",
+    "highest_elev": "461 m",
+    "elev_difference": "38 m",
+    "climb_category": null,
+    "order": 5,
+    "start_km": 35.429,
+    "end_km": 35.929,
+    "distance_km": 0.5
+  },
+  "4356964": {
+    "segment_id": "4356964",
+    "name": "Segment",
+    "start_point": [
+      37.35831,
+      128.850265
+    ],
+    "end_point": [
+      37.339761,
+      128.845952
+    ],
+    "distance": "2.24 km",
+    "elevation_gain": "155 m",
+    "avg_grade": "7%",
+    "lowest_elev": "656 m",
+    "highest_elev": "812 m",
+    "elev_difference": "156 m",
+    "climb_category": "4",
+    "order": 6,
+    "start_km": 63.844,
+    "end_km": 66.084,
+    "distance_km": 2.24
+  },
+  "9762819": {
+    "segment_id": "9762819",
+    "name": "송이재 북측 #령재치",
+    "start_point": [
+      37.354296,
+      128.849169
+    ],
+    "end_point": [
+      37.339754,
+      128.845929
+    ],
+    "distance": "1.72 km",
+    "elevation_gain": "154 m",
+    "avg_grade": "8.3%",
+    "lowest_elev": "659 m",
+    "highest_elev": "807 m",
+    "elev_difference": "148 m",
+    "climb_category": "4",
+    "order": 7,
+    "start_km": 64.305,
+    "end_km": 66.025,
+    "distance_km": 1.72
+  },
+  "40146098": {
+    "segment_id": "40146098",
+    "name": "건천고개 다운",
+    "start_point": [
+      37.313361,
+      128.828169
+    ],
+    "end_point": [
+      37.310505,
+      128.813048
+    ],
+    "distance": "2.37 km",
+    "elevation_gain": "0 m",
+    "avg_grade": "-9.6%",
+    "lowest_elev": "551 m",
+    "highest_elev": "780 m",
+    "elev_difference": "228 m",
+    "climb_category": null,
+    "order": 8,
+    "start_km": 70.298,
+    "end_km": 72.668,
+    "distance_km": 2.37
+  },
+  "834458": {
+    "segment_id": "834458",
+    "name": "사북읍 사북리 422 7 Climb",
+    "start_point": [
+      37.226005,
+      128.814924
+    ],
+    "end_point": [
+      37.210856,
+      128.822258
+    ],
+    "distance": "2.69 km",
+    "elevation_gain": "190 m",
+    "avg_grade": "7.1%",
+    "lowest_elev": "608 m",
+    "highest_elev": "798 m",
+    "elev_difference": "190 m",
+    "climb_category": "3",
+    "order": 9,
+    "start_km": 88.62,
+    "end_km": 91.31,
+    "distance_km": 2.69
+  },
+  "34054658": {
+    "segment_id": "34054658",
+    "name": "떙기러가즈아~ by 팀바둑이",
+    "start_point": [
+      37.225304,
+      128.814962
+    ],
+    "end_point": [
+      37.210808,
+      128.821854
+    ],
+    "distance": "2.61 km",
+    "elevation_gain": "195 m",
+    "avg_grade": "7.5%",
+    "lowest_elev": "620 m",
+    "highest_elev": "814 m",
+    "elev_difference": "195 m",
+    "climb_category": "3",
+    "order": 10,
+    "start_km": 88.737,
+    "end_km": 91.347,
+    "distance_km": 2.61
+  },
+  "12631265": {
+    "segment_id": "12631265",
+    "name": "하이원 호텔 업힐",
+    "start_point": [
+      37.219188,
+      128.814877
+    ],
+    "end_point": [
+      37.210803,
+      128.82135
+    ],
+    "distance": "1.85 km",
+    "elevation_gain": "214 m",
+    "avg_grade": "7.9%",
+    "lowest_elev": "693 m",
+    "highest_elev": "839 m",
+    "elev_difference": "146 m",
+    "climb_category": "4",
+    "order": 11,
+    "start_km": 89.403,
+    "end_km": 91.253,
+    "distance_km": 1.85
+  },
+  "9646037": {
+    "segment_id": "9646037",
+    "name": "만항재 북-남",
+    "start_point": [
+      37.193196,
+      128.870077
+    ],
+    "end_point": [
+      37.148378,
+      128.899224
+    ],
+    "distance": "7.88 km",
+    "elevation_gain": "529 m",
+    "avg_grade": "6.7%",
+    "lowest_elev": "958 m",
+    "highest_elev": "1,487 m",
+    "elev_difference": "529 m",
+    "climb_category": "2",
+    "order": 12,
+    "start_km": 96.817,
+    "end_km": 104.697,
+    "distance_km": 7.88
+  },
+  "5255845": {
+    "segment_id": "5255845",
+    "name": "천국으로가는 만항재  고한->태백 방향",
+    "start_point": [
+      37.19307,
+      128.870126
+    ],
+    "end_point": [
+      37.149825,
+      128.900775
+    ],
+    "distance": "7.49 km",
+    "elevation_gain": "472 m",
+    "avg_grade": "6.3%",
+    "lowest_elev": "740 m",
+    "highest_elev": "1,212 m",
+    "elev_difference": "472 m",
+    "climb_category": "2",
+    "order": 13,
+    "start_km": 96.828,
+    "end_km": 104.318,
+    "distance_km": 7.49
+  },
+  "1919765": {
+    "segment_id": "1919765",
+    "name": "고한읍 고한리 산216 20 Climb",
+    "start_point": [
+      37.186189,
+      128.88904
+    ],
+    "end_point": [
+      37.148459,
+      128.899247
+    ],
+    "distance": "5.83 km",
+    "elevation_gain": "462 m",
+    "avg_grade": "7.9%",
+    "lowest_elev": "799 m",
+    "highest_elev": "1,261 m",
+    "elev_difference": "462 m",
+    "climb_category": "2",
+    "order": 14,
+    "start_km": 98.892,
+    "end_km": 104.722,
+    "distance_km": 5.83
+  },
+  "5838295": {
+    "segment_id": "5838295",
+    "name": "Segment",
+    "start_point": [
+      37.160851,
+      128.900421
+    ],
+    "end_point": [
+      37.15293,
+      128.906316
+    ],
+    "distance": "1.34 km",
+    "elevation_gain": "138 m",
+    "avg_grade": "10.2%",
+    "lowest_elev": "1,087 m",
+    "highest_elev": "1,225 m",
+    "elev_difference": "138 m",
+    "climb_category": "4",
+    "order": 15,
+    "start_km": 102.158,
+    "end_km": 103.498,
+    "distance_km": 1.34
+  },
+  "39608675": {
+    "segment_id": "39608675",
+    "name": "만항재 남측 하강: 급사구간",
+    "start_point": [
+      37.147694,
+      128.898428
+    ],
+    "end_point": [
+      37.138463,
+      128.878361
+    ],
+    "distance": "3.04 km",
+    "elevation_gain": "0 m",
+    "avg_grade": "-7.3%",
+    "lowest_elev": "1,060 m",
+    "highest_elev": "1,281 m",
+    "elev_difference": "221 m",
+    "climb_category": null,
+    "order": 16,
+    "start_km": 104.858,
+    "end_km": 107.898,
+    "distance_km": 3.04
+  },
+  "39553115": {
+    "segment_id": "39553115",
+    "name": "만항재 남측 내리막",
+    "start_point": [
+      37.147712,
+      128.898354
+    ],
+    "end_point": [
+      37.124141,
+      128.89846
+    ],
+    "distance": "8.01 km",
+    "elevation_gain": "5 m",
+    "avg_grade": "-4.1%",
+    "lowest_elev": "953 m",
+    "highest_elev": "1,283 m",
+    "elev_difference": "330 m",
+    "climb_category": null,
+    "order": 17,
+    "start_km": 104.858,
+    "end_km": 112.868,
+    "distance_km": 8.01
+  },
+  "39608695": {
+    "segment_id": "39608695",
+    "name": "만항재 남측 하강: 커브앤런",
+    "start_point": [
+      37.137688,
+      128.877542
+    ],
+    "end_point": [
+      37.124022,
+      128.89852
+    ],
+    "distance": "4.7 km",
+    "elevation_gain": "8 m",
+    "avg_grade": "-1.6%",
+    "lowest_elev": "952 m",
+    "highest_elev": "1,036 m",
+    "elev_difference": "84 m",
+    "climb_category": null,
+    "order": 18,
+    "start_km": 108.289,
+    "end_km": 112.989,
+    "distance_km": 4.7
+  },
+  "19159351": {
+    "segment_id": "19159351",
+    "name": "화방재-상동삼거리 tt",
+    "start_point": [
+      37.123397,
+      128.898754
+    ],
+    "end_point": [
+      37.12799,
+      128.831314
+    ],
+    "distance": "8.97 km",
+    "elevation_gain": "0 m",
+    "avg_grade": "-4.2%",
+    "lowest_elev": "554 m",
+    "highest_elev": "932 m",
+    "elev_difference": "378 m",
+    "climb_category": null,
+    "order": 19,
+    "start_km": 113.288,
+    "end_km": 122.258,
+    "distance_km": 8.97
+  },
+  "9376771": {
+    "segment_id": "9376771",
+    "name": "화방재-중동면 28km TT #령재치",
+    "start_point": [
+      37.123514,
+      128.898686
+    ],
+    "end_point": [
+      37.137322,
+      128.691468
+    ],
+    "distance": "27.94 km",
+    "elevation_gain": "668 m",
+    "avg_grade": "-2.4%",
+    "lowest_elev": "291 m",
+    "highest_elev": "952 m",
+    "elev_difference": "661 m",
+    "climb_category": null,
+    "order": 20,
+    "start_km": 113.288,
+    "end_km": 141.228,
+    "distance_km": 27.94
+  },
+  "29014648": {
+    "segment_id": "29014648",
+    "name": "상동-중동TT",
+    "start_point": [
+      37.129453,
+      128.830976
+    ],
+    "end_point": [
+      37.137835,
+      128.691687
+    ],
+    "distance": "18.87 km",
+    "elevation_gain": "55 m",
+    "avg_grade": "-1.1%",
+    "lowest_elev": "323 m",
+    "highest_elev": "529 m",
+    "elev_difference": "206 m",
+    "climb_category": null,
+    "order": 21,
+    "start_km": 122.398,
+    "end_km": 141.268,
+    "distance_km": 18.87
+  },
+  "13414891": {
+    "segment_id": "13414891",
+    "name": "화절치 시계방향(태백산로 스프린트)",
+    "start_point": [
+      37.131769,
+      128.807851
+    ],
+    "end_point": [
+      37.146166,
+      128.71139
+    ],
+    "distance": "13.16 km",
+    "elevation_gain": "43 m",
+    "avg_grade": "-1.1%",
+    "lowest_elev": "330 m",
+    "highest_elev": "481 m",
+    "elev_difference": "151 m",
+    "climb_category": null,
+    "order": 22,
+    "start_km": 125.064,
+    "end_km": 138.224,
+    "distance_km": 13.16
+  },
+  "39608740": {
+    "segment_id": "39608740",
+    "name": "캠핑장길",
+    "start_point": [
+      37.146687,
+      128.680783
+    ],
+    "end_point": [
+      37.152495,
+      128.673603
+    ],
+    "distance": "1.64 km",
+    "elevation_gain": "40 m",
+    "avg_grade": "2.5%",
+    "lowest_elev": "290 m",
+    "highest_elev": "331 m",
+    "elev_difference": "40 m",
+    "climb_category": null,
+    "order": 23,
+    "start_km": 142.773,
+    "end_km": 144.413,
+    "distance_km": 1.64
+  },
+  "8126634": {
+    "segment_id": "8126634",
+    "name": "수라리재 남측 #령재치",
+    "start_point": [
+      37.147509,
+      128.680328
+    ],
+    "end_point": [
+      37.173813,
+      128.643087
+    ],
+    "distance": "7.18 km",
+    "elevation_gain": "543 m",
+    "avg_grade": "3.8%",
+    "lowest_elev": "301 m",
+    "highest_elev": "581 m",
+    "elev_difference": "280 m",
+    "climb_category": "3",
+    "order": 24,
+    "start_km": 142.886,
+    "end_km": 150.066,
+    "distance_km": 7.18
+  },
+  "23912942": {
+    "segment_id": "23912942",
+    "name": "수라리재 오르막(이목리쪽)",
+    "start_point": [
+      37.171081,
+      128.650195
+    ],
+    "end_point": [
+      37.173594,
+      128.642838
+    ],
+    "distance": "2.25 km",
+    "elevation_gain": "147 m",
+    "avg_grade": "6.5%",
+    "lowest_elev": "467 m",
+    "highest_elev": "614 m",
+    "elev_difference": "147 m",
+    "climb_category": "4",
+    "order": 25,
+    "start_km": 147.528,
+    "end_km": 149.778,
+    "distance_km": 2.25
+  },
+  "23913029": {
+    "segment_id": "23913029",
+    "name": "수라리재 내리막(화원리)",
+    "start_point": [
+      37.174339,
+      128.643443
+    ],
+    "end_point": [
+      37.197939,
+      128.616918
+    ],
+    "distance": "4.07 km",
+    "elevation_gain": "0 m",
+    "avg_grade": "-5.6%",
+    "lowest_elev": "389 m",
+    "highest_elev": "616 m",
+    "elev_difference": "227 m",
+    "climb_category": null,
+    "order": 26,
+    "start_km": 150.028,
+    "end_km": 154.098,
+    "distance_km": 4.07
+  },
+  "39351232": {
+    "segment_id": "39351232",
+    "name": "미륵고개_RCS",
+    "start_point": [
+      37.216125,
+      128.67106
+    ],
+    "end_point": [
+      37.225259,
+      128.720291
+    ],
+    "distance": "7.45 km",
+    "elevation_gain": "497 m",
+    "avg_grade": "6.7%",
+    "lowest_elev": "597 m",
+    "highest_elev": "1,094 m",
+    "elev_difference": "497 m",
+    "climb_category": "2",
+    "order": 27,
+    "start_km": 160.407,
+    "end_km": 167.857,
+    "distance_km": 7.45
+  },
+  "9762771": {
+    "segment_id": "9762771",
+    "name": "자미원(수리재) 서측 #령재치",
+    "start_point": [
+      37.219025,
+      128.700158
+    ],
+    "end_point": [
+      37.225288,
+      128.720766
+    ],
+    "distance": "4.42 km",
+    "elevation_gain": "549 m",
+    "avg_grade": "9.9%",
+    "lowest_elev": "519 m",
+    "highest_elev": "959 m",
+    "elev_difference": "441 m",
+    "climb_category": "2",
+    "order": 28,
+    "start_km": 163.396,
+    "end_km": 167.816,
+    "distance_km": 4.42
+  },
+  "1281400": {
+    "segment_id": "1281400",
+    "name": "방제리 업힐",
+    "start_point": [
+      37.219112,
+      128.700374
+    ],
+    "end_point": [
+      37.224399,
+      128.723534
+    ],
+    "distance": "4.9 km",
+    "elevation_gain": "623 m",
+    "avg_grade": "9.6%",
+    "lowest_elev": "517 m",
+    "highest_elev": "988 m",
+    "elev_difference": "470 m",
+    "climb_category": "2",
+    "order": 29,
+    "start_km": 163.41,
+    "end_km": 168.31,
+    "distance_km": 4.9
+  },
+  "12848605": {
+    "segment_id": "12848605",
+    "name": "쇄재옛길",
+    "start_point": [
+      37.323504,
+      128.716272
+    ],
+    "end_point": [
+      37.337252,
+      128.710036
+    ],
+    "distance": "3.85 km",
+    "elevation_gain": "468 m",
+    "avg_grade": "6.1%",
+    "lowest_elev": "391 m",
+    "highest_elev": "638 m",
+    "elev_difference": "247 m",
+    "climb_category": "3",
+    "order": 30,
+    "start_km": 183.391,
+    "end_km": 187.241,
+    "distance_km": 3.85
+  }
+}
