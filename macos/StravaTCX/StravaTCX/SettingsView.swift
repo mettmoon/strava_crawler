@@ -29,25 +29,50 @@ private struct GeneralSettingsView: View {
 
 private struct StravaSettingsView: View {
     @State private var cookie = AppSettings.cookie
+    @State private var showingLogin = false
 
     var body: some View {
         Form {
             Section {
+                HStack {
+                    if cookie.isEmpty {
+                        Label("로그인되지 않음", systemImage: "person.crop.circle.badge.xmark")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Label("세션 저장됨", systemImage: "checkmark.seal.fill")
+                            .foregroundStyle(.green)
+                    }
+                    Spacer()
+                    Button("Strava 로그인…") { showingLogin = true }
+                    if !cookie.isEmpty {
+                        Button("로그아웃") { cookie = "" }
+                    }
+                }
+            } header: {
+                Text("로그인")
+            } footer: {
+                Text("로그인하면 세션 쿠키가 자동으로 수집되어 Keychain 에 저장됩니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 SecureField("_strava4_session 값", text: $cookie)
-                Text("브라우저 개발자도구 → Application → Cookies → strava.com 에서 복사")
+                Text("로그인 버튼으로 자동 입력되거나, 직접 붙여넣을 수 있습니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } header: {
-                Text("Strava 세션 쿠키")
-            } footer: {
-                Text("Keychain 에 안전하게 저장됩니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text("세션 쿠키 (수동)")
             }
         }
         .formStyle(.grouped)
         .onChange(of: cookie) { _, newValue in
             AppSettings.cookie = newValue
+        }
+        .sheet(isPresented: $showingLogin) {
+            StravaLoginView { value in
+                cookie = value   // onChange → Keychain 저장
+            }
         }
     }
 }
