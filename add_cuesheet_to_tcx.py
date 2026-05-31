@@ -174,6 +174,7 @@ def insert_course_points(course_el, entries, for_rwgps=False):
         if for_rwgps:
             if e["is_start"]:
                 notes = ", ".join(p for p in [_norm_dist(e.get("dist")), e.get("grade")] if p)
+                notes = "*" + notes  # 시작 지점은 '*' 프리픽스 (Name/Notes 공통)
             else:
                 notes = e["seg_name"]
             cp = make_course_point(
