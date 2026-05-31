@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import AppKit
 import StravaTCXKit
 
 @MainActor
@@ -52,6 +53,14 @@ final class AppModel {
     var segments: [SegmentInfo] = []
     var entries: [CoursePointEntry] = []
 
+    // 내보내기 결과
+    struct ExportResult {
+        var cued: URL
+        var rwgps: URL
+        var count: Int
+    }
+    var exportResult: ExportResult?
+
     // 데이터 소스 + 캐시
     private let stub = StubDataSource()
     private let live = LiveDataSource()
@@ -67,6 +76,7 @@ final class AppModel {
         course = nil
         segments = []
         entries = []
+        exportResult = nil
         statusMessage = ""
     }
 
@@ -114,7 +124,7 @@ final class AppModel {
         case .coursePoints:
             if entries.isEmpty { runCoursePoints() } else { advance() }
         case .export:
-            statusMessage = "내보내기는 Step 4 에서 구현됩니다."
+            runExport()
         }
     }
 
@@ -178,6 +188,47 @@ final class AppModel {
         ).entries
         statusMessage = "\(entries.count)개 CoursePoint"
         advance()
+    }
+
+    // MARK: - 내보내기
+
+    var fileNamePrefix: String {
+        demoMode ? "course" : "route_\(routeID)"
+    }
+
+    /// 저장 폴더 선택 후 _cued.tcx / _cued_for_rwgps.tcx 두 파일 쓰기.
+    func runExport() {
+        guard course != nil else { errorMessage = "TCX 가 없습니다."; return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "저장"
+        panel.message = "TCX 파일을 저장할 폴더를 선택하세요"
+        guard panel.runModal() == .OK, let dir = panel.url else { return }
+        export(to: dir)
+    }
+
+    func export(to directory: URL) {
+        guard let course else { errorMessage = "TCX 가 없습니다."; return }
+        do {
+            let cuedURL = directory.appendingPathComponent("\(fileNamePrefix)_cued.tcx")
+            let rwgpsURL = directory.appendingPathComponent("\(fileNamePrefix)_cued_for_rwgps.tcx")
+            let cued = try course.build(entries: entries, forRWGPS: false)
+            let rwgps = try course.build(entries: entries, forRWGPS: true)
+            try cued.data.write(to: cuedURL)
+            try rwgps.data.write(to: rwgpsURL)
+            exportResult = ExportResult(cued: cuedURL, rwgps: rwgpsURL, count: cued.count)
+            errorMessage = nil
+            statusMessage = "저장 완료 · CoursePoint \(cued.count)개"
+        } catch {
+            errorMessage = "저장 실패: \(error.localizedDescription)"
+        }
+    }
+
+    func revealInFinder() {
+        guard let r = exportResult else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([r.cued, r.rwgps])
     }
 
     /// min-category 변경 시 CoursePoint 재생성 (이미 생성된 경우).
