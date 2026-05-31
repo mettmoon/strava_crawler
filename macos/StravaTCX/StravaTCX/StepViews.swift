@@ -56,9 +56,9 @@ struct IdentifiedEntry: Identifiable {
     let entry: CoursePointEntry
 }
 
-// MARK: - Step 1: 설정
+// MARK: - Step 1: 라우트 입력
 
-struct SetupStepView: View {
+struct RouteStepView: View {
     @Bindable var model: AppModel
 
     var body: some View {
@@ -208,12 +208,12 @@ struct CoursePointsStepView: View {
 
 // MARK: - Step 5: 내보내기
 
-struct ExportStepView: View {
+struct SaveStepView: View {
     @Bindable var model: AppModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            StepTitle("내보내기", "생성된 TCX 를 폴더에 저장합니다.")
+            StepTitle("저장", "변환 결과를 라우트 목록에 저장합니다.")
 
             GroupBox {
                 VStack(alignment: .leading, spacing: 8) {
@@ -228,40 +228,10 @@ struct ExportStepView: View {
                 Label("요약", systemImage: "doc.text")
             }
 
-            Text("저장 파일")
-                .font(.subheadline.bold())
-            VStack(alignment: .leading, spacing: 4) {
-                Label("\(model.fileNamePrefix)_cued.tcx", systemImage: "doc")
-                Label("\(model.fileNamePrefix)_cued_for_rwgps.tcx", systemImage: "doc")
-            }
-            .font(.callout.monospaced())
-            .foregroundStyle(.secondary)
-
-            Button {
-                model.runExport()
-            } label: {
-                Label("저장 위치 선택…", systemImage: "folder.badge.plus")
-            }
-            .controlSize(.large)
-
-            if let result = model.exportResult {
-                Divider()
-                HStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    Text("저장 완료 · CoursePoint \(result.count)개")
-                        .fontWeight(.medium)
-                    Spacer()
-                    Button {
-                        model.revealInFinder()
-                    } label: {
-                        Label("Finder 에서 열기", systemImage: "magnifyingglass")
-                    }
-                }
-                Text(result.cued.deletingLastPathComponent().path)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
+            Label("‘목록에 저장’ 을 누르면 목록에 추가되어 나중에 다시 열람·내보내기 할 수 있습니다.",
+                  systemImage: "info.circle")
+                .foregroundStyle(.secondary)
+                .padding(.top, 4)
         }
     }
 }

@@ -1,19 +1,31 @@
 import SwiftUI
 import StravaTCXKit
 
-struct ContentView: View {
+/// ‘추가하기’ 시트 — 라우트 변환 위저드. 저장 시 onSave(record) 호출 후 닫힘.
+struct AddRouteView: View {
+    @Environment(\.dismiss) private var dismiss
     @State private var model = AppModel()
+    let onSave: (RouteRecord) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
+            HStack {
+                Text("라우트 추가").font(.headline)
+                Spacer()
+                Button("취소") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding()
+            Divider()
+
             StepHeaderView(current: model.step)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 16)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
             Divider()
 
             ScrollView {
                 stepContent
-                    .padding(24)
+                    .padding(20)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -24,15 +36,22 @@ struct ContentView: View {
             Divider()
             NavBarView(model: model)
         }
+        .frame(width: 860, height: 640)
+        .onAppear {
+            model.onComplete = { record in
+                onSave(record)
+                dismiss()
+            }
+        }
     }
 
     @ViewBuilder private var stepContent: some View {
         switch model.step {
-        case .setup: SetupStepView(model: model)
+        case .route: RouteStepView(model: model)
         case .download: DownloadStepView(model: model)
         case .segments: SegmentsStepView(model: model)
         case .coursePoints: CoursePointsStepView(model: model)
-        case .export: ExportStepView(model: model)
+        case .save: SaveStepView(model: model)
         }
     }
 }
@@ -110,9 +129,4 @@ struct ErrorBanner: View {
         .padding(.vertical, 10)
         .background(Color.red.opacity(0.85))
     }
-}
-
-#Preview {
-    ContentView()
-        .frame(width: 820, height: 600)
 }

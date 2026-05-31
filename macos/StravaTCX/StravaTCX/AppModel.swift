@@ -1,33 +1,33 @@
 import Foundation
 import Observation
-import AppKit
 import StravaTCXKit
 
+/// 라우트 추가 위저드의 상태/로직.
 @MainActor
 @Observable
 final class AppModel {
 
     enum Step: Int, CaseIterable, Identifiable {
-        case setup, download, segments, coursePoints, export
+        case route, download, segments, coursePoints, save
         var id: Int { rawValue }
 
         var title: String {
             switch self {
-            case .setup: return "설정"
+            case .route: return "라우트"
             case .download: return "TCX 다운로드"
             case .segments: return "세그먼트"
             case .coursePoints: return "CoursePoint"
-            case .export: return "내보내기"
+            case .save: return "저장"
             }
         }
 
         var systemImage: String {
             switch self {
-            case .setup: return "key.fill"
+            case .route: return "number"
             case .download: return "arrow.down.circle.fill"
             case .segments: return "list.bullet.rectangle.fill"
             case .coursePoints: return "mappin.and.ellipse"
-            case .export: return "square.and.arrow.up.fill"
+            case .save: return "tray.and.arrow.down.fill"
             }
         }
     }
@@ -41,11 +41,11 @@ final class AppModel {
     private var cookie: String { AppSettings.cookie }
 
     // 내비게이션
-    var step: Step = .setup
+    var step: Step = .route
 
     // 진행 상태
     var isBusy = false
-    var progress: Double?            // 0...1, nil 이면 비표시
+    var progress: Double?
     var statusMessage = ""
     var errorMessage: String?
 
@@ -55,13 +55,8 @@ final class AppModel {
     var segments: [SegmentInfo] = []
     var entries: [CoursePointEntry] = []
 
-    // 내보내기 결과
-    struct ExportResult {
-        var cued: URL
-        var rwgps: URL
-        var count: Int
-    }
-    var exportResult: ExportResult?
+    /// 저장 완료 콜백 (부모가 modelContext 에 삽입).
+    var onComplete: ((RouteRecord) -> Void)?
 
     // 데이터 소스 + 캐시
     private let stub = StubDataSource()
@@ -78,7 +73,6 @@ final class AppModel {
         course = nil
         segments = []
         entries = []
-        exportResult = nil
         statusMessage = ""
     }
 
@@ -86,27 +80,26 @@ final class AppModel {
 
     var primaryTitle: String {
         switch step {
-        case .setup: return "다음"
+        case .route: return "다음"
         case .download: return tcxData == nil ? "TCX 다운로드" : "다음"
         case .segments: return segments.isEmpty ? "세그먼트 불러오기" : "다음"
         case .coursePoints: return entries.isEmpty ? "CoursePoint 생성" : "다음"
-        case .export: return "저장"
+        case .save: return "목록에 저장"
         }
     }
 
     var primaryEnabled: Bool {
         if isBusy { return false }
         switch step {
-        case .setup:
+        case .route:
             if demoMode { return true }
-            return !cookie.trimmingCharacters(in: .whitespaces).isEmpty
-                && !routeID.trimmingCharacters(in: .whitespaces).isEmpty
-        case .download, .segments, .coursePoints, .export:
+            return !routeID.trimmingCharacters(in: .whitespaces).isEmpty
+        case .download, .segments, .coursePoints, .save:
             return true
         }
     }
 
-    var canGoBack: Bool { step != .setup && !isBusy }
+    var canGoBack: Bool { step != .route && !isBusy }
 
     func back() {
         guard canGoBack, let prev = Step(rawValue: step.rawValue - 1) else { return }
@@ -117,7 +110,7 @@ final class AppModel {
     func performPrimary() async {
         errorMessage = nil
         switch step {
-        case .setup:
+        case .route:
             advance()
         case .download:
             if tcxData == nil { await runDownload() } else { advance() }
@@ -125,8 +118,8 @@ final class AppModel {
             if segments.isEmpty { await runSegments() } else { advance() }
         case .coursePoints:
             if entries.isEmpty { runCoursePoints() } else { advance() }
-        case .export:
-            runExport()
+        case .save:
+            if let record = makeRecord() { onComplete?(record) }
         }
     }
 
@@ -192,47 +185,6 @@ final class AppModel {
         advance()
     }
 
-    // MARK: - 내보내기
-
-    var fileNamePrefix: String {
-        demoMode ? "course" : "route_\(routeID)"
-    }
-
-    /// 저장 폴더 선택 후 _cued.tcx / _cued_for_rwgps.tcx 두 파일 쓰기.
-    func runExport() {
-        guard course != nil else { errorMessage = "TCX 가 없습니다."; return }
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.prompt = "저장"
-        panel.message = "TCX 파일을 저장할 폴더를 선택하세요"
-        guard panel.runModal() == .OK, let dir = panel.url else { return }
-        export(to: dir)
-    }
-
-    func export(to directory: URL) {
-        guard let course else { errorMessage = "TCX 가 없습니다."; return }
-        do {
-            let cuedURL = directory.appendingPathComponent("\(fileNamePrefix)_cued.tcx")
-            let rwgpsURL = directory.appendingPathComponent("\(fileNamePrefix)_cued_for_rwgps.tcx")
-            let cued = try course.build(entries: entries, forRWGPS: false)
-            let rwgps = try course.build(entries: entries, forRWGPS: true)
-            try cued.data.write(to: cuedURL)
-            try rwgps.data.write(to: rwgpsURL)
-            exportResult = ExportResult(cued: cuedURL, rwgps: rwgpsURL, count: cued.count)
-            errorMessage = nil
-            statusMessage = "저장 완료 · CoursePoint \(cued.count)개"
-        } catch {
-            errorMessage = "저장 실패: \(error.localizedDescription)"
-        }
-    }
-
-    func revealInFinder() {
-        guard let r = exportResult else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([r.cued, r.rwgps])
-    }
-
     /// min-category 변경 시 CoursePoint 재생성 (이미 생성된 경우).
     func regenerateCoursePointsIfNeeded() {
         guard let course, !entries.isEmpty else { return }
@@ -240,6 +192,32 @@ final class AppModel {
             trackPoints: course.trackPoints, segments: segments, minCategory: minCategory
         ).entries
         statusMessage = "\(entries.count)개 CoursePoint"
+    }
+
+    // MARK: - 레코드 생성
+
+    func makeRecord() -> RouteRecord? {
+        guard let course else { errorMessage = "TCX 가 없습니다."; return nil }
+        guard let cued = try? course.build(entries: entries, forRWGPS: false),
+              let rwgps = try? course.build(entries: entries, forRWGPS: true) else {
+            errorMessage = "TCX 생성에 실패했습니다."
+            return nil
+        }
+        let storedSegments = segments.map {
+            StoredSegment(order: $0.order, name: $0.name, category: $0.climbCategory,
+                          distance: $0.distanceText, grade: $0.avgGrade)
+        }
+        let storedCoursePoints = entries.sorted { $0.idx < $1.idx }.map {
+            StoredCoursePoint(isStart: $0.isStart, pointType: $0.pointType, notes: previewNotes(for: $0))
+        }
+        let rid = demoMode ? "demo" : routeID.trimmingCharacters(in: .whitespaces)
+        let title = demoMode ? "샘플 라우트" : "Route \(rid)"
+        return RouteRecord(
+            routeID: rid, title: title, createdAt: Date(), demoMode: demoMode,
+            minCategory: minCategory, trackPointCount: course.trackPoints.count,
+            coursePointCount: cued.count, cuedTCX: cued.data, rwgpsTCX: rwgps.data,
+            segments: storedSegments, coursePoints: storedCoursePoints
+        )
     }
 
     // MARK: - 프리뷰 헬퍼
