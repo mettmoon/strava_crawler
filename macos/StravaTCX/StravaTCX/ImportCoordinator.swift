@@ -81,12 +81,19 @@ final class ImportCoordinator {
             // 2) 세그먼트
             imports[key] = Progress(fraction: 0, message: "세그먼트 목록 가져오는 중…")
             let ids = try await ds.fetchSegmentIDs(routeID: record.routeID, cookie: cookie)
+            // 429(요청 과다) 회피용 요청 간격. 캐시에 없어 실제로 네트워크 요청할 때만 대기.
+            let interval = AppSettings.segmentRequestInterval
+            var didFetch = false
             var segments: [SegmentInfo] = []
             for (i, id) in ids.enumerated() {
                 var info: SegmentInfo
                 if let cached = segmentCache[id] {
                     info = cached
                 } else {
+                    if didFetch, interval > 0 {
+                        try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+                    }
+                    didFetch = true
                     imports[key] = Progress(
                         fraction: Double(i) / Double(max(ids.count, 1)),
                         message: "세그먼트 \(i + 1)/\(ids.count)…"

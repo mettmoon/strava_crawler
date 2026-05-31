@@ -25,6 +25,19 @@ enum AppSettings {
             else { Keychain.write(csrfAccount, trimmed) }
         }
     }
+
+    /// segment 정보를 연속으로 가져올 때 요청 사이의 대기 시간(초).
+    /// 값이 작으면 429(요청 과다) 오류가 날 수 있어 기본 5초.
+    static let defaultSegmentRequestInterval: Double = 5
+    private static let segmentIntervalKey = "segmentRequestInterval"
+
+    static var segmentRequestInterval: Double {
+        get {
+            (UserDefaults.standard.object(forKey: segmentIntervalKey) as? Double)
+                ?? defaultSegmentRequestInterval
+        }
+        set { UserDefaults.standard.set(max(0, newValue), forKey: segmentIntervalKey) }
+    }
 }
 
 /// 최소 Keychain 래퍼 (generic password, data-protection keychain).
