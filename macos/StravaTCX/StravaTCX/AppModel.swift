@@ -33,10 +33,12 @@ final class AppModel {
     }
 
     // 입력
-    var cookie = ""
     var routeID = "" { didSet { if oldValue != routeID { resetDownstream() } } }
     var minCategory: String? = nil   // nil = 전체
-    var demoMode = true { didSet { if oldValue != demoMode { resetDownstream() } } }
+
+    // 데모/쿠키는 전역 설정(설정 화면)에서 가져온다.
+    var demoMode: Bool { AppSettings.demoMode }
+    private var cookie: String { AppSettings.cookie }
 
     // 내비게이션
     var step: Step = .setup
