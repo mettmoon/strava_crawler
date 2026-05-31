@@ -41,7 +41,7 @@ struct RouteDetailView: View {
     private var summary: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 8) {
-                InfoRow("Route ID", record.demoMode ? "샘플" : record.routeID)
+                InfoRow("Route ID", record.routeID)
                 InfoRow("Trackpoint", "\(record.trackPointCount) 개")
                 InfoRow("세그먼트", "\(record.segments.count) 개")
                 InfoRow("최소 카테고리", record.minCategory.map(categoryLabel) ?? "전체")

@@ -1,29 +1,10 @@
 import SwiftUI
 
-/// 시스템 메뉴 ‘설정…’ (cmd+,) 화면. 데모 모드 + Strava 쿠키.
+/// 시스템 메뉴 ‘설정…’ (cmd+,) 화면. Strava 로그인/쿠키.
 struct SettingsView: View {
     var body: some View {
-        TabView {
-            GeneralSettingsView()
-                .tabItem { Label("일반", systemImage: "gearshape") }
-            StravaSettingsView()
-                .tabItem { Label("Strava", systemImage: "person.badge.key") }
-        }
-        .frame(width: 480, height: 280)
-    }
-}
-
-private struct GeneralSettingsView: View {
-    @AppStorage(AppSettings.demoModeKey) private var demoMode = true
-
-    var body: some View {
-        Form {
-            Toggle("데모 모드 (샘플 데이터)", isOn: $demoMode)
-            Text("켜면 네트워크 없이 합성 샘플 데이터로 전체 흐름을 시연합니다. 끄면 실제 Strava 에서 가져옵니다.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .formStyle(.grouped)
+        StravaSettingsView()
+            .frame(width: 480, height: 300)
     }
 }
 

@@ -7,7 +7,6 @@ final class RouteRecord {
     var routeID: String = ""
     var title: String = ""
     var createdAt: Date = Date()
-    var demoMode: Bool = false
     var minCategory: String?
     var trackPointCount: Int = 0
     var coursePointCount: Int = 0
@@ -24,7 +23,6 @@ final class RouteRecord {
         routeID: String,
         title: String,
         createdAt: Date,
-        demoMode: Bool,
         minCategory: String?,
         trackPointCount: Int,
         coursePointCount: Int,
@@ -36,7 +34,6 @@ final class RouteRecord {
         self.routeID = routeID
         self.title = title
         self.createdAt = createdAt
-        self.demoMode = demoMode
         self.minCategory = minCategory
         self.trackPointCount = trackPointCount
         self.coursePointCount = coursePointCount
@@ -47,7 +44,7 @@ final class RouteRecord {
     }
 
     var fileNamePrefix: String {
-        demoMode ? "course" : "route_\(routeID)"
+        "route_\(routeID)"
     }
 }
 
