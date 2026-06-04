@@ -77,6 +77,14 @@ final class ImportCoordinator {
         run(record)
     }
 
+    /// TCX 를 강제로 다시 다운로드하여 기존 데이터를 덮어씌운다 (세그먼트 캐시는 유지).
+    func redownload(_ record: RouteRecord) {
+        guard record.status != .processing else { return }
+        record.status = .processing
+        record.errorMessage = nil
+        run(record)
+    }
+
     /// 앱 종료 등으로 중단된 채 남은 processing 레코드를 failed 로 정리한다.
     func reconcileOnLaunch(context: ModelContext) {
         let descriptor = FetchDescriptor<RouteRecord>(

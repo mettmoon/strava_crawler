@@ -8,11 +8,13 @@ import StravaTCXKit
 /// `minCategory` 기준으로 즉석 계산한다.
 struct RouteDetailView: View {
     @Environment(ImportCoordinator.self) private var coordinator
+    @Environment(\.modelContext) private var modelContext
     @Bindable var record: RouteRecord
 
     @State private var course: TCXCourse?
     @State private var entries: [CoursePointEntry] = []
     @State private var parseError: String?
+    @State private var showDeleteConfirm = false
 
     var body: some View {
         Group {
@@ -87,6 +89,30 @@ struct RouteDetailView: View {
             }
             .controlSize(.large)
             .disabled(course == nil)
+
+            Menu {
+                Button(role: .destructive) { showDeleteConfirm = true } label: {
+                    Label("삭제하기", systemImage: "trash")
+                }
+                Button { coordinator.redownload(record) } label: {
+                    Label("다시 불러오기", systemImage: "arrow.clockwise")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .imageScale(.large)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+        .confirmationDialog(
+            "'\(record.title)'을(를) 삭제하시겠습니까?",
+            isPresented: $showDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("삭제", role: .destructive) { deleteRecord() }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("저장된 TCX 데이터와 세그먼트 정보가 삭제됩니다. 세그먼트 캐시는 유지됩니다.")
         }
     }
 
@@ -190,6 +216,10 @@ struct RouteDetailView: View {
             trackPoints: course.trackPoints, segments: record.segments, minCategory: record.minCategory
         ).entries
         record.coursePointCount = entries.count
+    }
+
+    private func deleteRecord() {
+        modelContext.delete(record)
     }
 
     private func export() {
