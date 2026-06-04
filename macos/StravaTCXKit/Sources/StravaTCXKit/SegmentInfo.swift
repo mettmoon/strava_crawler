@@ -61,6 +61,8 @@ public struct PageProps: Decodable, Sendable {
 
     public struct Streams: Decodable, Sendable {
         public var location: [[Double]]?
+        public var distance: [Double]?
+        public var elevation: [Double]?
     }
 
     public struct MapImage: Decodable, Sendable {
@@ -91,6 +93,11 @@ public struct SegmentInfo: Sendable, Identifiable, Codable, Hashable {
     public var climbCategory: String?  // 정규화된 "2"/"HC"/nil
     public var imageURL: String?       // segment 지도 미리보기 이미지 (mapImages 첫 항목)
 
+    // streams 에서 채워지는 경로 데이터
+    public var coordinates: [[Double]]?  // [[lat, lng], ...]
+    public var distances: [Double]?      // 각 포인트의 누적 거리 (m)
+    public var elevations: [Double]?     // 각 포인트의 고도 (m)
+
     // extract 단계에서 채워지는 enrich 값
     public var order: Int?
     public var startKm: Double?
@@ -111,12 +118,13 @@ public struct SegmentInfo: Sendable, Identifiable, Codable, Hashable {
         let rawName = pageProps.metadata?.name ?? "Unknown Segment Name"
         r.name = rawName.replacingOccurrences(of: "☆", with: "").trimmingCharacters(in: .whitespaces)
 
-        if let loc = pageProps.streams?.location, loc.count >= 2,
-           let first = loc.first, first.count == 2,
-           let last = loc.last, last.count == 2 {
-            r.startPoint = [first[0], first[1]]
-            r.endPoint = [last[0], last[1]]
+        if let loc = pageProps.streams?.location, loc.count >= 2 {
+            if let first = loc.first, first.count == 2 { r.startPoint = [first[0], first[1]] }
+            if let last = loc.last, last.count == 2    { r.endPoint   = [last[0],  last[1]]  }
+            r.coordinates = loc
         }
+        r.distances  = pageProps.streams?.distance
+        r.elevations = pageProps.streams?.elevation
 
         let m = pageProps.measurements
         r.distanceMeters = m?.distance
