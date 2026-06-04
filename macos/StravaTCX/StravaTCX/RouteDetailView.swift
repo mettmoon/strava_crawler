@@ -47,19 +47,28 @@ struct RouteDetailView: View {
     }
 
     private var readyView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                header
-                if let parseError {
-                    Label(parseError, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
+        TabView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    header
+                    if let parseError {
+                        Label(parseError, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
+                    summary
+                    segmentsSection
+                    coursePointsSection
                 }
-                summary
-                segmentsSection
-                coursePointsSection
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .tabItem { Label("상세", systemImage: "doc.text") }
+
+            RouteMapView(trackPoints: course?.trackPoints ?? [])
+                .tabItem { Label("지도", systemImage: "map.fill") }
+
+            Route3DView(trackPoints: course?.trackPoints ?? [])
+                .tabItem { Label("3D 경로", systemImage: "mountain.2.fill") }
         }
     }
 
