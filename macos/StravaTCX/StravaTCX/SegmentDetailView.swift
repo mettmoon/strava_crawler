@@ -6,6 +6,20 @@ struct SegmentDetailView: View {
     let segment: SegmentInfo
 
     var body: some View {
+        TabView {
+            infoTab
+                .tabItem { Label("상세", systemImage: "doc.text") }
+
+            RouteMapView(trackPoints: trackPoints)
+                .tabItem { Label("지도", systemImage: "map.fill") }
+
+            Route3DView(trackPoints: trackPoints)
+                .tabItem { Label("3D 경로", systemImage: "mountain.2.fill") }
+        }
+        .navigationTitle(segment.name)
+    }
+
+    private var infoTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if let urlString = segment.imageURL, let url = URL(string: urlString) {
@@ -72,7 +86,20 @@ struct SegmentDetailView: View {
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .navigationTitle(segment.name)
+    }
+
+    /// segment.coordinates + elevations → TrackPoint 배열 변환
+    private var trackPoints: [TrackPoint] {
+        guard let coords = segment.coordinates, !coords.isEmpty else { return [] }
+        let elevs = segment.elevations
+        let dists = segment.distances
+        return coords.enumerated().map { i, c in
+            let lat = c.count >= 1 ? c[0] : 0
+            let lon = c.count >= 2 ? c[1] : 0
+            let ele = elevs != nil && i < elevs!.count ? elevs![i] : nil
+            let cumKm = dists != nil && i < dists!.count ? dists![i] / 1000.0 : 0
+            return TrackPoint(lat: lat, lon: lon, ele: ele, time: nil, cumKm: cumKm)
+        }
     }
 
     @ViewBuilder
