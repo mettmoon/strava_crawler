@@ -53,6 +53,31 @@ private struct StravaSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section {
+                HStack {
+                    Text("저장 위치")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("Library/Caches/StravaTCX/segments")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Button("Finder에서 보기") {
+                    let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+                    let dir = base.appendingPathComponent("StravaTCX/segments", isDirectory: true)
+                    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    NSWorkspace.shared.open(dir)
+                }
+            } header: {
+                Text("세그먼트 캐시")
+            } footer: {
+                Text("한 번 받은 세그먼트 JSON이 저장됩니다. 삭제하면 다음 임포트 시 다시 다운로드합니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .onChange(of: cookie) { _, newValue in

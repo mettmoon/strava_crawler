@@ -105,6 +105,10 @@ final class ImportCoordinator {
             // 1) 원본 TCX
             let data = try await ds.downloadTCX(routeID: record.routeID, cookie: cookie)
             let course = try TCXCourse(data: data)
+            if let name = course.courseName, !name.isEmpty,
+               record.title.hasPrefix("Route ") {
+                record.title = name
+            }
 
             // 2) 세그먼트
             imports[key] = Progress(fraction: 0, message: "세그먼트 목록 가져오는 중…")

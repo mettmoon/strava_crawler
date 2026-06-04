@@ -77,6 +77,7 @@ final class MyRoutesLoader {
 struct MyRoutesView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var loader = MyRoutesLoader()
+    @State private var showURLImport = false
     let onSelect: (MyRoute) -> Void
 
     var body: some View {
@@ -84,6 +85,8 @@ struct MyRoutesView: View {
             HStack {
                 Text("내 경로").font(.headline)
                 Spacer()
+                Button("URL로 가져오기") { showURLImport = true }
+                    .buttonStyle(.bordered)
                 Button("닫기") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             .padding()
@@ -92,6 +95,12 @@ struct MyRoutesView: View {
         }
         .frame(width: 540, height: 620)
         .task { await loader.loadFirstPageIfNeeded() }
+        .sheet(isPresented: $showURLImport) {
+            URLImportView { route in
+                onSelect(route)
+                dismiss()
+            }
+        }
     }
 
     @ViewBuilder private var content: some View {
@@ -134,6 +143,61 @@ struct MyRoutesView: View {
                 }
             }
         }
+    }
+}
+
+private struct URLImportView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var urlText = ""
+    @State private var errorMessage: String?
+    let onSelect: (MyRoute) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("URL로 가져오기").font(.headline)
+            Text("Strava 경로 URL을 붙여넣으세요.")
+                .foregroundStyle(.secondary)
+                .font(.subheadline)
+            TextField("https://www.strava.com/routes/3495269006478904270", text: $urlText)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit { submit() }
+            if let error = errorMessage {
+                Text(error).foregroundStyle(.red).font(.caption)
+            }
+            HStack {
+                Spacer()
+                Button("취소") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("가져오기") { submit() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(urlText.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 440)
+    }
+
+    private func submit() {
+        errorMessage = nil
+        let trimmed = urlText.trimmingCharacters(in: .whitespaces)
+        guard let routeID = extractRouteID(from: trimmed) else {
+            errorMessage = "유효한 Strava 경로 URL이 아닙니다."
+            return
+        }
+        onSelect(MyRoute(id: routeID, name: "Route \(routeID)"))
+    }
+
+    /// https://www.strava.com/routes/<id> 또는 숫자 ID 직접 입력 지원.
+    private func extractRouteID(from text: String) -> String? {
+        // 숫자만 입력한 경우
+        if text.allSatisfy(\.isNumber), !text.isEmpty { return text }
+        // URL 경로에서 추출: /routes/<id>
+        guard let url = URL(string: text) else { return nil }
+        let components = url.pathComponents
+        if let idx = components.firstIndex(of: "routes"), idx + 1 < components.count {
+            let id = components[idx + 1]
+            if id.allSatisfy(\.isNumber), !id.isEmpty { return id }
+        }
+        return nil
     }
 }
 

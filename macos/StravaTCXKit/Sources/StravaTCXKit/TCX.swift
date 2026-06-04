@@ -37,6 +37,7 @@ public enum TCXError: Error, LocalizedError {
 public final class TCXCourse {
     public let originalData: Data
     public let trackPoints: [TrackPoint]
+    public let courseName: String?
 
     public init(data: Data) throws {
         self.originalData = data
@@ -44,6 +45,7 @@ public final class TCXCourse {
         guard let course = TCXCourse.firstElement(in: doc.rootElement(), localName: "Course") else {
             throw TCXError.noCourse
         }
+        self.courseName = TCXCourse.firstElement(in: course, localName: "Name")?.stringValue
         let pts = TCXCourse.parseTrackpoints(in: course)
         if pts.isEmpty { throw TCXError.noTrackpoints }
         self.trackPoints = pts
