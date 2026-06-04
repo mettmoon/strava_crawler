@@ -21,7 +21,35 @@ final class ImportCoordinator {
     private(set) var imports: [ObjectIdentifier: Progress] = [:]
 
     private let ds: StravaDataSource = LiveDataSource()
+    /// 인메모리 캐시 (이번 세션 안에서 중복 요청 방지)
     private var segmentCache: [String: SegmentInfo] = [:]
+
+    // MARK: - 디스크 캐시
+
+    /// 캐시 저장 디렉토리: ~/Library/Caches/StravaTCX/segments/
+    private static let cacheDir: URL = {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let dir = base.appendingPathComponent("StravaTCX/segments", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    private static func cacheFile(for segmentID: String) -> URL {
+        cacheDir.appendingPathComponent("\(segmentID).json")
+    }
+
+    /// 디스크에서 SegmentInfo 로드. 없거나 손상되면 nil.
+    private static func loadFromDisk(segmentID: String) -> SegmentInfo? {
+        let file = cacheFile(for: segmentID)
+        guard let data = try? Data(contentsOf: file) else { return nil }
+        return try? JSONDecoder().decode(SegmentInfo.self, from: data)
+    }
+
+    /// SegmentInfo 를 디스크에 저장.
+    private static func saveToDisk(_ info: SegmentInfo) {
+        guard let data = try? JSONEncoder().encode(info) else { return }
+        try? data.write(to: cacheFile(for: info.segmentID), options: .atomic)
+    }
 
     func progress(for record: RouteRecord) -> Progress? {
         imports[ObjectIdentifier(record)]
@@ -88,8 +116,14 @@ final class ImportCoordinator {
             for (i, id) in ids.enumerated() {
                 var info: SegmentInfo
                 if let cached = segmentCache[id] {
+                    // 1순위: 인메모리 캐시
                     info = cached
+                } else if let onDisk = Self.loadFromDisk(segmentID: id) {
+                    // 2순위: 디스크 캐시
+                    info = onDisk
+                    segmentCache[id] = onDisk
                 } else {
+                    // 네트워크 요청
                     if didFetch, interval > 0 {
                         try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
                     }
@@ -100,6 +134,7 @@ final class ImportCoordinator {
                     )
                     info = try await ds.fetchSegment(id: id, cookie: cookie)
                     segmentCache[id] = info
+                    Self.saveToDisk(info)
                 }
                 info.order = i + 1
                 segments.append(info)
