@@ -16,8 +16,7 @@ struct MainTabView: View {
     @State private var showingMyRoutes = false
     @State private var showingLogin = false
     @State private var showingLoginAlert = false
-    @State private var cachedCourse: TCXCourse?
-    @State private var cachedRouteID: String?
+    @State private var parsedCourse: TCXCourse?
     @State private var showRouteDeleteConfirm = false
     @State private var highlightPoints: [TrackPoint] = []
 
@@ -36,7 +35,7 @@ struct MainTabView: View {
 
     private var selectedTrackPoints: [TrackPoint] {
         switch selection {
-        case .route:          return cachedCourse?.trackPoints ?? []
+        case .route:          return parsedCourse?.trackPoints ?? []
         case .segment(let s): return trackPoints(for: s)
         case nil:             return []
         }
@@ -55,20 +54,15 @@ struct MainTabView: View {
                 }
         }
         .navigationSplitViewStyle(.balanced)
-        .onChange(of: selection) { _, newVal in
+        .onChange(of: selection) { _, _ in
             highlightPoints = []
-            guard case .route(let r) = newVal, r.status == .ready, !r.tcxData.isEmpty else {
-                cachedCourse = nil; cachedRouteID = nil; return
-            }
-            guard cachedRouteID != r.routeID else { return }
-            cachedCourse = try? TCXCourse(data: r.tcxData)
-            cachedRouteID = r.routeID
+            parsedCourse = nil
         }
         .focusedSceneValue(\.routeCommandHandler, {
             guard case .route(let record) = selection else { return nil }
             return RouteCommandHandler(
                 export: {
-                    guard let course = cachedCourse else { NSSound.beep(); return }
+                    guard let course = parsedCourse else { NSSound.beep(); return }
                     let entries = Cuesheet.makeEntries(
                         trackPoints: course.trackPoints,
                         segments: record.segments,
@@ -86,7 +80,7 @@ struct MainTabView: View {
                 delete: {
                     showRouteDeleteConfirm = true
                 },
-                canExport: cachedCourse != nil
+                canExport: parsedCourse != nil
             )
         }())
         .confirmationDialog(
@@ -226,7 +220,9 @@ struct MainTabView: View {
     private var inspectorPane: some View {
         switch selection {
         case .route(let record):
-            RouteDetailView(record: record, onHighlight: { pts in
+            RouteDetailView(record: record, onCourseParsed: { course in
+                parsedCourse = course
+            }, onHighlight: { pts in
                 highlightPoints = pts
             })
         case .segment(let segment):
