@@ -44,6 +44,39 @@ struct MainTabView: View {
         }
     }
 
+    private var selectedMarkers: [ElevationMarker] {
+        let pts = selectedTrackPoints
+        guard !pts.isEmpty else { return [] }
+        switch selection {
+        case .route(let record):
+            guard let course = parsedCourse else { return [] }
+            return Cuesheet.makeEntries(
+                trackPoints: course.trackPoints,
+                segments: record.segments,
+                minCategory: record.minCategory
+            ).entries.map { entry in
+                ElevationMarker(
+                    id: "\(entry.idx)-\(entry.isStart)",
+                    cumKm: pts[min(entry.idx, pts.count - 1)].cumKm,
+                    label: entry.baseName,
+                    color: entry.isStart ? .cyan : .purple
+                )
+            }
+        case .course(let c):
+            return c.cuePoints.compactMap { cue in
+                guard let idx = Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon) else { return nil }
+                return ElevationMarker(
+                    id: cue.id.uuidString,
+                    cumKm: pts[idx].cumKm,
+                    label: cue.name,
+                    color: .cyan
+                )
+            }
+        default:
+            return []
+        }
+    }
+
     // MARK: - body
 
     var body: some View {
@@ -254,7 +287,11 @@ struct MainTabView: View {
         } else {
             TabView {
                 Tab("지도", systemImage: "map.fill") {
-                    RouteMapView(trackPoints: selectedTrackPoints, highlightPoints: highlightPoints)
+                    VStack(spacing: 0) {
+                        RouteMapView(trackPoints: selectedTrackPoints, highlightPoints: highlightPoints)
+                        Divider()
+                        ElevationChartView(trackPoints: selectedTrackPoints, markers: selectedMarkers)
+                    }
                 }
                 Tab("3D 경로", systemImage: "mountain.2.fill") {
                     Route3DView(trackPoints: selectedTrackPoints, highlightPoints: highlightPoints)

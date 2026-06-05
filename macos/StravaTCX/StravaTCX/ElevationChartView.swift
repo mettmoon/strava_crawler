@@ -1,0 +1,494 @@
+import SwiftUI
+import AppKit
+import StravaTCXKit
+
+// MARK: - ElevationChartView
+
+struct ElevationChartView: View {
+    let trackPoints: [TrackPoint]
+    var markers: [ElevationMarker] = []
+
+    @State private var scale: CGFloat = 1.0
+    @State private var lastScale: CGFloat = 1.0
+    @State private var actualRowCount: Int = 0
+    @State private var viewWidth: CGFloat = 0
+    @State private var chartBodyHeight: CGFloat = 120
+    @State private var showCustomPopover = false
+
+    private let rowHeight: CGFloat = 16
+    private let rowPad: CGFloat = 4
+    private let minPixelsPerKm: CGFloat = 40
+    private let maxScale: CGFloat = 30.0
+    private let scaleStep: CGFloat = 1.4
+    private let approxCharW: CGFloat = 6.5
+
+    /// 자연 너비: scale=1 일 때의 콘텐츠 폭
+    private var naturalWidth: CGFloat { CGFloat(totalKm) * minPixelsPerKm }
+
+    /// 전체 경로가 한 화면에 딱 맞는 스케일
+    private var minScale: CGFloat {
+        guard viewWidth > 0, naturalWidth > 0 else { return 1.0 }
+        return viewWidth / naturalWidth
+    }
+
+    private var stripH: CGFloat {
+        actualRowCount == 0 ? 0 : rowPad + CGFloat(actualRowCount) * rowHeight + rowPad
+    }
+    private var totalHeight: CGFloat { stripH + chartBodyHeight + 16 }
+
+    var body: some View {
+        GeometryReader { geo in
+            // contentWidth: naturalWidth * scale, 최소 뷰 너비
+            let contentWidth = max(geo.size.width, naturalWidth * scale)
+            let placements = computePlacements(contentWidth: contentWidth)
+
+            ZStack(alignment: .bottomTrailing) {
+                ScrollView(.horizontal, showsIndicators: true) {
+                    Canvas { ctx, size in
+                        drawChart(ctx: ctx, size: size,
+                                  stripH: stripH, placements: placements)
+                    }
+                    .frame(width: contentWidth, height: stripH + chartBodyHeight)
+                    .background(
+                        WheelZoomView { delta in applyZoom(delta: delta) }
+                    )
+                }
+                .gesture(
+                    MagnifyGesture()
+                        .onChanged { v in
+                            scale = clamped(lastScale * v.magnification)
+                        }
+                        .onEnded { v in
+                            scale = clamped(lastScale * v.magnification)
+                            lastScale = scale
+                        }
+                )
+
+                // 컨트롤 버튼
+                HStack(spacing: 4) {
+                    Button { scaleBy(1 / scaleStep) } label: {
+                        Image(systemName: "minus.magnifyingglass")
+                    }
+                    .disabled(scale <= minScale)
+                    Button { scaleBy(scaleStep) } label: {
+                        Image(systemName: "plus.magnifyingglass")
+                    }
+                    .disabled(scale >= maxScale)
+
+                    Divider().frame(height: 14)
+
+                    Button {
+                        showCustomPopover.toggle()
+                    } label: {
+                        Text("커스텀").font(.caption)
+                    }
+                    .popover(isPresented: $showCustomPopover, arrowEdge: .bottom) {
+                        let eleSpanM: Double = {
+                            let eles = trackPoints.compactMap(\.ele)
+                            guard let mn = eles.min(), let mx = eles.max() else { return 100 }
+                            return max(mx - mn, 1)
+                        }()
+                        CustomScalePopover(
+                            pxPerKm: naturalWidth > 0 ? Double(naturalWidth * scale / CGFloat(totalKm)) : 40,
+                            pxPerM: Double(chartBodyHeight) / eleSpanM,
+                            eleSpanM: eleSpanM,
+                            totalKm: totalKm,
+                            onApply: { pxPerKm, pxPerM in
+                                if totalKm > 0, naturalWidth > 0 {
+                                    let newScale = CGFloat(pxPerKm) * CGFloat(totalKm) / naturalWidth
+                                    scale = max(minScale, newScale)
+                                    lastScale = scale
+                                }
+                                chartBodyHeight = max(40, CGFloat(pxPerM * eleSpanM))
+                                recalcRowCount()
+                            }
+                        )
+                    }
+                }
+                .buttonStyle(.borderless)
+                .padding(5)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                .padding(.trailing, 8)
+                .padding(.bottom, 16)
+            }
+            .onAppear {
+                viewWidth = geo.size.width
+                resetScale()
+            }
+            .onChange(of: geo.size.width) { _, w in viewWidth = w }
+        }
+        .frame(height: totalHeight)
+        .onChange(of: scale)              { _, _ in recalcRowCount() }
+        .onChange(of: markers)            { _, _ in recalcRowCount() }
+        .onChange(of: trackPoints.count)  { _, _ in resetScale() }
+    }
+
+    // MARK: - 레이블 배치 계산
+
+    struct Placement {
+        let mx: CGFloat
+        let my: CGFloat   // 차트 내부 기준 y (stripH 더해야 canvas y)
+        let row: Int
+        let label: String
+        let color: Color
+    }
+
+    private func computePlacements(contentWidth: CGFloat) -> [Placement] {
+        guard !markers.isEmpty, totalKm > 0 else { return [] }
+        guard let (minEle, maxEle) = eleRange, maxEle > minEle else { return [] }
+        let eleSpan = maxEle - minEle
+
+        func xPos(_ km: Double) -> CGFloat {
+            CGFloat(km / totalKm) * contentWidth
+        }
+        func yBody(_ ele: Double) -> CGFloat {
+            let vPad: CGFloat = 6
+            let ratio = CGFloat((ele - minEle) / eleSpan)
+            return (chartBodyHeight - vPad) - ratio * (chartBodyHeight - vPad * 2)
+        }
+
+        var raw: [(mx: CGFloat, my: CGFloat, label: String, color: Color)] = []
+        for marker in markers {
+            guard let idx = nearestIndex(to: marker.cumKm),
+                  let ele = trackPoints[idx].ele else { continue }
+            raw.append((
+                mx: xPos(trackPoints[idx].cumKm),
+                my: yBody(ele),
+                label: marker.label,
+                color: marker.color
+            ))
+        }
+        raw.sort { $0.mx < $1.mx }
+
+        // 각 행의 현재 오른쪽 끝 (label right edge)
+        var rowRightEdge: [CGFloat] = []
+        let gap: CGFloat = 6
+
+        var result: [Placement] = []
+        for r in raw {
+            let labelW = CGFloat(r.label.count) * approxCharW
+            let left   = r.mx - labelW / 2
+            let right  = left + labelW
+
+            // 겹치지 않는 가장 낮은 행 찾기
+            var assignedRow = 0
+            for row in 0... {
+                if row >= rowRightEdge.count || rowRightEdge[row] + gap <= left {
+                    assignedRow = row
+                    break
+                }
+            }
+            while rowRightEdge.count <= assignedRow { rowRightEdge.append(-999) }
+            rowRightEdge[assignedRow] = right
+            result.append(Placement(mx: r.mx, my: r.my,
+                                    row: assignedRow,
+                                    label: r.label, color: r.color))
+        }
+        return result
+    }
+
+    // MARK: - Canvas 그리기
+
+    private func drawChart(ctx: GraphicsContext, size: CGSize,
+                           stripH: CGFloat, placements: [Placement]) {
+        guard let (minEle, maxEle) = eleRange, maxEle > minEle else { return }
+        let eleSpan  = maxEle - minEle
+        let bodyTop  = stripH
+        let bodyBot  = size.height
+        let bodyH    = bodyBot - bodyTop
+        let vPad: CGFloat = 6
+
+        func xPos(_ km: Double) -> CGFloat {
+            guard totalKm > 0 else { return 0 }
+            return CGFloat(km / totalKm) * size.width
+        }
+        func yPos(_ ele: Double) -> CGFloat {
+            let ratio = CGFloat((ele - minEle) / eleSpan)
+            return bodyBot - vPad - ratio * (bodyH - vPad * 2)
+        }
+
+        // ── 고도 채우기 ────────────────────────────────────────
+        let elevPts = trackPoints.compactMap { tp -> CGPoint? in
+            guard let e = tp.ele else { return nil }
+            return CGPoint(x: xPos(tp.cumKm), y: yPos(e))
+        }
+        guard elevPts.count >= 2 else { return }
+
+        var fillPath = Path()
+        fillPath.move(to: CGPoint(x: elevPts[0].x, y: bodyBot))
+        elevPts.forEach { fillPath.addLine(to: $0) }
+        fillPath.addLine(to: CGPoint(x: elevPts.last!.x, y: bodyBot))
+        fillPath.closeSubpath()
+
+        ctx.fill(fillPath, with: .linearGradient(
+            Gradient(colors: [Color.orange.opacity(0.55), Color.orange.opacity(0.12)]),
+            startPoint: CGPoint(x: 0, y: bodyTop),
+            endPoint: CGPoint(x: 0, y: bodyBot)
+        ))
+
+        var linePath = Path()
+        linePath.move(to: elevPts[0])
+        elevPts.dropFirst().forEach { linePath.addLine(to: $0) }
+        ctx.stroke(linePath, with: .color(.orange),
+                   style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+
+        // ── 거리 눈금 ─────────────────────────────────────────
+        // 픽셀/km → 눈금 간격 선택 (눈금 간격이 최소 50px 이상이 되도록)
+        let pxPerKm = totalKm > 0 ? size.width / CGFloat(totalKm) : size.width
+        let minTickPx: CGFloat = 50
+        let candidates: [Double] = [0.5, 1, 2, 5, 10, 20, 25, 50, 100, 200]
+        let tickInterval = candidates.first { $0 * Double(pxPerKm) >= Double(minTickPx) } ?? candidates.last!
+
+        let tickAttrs = AttributeContainer([
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 8, weight: .regular),
+            .foregroundColor: NSColor.tertiaryLabelColor
+        ])
+        let firstTick = ceil(0 / tickInterval) * tickInterval
+        var km = firstTick
+        while km <= totalKm + tickInterval * 0.01 {
+            let tx = xPos(km)
+            // 눈금선 (차트 하단 ~ bodyBot)
+            var tick = Path()
+            tick.move(to: CGPoint(x: tx, y: bodyBot - 8))
+            tick.addLine(to: CGPoint(x: tx, y: bodyBot))
+            ctx.stroke(tick, with: .color(.secondary.opacity(0.4)),
+                       style: StrokeStyle(lineWidth: 0.5))
+            // 눈금 레이블
+            let label = km < 1 ? String(format: "%.1fkm", km) : "\(Int(km))km"
+            ctx.draw(Text(AttributedString(label, attributes: tickAttrs)),
+                     at: CGPoint(x: tx + 2, y: bodyBot - 9), anchor: .bottomLeading)
+            km += tickInterval
+        }
+
+        // ── 고도 min/max 레이블 ────────────────────────────────
+        let eleAttrs = AttributeContainer([
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .regular),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ])
+        ctx.draw(Text(AttributedString("\(Int(maxEle))m", attributes: eleAttrs)),
+                 at: CGPoint(x: 4, y: bodyTop + vPad), anchor: .topLeading)
+        ctx.draw(Text(AttributedString("\(Int(minEle))m", attributes: eleAttrs)),
+                 at: CGPoint(x: 4, y: bodyBot - vPad), anchor: .bottomLeading)
+
+        // stripH 구분선
+        if stripH > 0 {
+            var div = Path()
+            div.move(to: CGPoint(x: 0, y: bodyTop - 0.5))
+            div.addLine(to: CGPoint(x: size.width, y: bodyTop - 0.5))
+            ctx.stroke(div, with: .color(.secondary.opacity(0.2)),
+                       style: StrokeStyle(lineWidth: 0.5))
+        }
+
+        // ── 마커 ──────────────────────────────────────────────
+        for p in placements {
+            let canvasMY = bodyTop + p.my  // canvas 좌표계
+
+            // 수직 구분선 (차트 영역 전체)
+            var vLine = Path()
+            vLine.move(to: CGPoint(x: p.mx, y: bodyTop))
+            vLine.addLine(to: CGPoint(x: p.mx, y: bodyBot))
+            ctx.stroke(vLine, with: .color(p.color.opacity(0.35)),
+                       style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+
+            // 레이블 y (행 기준)
+            let labelY = rowPad + CGFloat(p.row) * rowHeight
+            let labelW = CGFloat(p.label.count) * approxCharW
+            let labelCX = p.mx  // 레이블 중앙 = 마커 x
+            let labelMidY = labelY + rowHeight / 2
+
+            // 레이블 → 차트 연결 수직선 (레이블 아래 ~ 차트 상단)
+            var stem = Path()
+            stem.move(to: CGPoint(x: p.mx, y: labelY + rowHeight - 1))
+            stem.addLine(to: CGPoint(x: p.mx, y: bodyTop))
+            ctx.stroke(stem, with: .color(p.color.opacity(0.4)),
+                       style: StrokeStyle(lineWidth: 0.8))
+
+            // 레이블 배경 pill
+            let pillRect = CGRect(x: labelCX - labelW / 2 - 3,
+                                  y: labelY + 1,
+                                  width: labelW + 6,
+                                  height: rowHeight - 3)
+            ctx.fill(Path(roundedRect: pillRect, cornerRadius: 3),
+                     with: .color(p.color.opacity(0.15)))
+
+            // 레이블 텍스트
+            let textAttrs = AttributeContainer([
+                .font: NSFont.systemFont(ofSize: 9, weight: .medium),
+                .foregroundColor: NSColor(p.color)
+            ])
+            ctx.draw(Text(AttributedString(p.label, attributes: textAttrs)),
+                     at: CGPoint(x: labelCX, y: labelMidY), anchor: .center)
+
+            // 마커 점 (고도 위치)
+            let r: CGFloat = 3.5
+            ctx.fill(Path(ellipseIn: CGRect(x: p.mx - r, y: canvasMY - r,
+                                            width: r * 2, height: r * 2)),
+                     with: .color(p.color))
+        }
+    }
+
+    // MARK: - 헬퍼
+
+    private var totalKm: Double { trackPoints.last?.cumKm ?? 1 }
+
+    private var eleRange: (Double, Double)? {
+        let eles = trackPoints.compactMap(\.ele)
+        guard let mn = eles.min(), let mx = eles.max() else { return nil }
+        let pad = max((mx - mn) * 0.08, 8)
+        return (mn - pad, mx + pad)
+    }
+
+    private func nearestIndex(to km: Double) -> Int? {
+        guard !trackPoints.isEmpty else { return nil }
+        var best = 0
+        var bestDist = Double.infinity
+        for (i, tp) in trackPoints.enumerated() {
+            let d = abs(tp.cumKm - km)
+            if d < bestDist { bestDist = d; best = i }
+        }
+        return best
+    }
+
+    private func clamped(_ s: CGFloat) -> CGFloat {
+        min(maxScale, max(minScale, s))
+    }
+
+    private func applyZoom(delta: CGFloat) {
+        scale = clamped(scale * (1 + delta * 0.06))
+        lastScale = scale
+    }
+
+    private func scaleBy(_ factor: CGFloat) {
+        scale = clamped(scale * factor)
+        lastScale = scale
+    }
+
+    private func resetScale() {
+        scale = minScale
+        lastScale = minScale
+        recalcRowCount()
+    }
+
+    private func recalcRowCount() {
+        let w = max(viewWidth > 0 ? viewWidth : 1000, naturalWidth * scale)
+        let p = computePlacements(contentWidth: w)
+        actualRowCount = (p.map(\.row).max() ?? -1) + 1
+    }
+}
+
+// MARK: - 마우스 휠 줌
+
+private struct WheelZoomView: NSViewRepresentable {
+    var onDelta: (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> _WheelView { _WheelView(onDelta: onDelta) }
+    func updateNSView(_ v: _WheelView, context: Context) { v.onDelta = onDelta }
+
+    class _WheelView: NSView {
+        var onDelta: (CGFloat) -> Void
+        init(onDelta: @escaping (CGFloat) -> Void) {
+            self.onDelta = onDelta
+            super.init(frame: .zero)
+        }
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func scrollWheel(with event: NSEvent) {
+            if !event.hasPreciseScrollingDeltas {
+                // 마우스 클릭 휠 → 줌
+                onDelta(-event.scrollingDeltaY)
+            } else {
+                // 트랙패드 두 손가락 스크롤 → ScrollView 에 위임
+                super.scrollWheel(with: event)
+            }
+        }
+    }
+}
+
+// MARK: - CustomScalePopover
+
+private struct CustomScalePopover: View {
+    let pxPerKm: Double
+    let pxPerM: Double
+    let eleSpanM: Double
+    let totalKm: Double
+    let onApply: (Double, Double) -> Void
+
+    @State private var pxPerKmText: String = ""
+    @State private var pxPerMText: String = ""
+    @Environment(\.dismiss) private var dismiss
+
+    private var previewKmPt: String {
+        let v = Double(pxPerKmText) ?? pxPerKm
+        return String(format: "총 %.0fkm → %.0fpt", totalKm, v * totalKm)
+    }
+    private var previewMPt: String {
+        let v = Double(pxPerMText) ?? pxPerM
+        return String(format: "고도차 %.0fm → %.0fpt", eleSpanM, v * eleSpanM)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("커스텀 비율").font(.headline)
+
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 8, verticalSpacing: 8) {
+                GridRow {
+                    Text("거리").foregroundStyle(.secondary).font(.caption)
+                    HStack(spacing: 4) {
+                        TextField("", text: $pxPerKmText)
+                            .frame(width: 70)
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.trailing)
+                        Text("pt / km").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                GridRow {
+                    Color.clear.frame(width: 1, height: 1)
+                    Text(previewKmPt).font(.caption).foregroundStyle(.tertiary)
+                }
+                Divider().gridCellUnsizedAxes(.horizontal)
+                GridRow {
+                    Text("고도").foregroundStyle(.secondary).font(.caption)
+                    HStack(spacing: 4) {
+                        TextField("", text: $pxPerMText)
+                            .frame(width: 70)
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.trailing)
+                        Text("pt / m").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                GridRow {
+                    Color.clear.frame(width: 1, height: 1)
+                    Text(previewMPt).font(.caption).foregroundStyle(.tertiary)
+                }
+            }
+
+            HStack {
+                Button("취소") { dismiss() }
+                Spacer()
+                Button("적용") {
+                    let newPxKm = Double(pxPerKmText) ?? pxPerKm
+                    let newPxM  = Double(pxPerMText)  ?? pxPerM
+                    onApply(newPxKm, newPxM)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.return, modifiers: [])
+            }
+        }
+        .padding(16)
+        .frame(width: 300)
+        .onAppear {
+            pxPerKmText = String(format: "%.2f", pxPerKm)
+            pxPerMText  = String(format: "%.3f", pxPerM)
+        }
+    }
+}
+
+// MARK: - ElevationMarker
+
+struct ElevationMarker: Identifiable, Equatable {
+    var id: String
+    var cumKm: Double
+    var label: String
+    var color: Color
+}
