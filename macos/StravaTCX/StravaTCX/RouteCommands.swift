@@ -2,9 +2,18 @@ import SwiftUI
 
 struct RouteCommands: Commands {
     @FocusedValue(\.routeCommandHandler) private var handler
+    @FocusedValue(\.addRouteAction) private var addRoute
 
     var body: some Commands {
         CommandMenu("경로") {
+            Button("경로 추가…") {
+                addRoute?()
+            }
+            .disabled(addRoute == nil)
+            .keyboardShortcut("N", modifiers: [.command])
+
+            Divider()
+
             Button("TCX 내보내기…") {
                 handler?.export()
             }

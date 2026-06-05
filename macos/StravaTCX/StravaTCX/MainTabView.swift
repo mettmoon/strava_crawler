@@ -165,6 +165,7 @@ struct MainTabView: View {
             )
         }())
         .focusedSceneValue(\.createCourseAction, { createCourse() })
+        .focusedSceneValue(\.addRouteAction, { addTapped() })
         .focusedSceneValue(\.selectedSegment, {
             guard case .segment(let s) = selection else { return nil }
             return s
@@ -268,15 +269,6 @@ struct MainTabView: View {
         }
         .navigationTitle("Strava TCX")
         .navigationSplitViewColumnWidth(min: 220, ideal: 240)
-        .toolbar {
-            if sidebarTab != .courses {
-                ToolbarItem(placement: .primaryAction) {
-                    Button(action: addTapped) {
-                        Label("추가하기", systemImage: "plus")
-                    }
-                }
-            }
-        }
     }
 
     // MARK: - Content (지도 + 3D 탭)
