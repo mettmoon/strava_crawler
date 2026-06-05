@@ -249,7 +249,10 @@ struct RouteDetailView: View {
             segments: record.segments,
             minCategory: record.minCategory
         ).entries
-        record.coursePointCount = entries.count
+        // 실제로 바뀔 때만 저장해 불필요한 SwiftData 변경 알림 방지
+        if record.coursePointCount != entries.count {
+            record.coursePointCount = entries.count
+        }
     }
 }
 
