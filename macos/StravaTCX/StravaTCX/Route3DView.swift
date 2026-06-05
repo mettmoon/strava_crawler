@@ -50,51 +50,69 @@ struct SceneKitRouteView: NSViewRepresentable {
     let exaggeration: Double
     let pathWidth: Double
 
+    // MARK: Coordinator — 씬과 정규화 파라미터를 캐시
+
+    final class Coordinator {
+        // TrackPoint는 Equatable 미준수 → cumKm 배열로 동일성 판단
+        var builtPointSignature: [Double] = []
+        var builtExaggeration: Double = 0
+        var builtHalfWidth: Float = 0
+
+        var cachedScene: RouteGeometryBuilder.RouteScene?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeNSView(context: Context) -> SCNView {
         let view = SCNView()
         view.allowsCameraControl = true
         view.autoenablesDefaultLighting = false
         view.antialiasingMode = .multisampling4X
         view.backgroundColor = NSColor(calibratedRed: 0.08, green: 0.10, blue: 0.14, alpha: 1)
-        view.scene = buildScene()
+        rebuildScene(view: view, context: context)
         return view
     }
 
     func updateNSView(_ view: SCNView, context: Context) {
-        view.scene = buildScene()
+        let coordinator = context.coordinator
+        let signature = trackPoints.map(\.cumKm)
+        let needsRebuild = coordinator.builtPointSignature != signature
+            || coordinator.builtExaggeration != exaggeration
+            || coordinator.builtHalfWidth != Float(pathWidth)
+
+        if needsRebuild {
+            rebuildScene(view: view, context: context)
+        } else {
+            updateHighlightPins(in: view, scene: coordinator.cachedScene)
+        }
     }
 
-    // MARK: - Scene 구성
+    // MARK: - 씬 전체 재구성 (trackPoints / exaggeration / pathWidth 변경 시에만)
 
-    private func buildScene() -> SCNScene {
+    private func rebuildScene(view: SCNView, context: Context) {
+        let coordinator = context.coordinator
+        let builder = RouteGeometryBuilder(points: trackPoints,
+                                           exaggeration: exaggeration,
+                                           halfWidth: Float(pathWidth))
+        let result = builder.build()
+        coordinator.cachedScene = result
+        coordinator.builtPointSignature = trackPoints.map(\.cumKm)
+        coordinator.builtExaggeration = exaggeration
+        coordinator.builtHalfWidth = Float(pathWidth)
+
         let scene = SCNScene()
-        let result = RouteGeometryBuilder(points: trackPoints, exaggeration: exaggeration, halfWidth: Float(pathWidth)).build()
-
-        // 수직 벽 (반투명, 경로 아래)
         scene.rootNode.addChildNode(SCNNode(geometry: result.wallGeometry))
-
-        // 메인 리본 경로
         scene.rootNode.addChildNode(SCNNode(geometry: result.pathGeometry))
 
-        // 시작/종료 마커 (하이라이트 구간이 있으면 핀으로 표시)
-        if highlightPoints.count >= 2 {
-            let builder = RouteGeometryBuilder(points: trackPoints, exaggeration: exaggeration, halfWidth: Float(pathWidth))
-            scene.rootNode.addChildNode(pinNode(at: builder.position(for: highlightPoints.first!), color: .systemGreen))
-            scene.rootNode.addChildNode(pinNode(at: builder.position(for: highlightPoints.last!),  color: .systemRed))
-        } else {
-            scene.rootNode.addChildNode(markerNode(at: result.startPosition, color: .systemGreen))
-            scene.rootNode.addChildNode(markerNode(at: result.endPosition,   color: .systemRed))
-        }
+        // 시작/종료 마커 (하이라이트 없을 때 기본)
+        scene.rootNode.addChildNode(markerNode(at: result.startPosition, color: .systemGreen))
+        scene.rootNode.addChildNode(markerNode(at: result.endPosition,   color: .systemRed))
 
-        // 바닥 그리드
         scene.rootNode.addChildNode(groundGrid(size: 140))
-
-        // 조명: 위쪽 방향 + 부드러운 앰비언트
         scene.rootNode.addChildNode(directionalLight(direction: SCNVector3(-0.4, -1, -0.6), intensity: 800))
         scene.rootNode.addChildNode(directionalLight(direction: SCNVector3( 0.4, -0.5,  0.6), intensity: 300))
         scene.rootNode.addChildNode(ambientLight(intensity: 200))
 
-        // 카메라
         let cam = SCNNode()
         cam.camera = SCNCamera()
         cam.camera?.zFar = 1000
@@ -102,7 +120,41 @@ struct SceneKitRouteView: NSViewRepresentable {
         cam.look(at: SCNVector3(0, 8, 0))
         scene.rootNode.addChildNode(cam)
 
-        return scene
+        view.scene = scene
+        updateHighlightPins(in: view, scene: result)
+    }
+
+    // MARK: - 하이라이트 핀만 교체
+
+    private func updateHighlightPins(in view: SCNView, scene: RouteGeometryBuilder.RouteScene?) {
+        guard let root = view.scene?.rootNode else { return }
+
+        // 기존 핀 제거
+        for name in ["highlight-start", "highlight-end"] {
+            root.childNode(withName: name, recursively: false)?.removeFromParentNode()
+        }
+
+        guard highlightPoints.count >= 2, let scene else { return }
+
+        let startPos = position(for: highlightPoints.first!, normParams: scene.normParams)
+        let endPos   = position(for: highlightPoints.last!,  normParams: scene.normParams)
+
+        let startPin = pinNode(at: startPos, color: .systemGreen)
+        startPin.name = "highlight-start"
+        let endPin = pinNode(at: endPos, color: .systemRed)
+        endPin.name = "highlight-end"
+
+        root.addChildNode(startPin)
+        root.addChildNode(endPin)
+    }
+
+    /// 캐시된 정규화 파라미터로 TrackPoint의 3D 위치를 계산한다.
+    private func position(for point: TrackPoint,
+                          normParams p: RouteGeometryBuilder.NormParams) -> SCNVector3 {
+        let x = Float((point.lon - p.centerLon) * p.mPerDegLon * p.hScale)
+        let z = Float(-(point.lat - p.centerLat) * p.mPerDegLat * p.hScale)
+        let y = Float(((point.ele ?? p.eleMin) - p.eleMin) * p.eleScale)
+        return SCNVector3(x, y, z)
     }
 
     // MARK: - 헬퍼 노드
@@ -119,7 +171,6 @@ struct SceneKitRouteView: NSViewRepresentable {
         return node
     }
 
-    /// 옷핀 형태 마커: 막대 + 머리 구슬, 경로 위로 띄워서 z-fighting 방지
     private func pinNode(at position: SCNVector3, color: NSColor) -> SCNNode {
         let pinHeight: Float = 6.0
         let headRadius: Float = 1.4
@@ -129,13 +180,11 @@ struct SceneKitRouteView: NSViewRepresentable {
         mat.lightingModel = .blinn
         mat.specular.contents = NSColor.white
 
-        // 막대
         let stick = SCNCylinder(radius: 0.25, height: CGFloat(pinHeight))
         stick.firstMaterial = mat
         let stickNode = SCNNode(geometry: stick)
         stickNode.position = SCNVector3(0, pinHeight / 2, 0)
 
-        // 머리 구슬
         let head = SCNSphere(radius: CGFloat(headRadius))
         head.firstMaterial = mat
         let headNode = SCNNode(geometry: head)
@@ -144,7 +193,6 @@ struct SceneKitRouteView: NSViewRepresentable {
         let root = SCNNode()
         root.addChildNode(stickNode)
         root.addChildNode(headNode)
-        // 경로 표면에서 살짝 위로 올려 z-fighting 방지
         root.position = SCNVector3(position.x, position.y + 0.5, position.z)
         return root
     }
@@ -152,7 +200,6 @@ struct SceneKitRouteView: NSViewRepresentable {
     private func groundGrid(size: Float) -> SCNNode {
         let plane = SCNPlane(width: CGFloat(size), height: CGFloat(size))
         let mat = SCNMaterial()
-        // 격자 이미지를 코드로 생성
         mat.diffuse.contents = gridImage(size: 512, cells: 20)
         mat.isDoubleSided = true
         mat.lightingModel = .constant
@@ -160,7 +207,6 @@ struct SceneKitRouteView: NSViewRepresentable {
         plane.firstMaterial = mat
 
         let node = SCNNode(geometry: plane)
-        // SCNPlane은 XY 평면 → XZ 평면으로 눕힘
         node.eulerAngles.x = -.pi / 2
         node.position = SCNVector3(0, -0.05, 0)
         return node
