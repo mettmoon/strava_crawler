@@ -17,7 +17,7 @@ struct SegmentCommands: Commands {
 
             Button("다시 불러오기") {
                 guard let h = handler else { return }
-                Task { await h.reload() }
+                Task { try await h.reload() }
             }
             .disabled(selectedSegment == nil)
             .keyboardShortcut("R", modifiers: [.command, .shift])
@@ -25,7 +25,8 @@ struct SegmentCommands: Commands {
             Divider()
 
             Button("삭제하기") {
-                handler?.delete()
+                guard let h = handler else { return }
+                Task { try? await h.delete() }
             }
             .disabled(selectedSegment == nil)
         }

@@ -12,7 +12,7 @@ final class RouteRecord {
     var title: String = ""
     var createdAt: Date = Date()
 
-    /// 추가 파이프라인 진행 상태. 진행률(fraction)은 영속하지 않고 ImportCoordinator 가 인메모리로 관리.
+    /// 추가 파이프라인 진행 상태. 진행률(fraction)은 영속하지 않고 RouteListViewModel 이 인메모리로 관리.
     var statusRaw: String = Status.ready.rawValue
     var errorMessage: String?
 

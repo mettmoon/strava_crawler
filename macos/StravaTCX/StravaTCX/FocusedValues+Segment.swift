@@ -14,8 +14,8 @@ extension FocusedValues {
 /// Commands 블록에서 modelContext·coordinator 에 접근할 수 없으므로,
 /// MainTabView 가 액션 클로저를 묶어서 FocusedValue 로 주입한다.
 struct SegmentCommandHandler {
-    var reload: () async -> Void
-    var delete: () -> Void
+    var reload: () async throws -> Void
+    var delete: () async throws -> Void
 }
 
 struct RouteCommandHandler {

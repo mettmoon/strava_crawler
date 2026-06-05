@@ -2,8 +2,8 @@ import SwiftUI
 import StravaTCXKit
 
 struct RouteRow: View {
-    @Environment(ImportCoordinator.self) private var coordinator
-    let route: RouteRecord
+    let route: Route
+    let progress: ImportRouteUseCase.Progress?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -14,14 +14,13 @@ struct RouteRow: View {
             Group {
                 switch route.status {
                 case .processing:
-                    let p = coordinator.progress(for: route)
                     HStack(spacing: 6) {
-                        if let fraction = p?.fraction {
+                        if let fraction = progress?.fraction {
                             ProgressView(value: fraction).frame(maxWidth: 100)
                         } else {
                             ProgressView().controlSize(.mini)
                         }
-                        Text(p?.message ?? "처리 중…").lineLimit(1)
+                        Text(progress?.message ?? "처리 중…").lineLimit(1)
                     }
                 case .failed:
                     Label(route.errorMessage ?? "처리 실패", systemImage: "exclamationmark.triangle.fill")

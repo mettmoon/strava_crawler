@@ -6,11 +6,10 @@ import StravaTCXKit
 private enum SidebarTab { case routes, segments, courses }
 
 struct MainTabView: View {
-    @Environment(\.modelContext) private var context
     @Environment(\.openWindow) private var openWindow
-    @Environment(ImportCoordinator.self) private var coordinator
-    @Query(sort: \RouteRecord.createdAt, order: .reverse) private var routes: [RouteRecord]
+    @Environment(RouteListViewModel.self) private var routeVM
     @Query(sort: \CourseRecord.createdAt, order: .reverse) private var courses: [CourseRecord]
+    @Environment(\.modelContext) private var context
 
     @State private var selection: SidebarItem?
     @State private var sidebarTab: SidebarTab = .routes
@@ -28,7 +27,7 @@ struct MainTabView: View {
     private var segments: [SegmentInfo] {
         var seen = Set<String>()
         var result: [SegmentInfo] = []
-        for route in routes {
+        for route in routeVM.routes {
             for seg in route.segments where seen.insert(seg.segmentID).inserted {
                 result.append(seg)
             }
@@ -49,12 +48,12 @@ struct MainTabView: View {
         switch selection {
         case .course(let c):
             return c.cuePoints
-        case .route(let record):
+        case .route(let route):
             guard let course = parsedCourse else { return [] }
             return Cuesheet.makeEntries(
                 trackPoints: course.trackPoints,
-                segments: record.segments,
-                minCategory: record.minCategory
+                segments: route.segments,
+                minCategory: route.minCategory
             ).entries.map { entry in
                 CourseCuePoint(lat: entry.lat, lon: entry.lon,
                                name: entry.baseName, pointType: entry.pointType)
@@ -68,12 +67,12 @@ struct MainTabView: View {
         let pts = selectedTrackPoints
         guard !pts.isEmpty else { return [] }
         switch selection {
-        case .route(let record):
+        case .route(let route):
             guard let course = parsedCourse else { return [] }
             return Cuesheet.makeEntries(
                 trackPoints: course.trackPoints,
-                segments: record.segments,
-                minCategory: record.minCategory
+                segments: route.segments,
+                minCategory: route.minCategory
             ).entries.map { entry in
                 ElevationMarker(
                     id: "\(entry.idx)-\(entry.isStart)",
@@ -115,30 +114,30 @@ struct MainTabView: View {
             parsedCourse = nil
         }
         .focusedSceneValue(\.routeCommandHandler, {
-            guard case .route(let record) = selection else { return nil }
+            guard case .route(let route) = selection else { return nil }
             return RouteCommandHandler(
                 export: {
                     guard let course = parsedCourse else { NSSound.beep(); return }
                     let entries = Cuesheet.makeEntries(
                         trackPoints: course.trackPoints,
-                        segments: record.segments,
-                        minCategory: record.minCategory
+                        segments: route.segments,
+                        minCategory: route.minCategory
                     ).entries
                     guard let cued = try? course.build(entries: entries, forRWGPS: false),
                           let rwgps = try? course.build(entries: entries, forRWGPS: true) else {
                         NSSound.beep(); return
                     }
-                    Exporter.saveToFolder(prefix: record.fileNamePrefix, cued: cued.data, rwgps: rwgps.data)
+                    Exporter.saveToFolder(prefix: route.fileNamePrefix, cued: cued.data, rwgps: rwgps.data)
                 },
                 redownload: {
-                    coordinator.redownload(record)
+                    routeVM.retry(routeID: route.id)
                 },
                 delete: {
                     showRouteDeleteConfirm = true
                 },
                 makeIntoCourse: {
                     guard let course = parsedCourse else { NSSound.beep(); return }
-                    makeCourseFromRoute(record: record, tcxCourse: course)
+                    makeCourseFromRoute(route: route, tcxCourse: course)
                 },
                 canExport: parsedCourse != nil
             )
@@ -153,7 +152,7 @@ struct MainTabView: View {
         ) {
             Button("삭제", role: .destructive) {
                 if case .route(let r) = selection {
-                    context.delete(r)
+                    Task { await routeVM.delete(routeID: r.id) }
                     selection = nil
                 }
             }
@@ -193,17 +192,18 @@ struct MainTabView: View {
             guard case .segment(let s) = selection else { return nil }
             return SegmentCommandHandler(
                 reload: {
-                    await coordinator.reloadSegment(s.segmentID, context: context)
+                    try? await routeVM.reloadSegment(segmentID: s.segmentID)
                 },
                 delete: {
-                    coordinator.deleteSegment(s.segmentID, context: context)
+                    try? await routeVM.deleteSegment(segmentID: s.segmentID)
                     selection = nil
                 }
             )
         }())
-        .task { coordinator.reconcileOnLaunch(context: context) }
+        .task { await routeVM.reconcile() }
+        .task { await routeVM.load() }
         .sheet(isPresented: $showingMyRoutes) {
-            MyRoutesView { coordinator.importRoute($0, into: context) }
+            MyRoutesView { routeVM.importRoute($0) }
         }
         .sheet(isPresented: $showingLogin, onDismiss: {
             if !AppSettings.cookie.isEmpty { showingMyRoutes = true }
@@ -238,7 +238,7 @@ struct MainTabView: View {
 
             let isEmpty: Bool = {
                 switch sidebarTab {
-                case .routes:   return routes.isEmpty
+                case .routes:   return routeVM.routes.isEmpty
                 case .segments: return segments.isEmpty
                 case .courses:  return courses.isEmpty
                 }
@@ -266,11 +266,10 @@ struct MainTabView: View {
                 List(selection: $selection) {
                     switch sidebarTab {
                     case .routes:
-                        ForEach(routes) { route in
-                            RouteRow(route: route)
+                        ForEach(routeVM.routes) { route in
+                            RouteRow(route: route, progress: routeVM.progress(for: route.id))
                                 .tag(SidebarItem.route(route))
                         }
-                        .onDelete(perform: deleteRoutes)
                     case .segments:
                         ForEach(segments) { segment in
                             SegmentRow(segment: segment)
@@ -322,8 +321,8 @@ struct MainTabView: View {
     @ViewBuilder
     private var inspectorPane: some View {
         switch selection {
-        case .route(let record):
-            RouteDetailView(record: record, onCourseParsed: { course in
+        case .route(let route):
+            RouteDetailView(route: route, onCourseParsed: { course in
                 parsedCourse = course
             }, onHighlight: { pts in
                 highlightPoints = pts
@@ -357,33 +356,25 @@ struct MainTabView: View {
         selection = .course(newCourse)
     }
 
-    private func deleteRoutes(_ offsets: IndexSet) {
-        for i in offsets { context.delete(routes[i]) }
-    }
-
     private func deleteCourses(_ offsets: IndexSet) {
         for i in offsets { context.delete(courses[i]) }
     }
 
-    private func makeCourseFromRoute(record: RouteRecord, tcxCourse: TCXCourse) {
+    private func makeCourseFromRoute(route: Route, tcxCourse: TCXCourse) {
         let pts = tcxCourse.trackPoints
         guard !pts.isEmpty else { NSSound.beep(); return }
 
-        let newCourse = CourseRecord(title: record.title, sourceRouteID: record.routeID)
-
-        // 시작/끝 RoutePoint
-        let startRP = CourseRoutePoint(lat: pts.first!.lat, lon: pts.first!.lon)
-        let endRP = CourseRoutePoint(lat: pts.last!.lat, lon: pts.last!.lon)
-        newCourse.routePoints = [startRP, endRP]
-
-        // 전체 경로를 하나의 trackSegment로 저장
+        let newCourse = CourseRecord(title: route.title, sourceRouteID: route.id)
+        newCourse.routePoints = [
+            CourseRoutePoint(lat: pts.first!.lat, lon: pts.first!.lon),
+            CourseRoutePoint(lat: pts.last!.lat, lon: pts.last!.lon),
+        ]
         newCourse.trackSegments = [pts.map { TrackPointCodable($0) }]
 
-        // 기존 RouteRecord의 CoursePoint를 큐시트로 변환
         let cuesheetResult = Cuesheet.makeEntries(
             trackPoints: pts,
-            segments: record.segments,
-            minCategory: record.minCategory
+            segments: route.segments,
+            minCategory: route.minCategory
         )
         newCourse.cuePoints = cuesheetResult.entries.map { entry in
             let displayName: String
@@ -396,10 +387,8 @@ struct MainTabView: View {
                 displayName = "🏁" + Classification.resolveSegmentName(entry.segName)
             }
             return CourseCuePoint(
-                lat: entry.lat,
-                lon: entry.lon,
-                name: displayName,
-                pointType: entry.pointType,
+                lat: entry.lat, lon: entry.lon,
+                name: displayName, pointType: entry.pointType,
                 notes: entry.baseNotes,
                 distanceMeters: pts.indices.contains(entry.idx) ? pts[entry.idx].cumKm * 1000 : 0
             )
@@ -414,30 +403,21 @@ struct MainTabView: View {
         let allPts = course.allTrackPoints
         guard !allPts.isEmpty else { NSSound.beep(); return }
 
-        // TCX를 동적으로 생성 (간이 TCX)
         let entries = course.cuePoints.compactMap { cue -> CoursePointEntry? in
             guard let ni = Geo.nearestIndex(allPts, lat: cue.lat, lon: cue.lon) else { return nil }
             return CoursePointEntry(
-                idx: ni,
-                time: allPts[ni].time,
-                lat: cue.lat,
-                lon: cue.lon,
-                ele: allPts[ni].ele,
-                pointType: cue.pointType,
-                baseName: cue.name,
-                baseNotes: cue.notes,
-                segName: cue.name,
-                isStart: true,
-                gradeClass: .flat
+                idx: ni, time: allPts[ni].time,
+                lat: cue.lat, lon: cue.lon, ele: allPts[ni].ele,
+                pointType: cue.pointType, baseName: cue.name,
+                baseNotes: cue.notes, segName: cue.name,
+                isStart: true, gradeClass: .flat
             )
         }
 
-        // 기존 TCX가 없으므로 sourceRouteID에서 가져올 수 없으면 경고
         guard let sourceID = course.sourceRouteID,
-              let sourceRoute = routes.first(where: { $0.routeID == sourceID }),
+              let sourceRoute = routeVM.routes.first(where: { $0.id == sourceID }),
               let tcxCourse = try? TCXCourse(data: sourceRoute.tcxData) else {
-            NSSound.beep()
-            return
+            NSSound.beep(); return
         }
 
         guard let cued = try? tcxCourse.build(entries: entries, forRWGPS: false),
