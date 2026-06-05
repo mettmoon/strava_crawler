@@ -48,7 +48,7 @@ public enum Classification {
 
     // MARK: - 경사도 구분
 
-    public enum GradeClass: String, Sendable {
+    public enum GradeClass: String, Codable, Sendable {
         case up, flat, down
 
         /// 시작 지점 prefix (RWGPS Name/Notes 용)

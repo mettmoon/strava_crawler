@@ -25,6 +25,22 @@ struct CourseCuePoint: Codable, Identifiable, Sendable {
     var notes: String = ""
     /// 코스 시작 기준 누적 거리 (미터). 저장 시 재계산된다.
     var distanceMeters: Double = 0
+    init(id: UUID = UUID(), lat: Double, lon: Double, name: String = "", pointType: String = "Straight",
+         notes: String = "", distanceMeters: Double = 0) {
+        self.id = id; self.lat = lat; self.lon = lon; self.name = name
+        self.pointType = pointType; self.notes = notes; self.distanceMeters = distanceMeters
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        lat = try c.decode(Double.self, forKey: .lat)
+        lon = try c.decode(Double.self, forKey: .lon)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        pointType = try c.decodeIfPresent(String.self, forKey: .pointType) ?? "Straight"
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        distanceMeters = try c.decodeIfPresent(Double.self, forKey: .distanceMeters) ?? 0
+    }
 }
 
 // MARK: - TrackPointCodable

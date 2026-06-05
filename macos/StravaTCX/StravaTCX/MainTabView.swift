@@ -333,10 +333,19 @@ struct MainTabView: View {
             minCategory: record.minCategory
         )
         newCourse.cuePoints = cuesheetResult.entries.map { entry in
-            CourseCuePoint(
+            let displayName: String
+            if entry.isStart {
+                let meta = [Classification.normalizeDistanceText(entry.dist), Classification.formatGrade(entry.grade)]
+                    .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
+                let prefix = entry.gradeClass.arrow + (meta.isEmpty ? "" : meta + " ")
+                displayName = prefix + entry.baseName
+            } else {
+                displayName = "🏁" + Classification.resolveSegmentName(entry.segName)
+            }
+            return CourseCuePoint(
                 lat: entry.lat,
                 lon: entry.lon,
-                name: entry.baseName,
+                name: displayName,
                 pointType: entry.pointType,
                 notes: entry.baseNotes,
                 distanceMeters: pts.indices.contains(entry.idx) ? pts[entry.idx].cumKm * 1000 : 0
@@ -364,10 +373,8 @@ struct MainTabView: View {
                 pointType: cue.pointType,
                 baseName: cue.name,
                 baseNotes: cue.notes,
-                segName: "",
-                isStart: false,
-                dist: nil,
-                grade: nil,
+                segName: cue.name,
+                isStart: true,
                 gradeClass: .flat
             )
         }
