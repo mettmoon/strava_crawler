@@ -4,6 +4,7 @@ import StravaTCXKit
 
 struct Route3DView: View {
     let trackPoints: [TrackPoint]
+    var highlightPoints: [TrackPoint] = []
     @State private var exaggeration: Double = 1.0
     @State private var pathWidth: Double = 0.6
 
@@ -12,8 +13,13 @@ struct Route3DView: View {
             if trackPoints.count < 2 {
                 ContentUnavailableView("트랙포인트 없음", systemImage: "mountain.2")
             } else {
-                SceneKitRouteView(trackPoints: trackPoints, exaggeration: exaggeration, pathWidth: pathWidth)
-                    .ignoresSafeArea()
+                SceneKitRouteView(
+                    trackPoints: trackPoints,
+                    highlightPoints: highlightPoints,
+                    exaggeration: exaggeration,
+                    pathWidth: pathWidth
+                )
+                .ignoresSafeArea()
                 overlayControls
             }
         }
@@ -40,6 +46,7 @@ struct Route3DView: View {
 
 struct SceneKitRouteView: NSViewRepresentable {
     let trackPoints: [TrackPoint]
+    var highlightPoints: [TrackPoint] = []
     let exaggeration: Double
     let pathWidth: Double
 
@@ -69,9 +76,15 @@ struct SceneKitRouteView: NSViewRepresentable {
         // 메인 리본 경로
         scene.rootNode.addChildNode(SCNNode(geometry: result.pathGeometry))
 
-        // 시작/종료 마커
-        scene.rootNode.addChildNode(markerNode(at: result.startPosition, color: .systemGreen))
-        scene.rootNode.addChildNode(markerNode(at: result.endPosition,   color: .systemRed))
+        // 시작/종료 마커 (하이라이트 구간이 있으면 핀으로 표시)
+        if highlightPoints.count >= 2 {
+            let builder = RouteGeometryBuilder(points: trackPoints, exaggeration: exaggeration, halfWidth: Float(pathWidth))
+            scene.rootNode.addChildNode(pinNode(at: builder.position(for: highlightPoints.first!), color: .systemGreen))
+            scene.rootNode.addChildNode(pinNode(at: builder.position(for: highlightPoints.last!),  color: .systemRed))
+        } else {
+            scene.rootNode.addChildNode(markerNode(at: result.startPosition, color: .systemGreen))
+            scene.rootNode.addChildNode(markerNode(at: result.endPosition,   color: .systemRed))
+        }
 
         // 바닥 그리드
         scene.rootNode.addChildNode(groundGrid(size: 140))
@@ -104,6 +117,36 @@ struct SceneKitRouteView: NSViewRepresentable {
         let node = SCNNode(geometry: sphere)
         node.position = position
         return node
+    }
+
+    /// 옷핀 형태 마커: 막대 + 머리 구슬, 경로 위로 띄워서 z-fighting 방지
+    private func pinNode(at position: SCNVector3, color: NSColor) -> SCNNode {
+        let pinHeight: Float = 6.0
+        let headRadius: Float = 1.4
+
+        let mat = SCNMaterial()
+        mat.diffuse.contents = color
+        mat.lightingModel = .blinn
+        mat.specular.contents = NSColor.white
+
+        // 막대
+        let stick = SCNCylinder(radius: 0.25, height: CGFloat(pinHeight))
+        stick.firstMaterial = mat
+        let stickNode = SCNNode(geometry: stick)
+        stickNode.position = SCNVector3(0, pinHeight / 2, 0)
+
+        // 머리 구슬
+        let head = SCNSphere(radius: CGFloat(headRadius))
+        head.firstMaterial = mat
+        let headNode = SCNNode(geometry: head)
+        headNode.position = SCNVector3(0, pinHeight + headRadius, 0)
+
+        let root = SCNNode()
+        root.addChildNode(stickNode)
+        root.addChildNode(headNode)
+        // 경로 표면에서 살짝 위로 올려 z-fighting 방지
+        root.position = SCNVector3(position.x, position.y + 0.5, position.z)
+        return root
     }
 
     private func groundGrid(size: Float) -> SCNNode {

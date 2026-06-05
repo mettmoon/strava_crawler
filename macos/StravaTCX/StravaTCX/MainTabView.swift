@@ -19,6 +19,7 @@ struct MainTabView: View {
     @State private var cachedCourse: TCXCourse?
     @State private var cachedRouteID: String?
     @State private var showRouteDeleteConfirm = false
+    @State private var highlightPoints: [TrackPoint] = []
 
     // MARK: - computed
 
@@ -55,6 +56,7 @@ struct MainTabView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .onChange(of: selection) { _, newVal in
+            highlightPoints = []
             guard case .route(let r) = newVal, r.status == .ready, !r.tcxData.isEmpty else {
                 cachedCourse = nil; cachedRouteID = nil; return
             }
@@ -208,10 +210,10 @@ struct MainTabView: View {
         } else {
             TabView {
                 Tab("지도", systemImage: "map.fill") {
-                    RouteMapView(trackPoints: selectedTrackPoints)
+                    RouteMapView(trackPoints: selectedTrackPoints, highlightPoints: highlightPoints)
                 }
                 Tab("3D 경로", systemImage: "mountain.2.fill") {
-                    Route3DView(trackPoints: selectedTrackPoints)
+                    Route3DView(trackPoints: selectedTrackPoints, highlightPoints: highlightPoints)
                 }
             }
             .tabViewStyle(.tabBarOnly)
@@ -224,9 +226,13 @@ struct MainTabView: View {
     private var inspectorPane: some View {
         switch selection {
         case .route(let record):
-            RouteDetailView(record: record)
+            RouteDetailView(record: record, onHighlight: { pts in
+                highlightPoints = pts
+            })
         case .segment(let segment):
-            SegmentDetailView(segment: segment)
+            SegmentDetailView(segment: segment, onHighlight: { pts in
+                highlightPoints = pts
+            })
         case nil:
             ContentUnavailableView {
                 Label("선택 없음", systemImage: "sidebar.right")
