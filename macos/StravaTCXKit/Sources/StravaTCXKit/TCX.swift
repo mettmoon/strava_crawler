@@ -17,6 +17,22 @@ public struct CoursePointEntry: Sendable {
     public var dist: String?
     public var grade: String?
     public var gradeClass: Classification.GradeClass
+
+    public init(idx: Int, time: String? = nil, lat: Double, lon: Double, ele: Double? = nil, pointType: String, baseName: String, baseNotes: String, segName: String, isStart: Bool, dist: String? = nil, grade: String? = nil, gradeClass: Classification.GradeClass) {
+        self.idx = idx
+        self.time = time
+        self.lat = lat
+        self.lon = lon
+        self.ele = ele
+        self.pointType = pointType
+        self.baseName = baseName
+        self.baseNotes = baseNotes
+        self.segName = segName
+        self.isStart = isStart
+        self.dist = dist
+        self.grade = grade
+        self.gradeClass = gradeClass
+    }
 }
 
 public enum TCXError: Error, LocalizedError {

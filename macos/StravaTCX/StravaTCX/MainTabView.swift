@@ -3,12 +3,13 @@ import SwiftData
 import AppKit
 import StravaTCXKit
 
-private enum SidebarTab { case routes, segments }
+private enum SidebarTab { case routes, segments, courses }
 
 struct MainTabView: View {
     @Environment(\.modelContext) private var context
     @Environment(ImportCoordinator.self) private var coordinator
     @Query(sort: \RouteRecord.createdAt, order: .reverse) private var routes: [RouteRecord]
+    @Query(sort: \CourseRecord.createdAt, order: .reverse) private var courses: [CourseRecord]
 
     @State private var selection: SidebarItem?
     @State private var sidebarTab: SidebarTab = .routes
@@ -18,6 +19,7 @@ struct MainTabView: View {
     @State private var showingLoginAlert = false
     @State private var parsedCourse: TCXCourse?
     @State private var showRouteDeleteConfirm = false
+    @State private var showCourseDeleteConfirm = false
     @State private var highlightPoints: [TrackPoint] = []
 
     // MARK: - computed
@@ -35,9 +37,10 @@ struct MainTabView: View {
 
     private var selectedTrackPoints: [TrackPoint] {
         switch selection {
-        case .route:          return parsedCourse?.trackPoints ?? []
-        case .segment(let s): return trackPoints(for: s)
-        case nil:             return []
+        case .route:           return parsedCourse?.trackPoints ?? []
+        case .segment(let s):  return trackPoints(for: s)
+        case .course(let c):   return c.allTrackPoints
+        case nil:              return []
         }
     }
 
@@ -80,6 +83,10 @@ struct MainTabView: View {
                 delete: {
                     showRouteDeleteConfirm = true
                 },
+                makeIntoCourse: {
+                    guard let course = parsedCourse else { NSSound.beep(); return }
+                    makeCourseFromRoute(record: record, tcxCourse: course)
+                },
                 canExport: parsedCourse != nil
             )
         }())
@@ -100,6 +107,28 @@ struct MainTabView: View {
         } message: {
             Text("TCX 데이터와 세그먼트 정보가 삭제됩니다.")
         }
+        .confirmationDialog(
+            {
+                if case .course(let c) = selection { return "'\(c.title)'을(를) 삭제하시겠습니까?" }
+                return "코스를 삭제하시겠습니까?"
+            }(),
+            isPresented: $showCourseDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("삭제", role: .destructive) {
+                if case .course(let c) = selection {
+                    context.delete(c)
+                    selection = nil
+                }
+            }
+        }
+        .focusedSceneValue(\.courseCommandHandler, {
+            guard case .course(let c) = selection else { return nil }
+            return CourseCommandHandler(
+                exportTCX: { exportCourseTCX(c) },
+                delete: { showCourseDeleteConfirm = true }
+            )
+        }())
         .focusedSceneValue(\.selectedSegment, {
             guard case .segment(let s) = selection else { return nil }
             return s
@@ -143,6 +172,7 @@ struct MainTabView: View {
             Picker("", selection: $sidebarTab) {
                 Text("경로").tag(SidebarTab.routes)
                 Text("구간").tag(SidebarTab.segments)
+                Text("코스").tag(SidebarTab.courses)
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, 12)
@@ -150,16 +180,30 @@ struct MainTabView: View {
 
             Divider()
 
-            let isEmpty = sidebarTab == .routes ? routes.isEmpty : segments.isEmpty
+            let isEmpty: Bool = {
+                switch sidebarTab {
+                case .routes:   return routes.isEmpty
+                case .segments: return segments.isEmpty
+                case .courses:  return courses.isEmpty
+                }
+            }()
             if isEmpty {
                 ContentUnavailableView {
                     Label(
-                        sidebarTab == .routes ? "경로 없음" : "구간 없음",
-                        systemImage: sidebarTab == .routes ? "bicycle" : "mountain.2"
+                        {
+                            switch sidebarTab {
+                            case .routes:   return "경로 없음"
+                            case .segments: return "구간 없음"
+                            case .courses:  return "코스 없음"
+                            }
+                        }(),
+                        systemImage: sidebarTab == .routes ? "bicycle" : sidebarTab == .segments ? "mountain.2" : "map"
                     )
                 } description: {
                     if sidebarTab == .routes {
                         Text("+ 버튼으로 내 경로에서 가져오세요.")
+                    } else if sidebarTab == .courses {
+                        Text("+ 버튼으로 새 코스를 만들거나\n경로 메뉴에서 \"코스로 만들기\"를 사용하세요.")
                     }
                 }
             } else {
@@ -176,6 +220,12 @@ struct MainTabView: View {
                             SegmentRow(segment: segment)
                                 .tag(SidebarItem.segment(segment))
                         }
+                    case .courses:
+                        ForEach(courses) { course in
+                            CourseRow(course: course)
+                                .tag(SidebarItem.course(course))
+                        }
+                        .onDelete(perform: deleteCourses)
                     }
                 }
             }
@@ -229,6 +279,8 @@ struct MainTabView: View {
             SegmentDetailView(segment: segment, onHighlight: { pts in
                 highlightPoints = pts
             })
+        case .course(let course):
+            CourseDetailView(course: course)
         case nil:
             ContentUnavailableView {
                 Label("선택 없음", systemImage: "sidebar.right")
@@ -241,11 +293,97 @@ struct MainTabView: View {
     // MARK: - 액션
 
     private func addTapped() {
-        if AppSettings.cookie.isEmpty { showingLoginAlert = true }
-        else { showingMyRoutes = true }
+        if sidebarTab == .courses {
+            let newCourse = CourseRecord(title: "새 코스 \(courses.count + 1)")
+            context.insert(newCourse)
+            selection = .course(newCourse)
+            sidebarTab = .courses
+        } else {
+            if AppSettings.cookie.isEmpty { showingLoginAlert = true }
+            else { showingMyRoutes = true }
+        }
     }
 
     private func deleteRoutes(_ offsets: IndexSet) {
         for i in offsets { context.delete(routes[i]) }
+    }
+
+    private func deleteCourses(_ offsets: IndexSet) {
+        for i in offsets { context.delete(courses[i]) }
+    }
+
+    private func makeCourseFromRoute(record: RouteRecord, tcxCourse: TCXCourse) {
+        let pts = tcxCourse.trackPoints
+        guard !pts.isEmpty else { NSSound.beep(); return }
+
+        let newCourse = CourseRecord(title: record.title, sourceRouteID: record.routeID)
+
+        // 시작/끝 RoutePoint
+        let startRP = CourseRoutePoint(lat: pts.first!.lat, lon: pts.first!.lon)
+        let endRP = CourseRoutePoint(lat: pts.last!.lat, lon: pts.last!.lon)
+        newCourse.routePoints = [startRP, endRP]
+
+        // 전체 경로를 하나의 trackSegment로 저장
+        newCourse.trackSegments = [pts.map { TrackPointCodable($0) }]
+
+        // 기존 RouteRecord의 CoursePoint를 큐시트로 변환
+        let cuesheetResult = Cuesheet.makeEntries(
+            trackPoints: pts,
+            segments: record.segments,
+            minCategory: record.minCategory
+        )
+        newCourse.cuePoints = cuesheetResult.entries.map { entry in
+            CourseCuePoint(
+                lat: entry.lat,
+                lon: entry.lon,
+                name: entry.baseName,
+                pointType: entry.pointType,
+                notes: entry.baseNotes,
+                distanceMeters: pts.indices.contains(entry.idx) ? pts[entry.idx].cumKm * 1000 : 0
+            )
+        }
+
+        context.insert(newCourse)
+        sidebarTab = .courses
+        selection = .course(newCourse)
+    }
+
+    private func exportCourseTCX(_ course: CourseRecord) {
+        let allPts = course.allTrackPoints
+        guard !allPts.isEmpty else { NSSound.beep(); return }
+
+        // TCX를 동적으로 생성 (간이 TCX)
+        let entries = course.cuePoints.compactMap { cue -> CoursePointEntry? in
+            guard let ni = Geo.nearestIndex(allPts, lat: cue.lat, lon: cue.lon) else { return nil }
+            return CoursePointEntry(
+                idx: ni,
+                time: allPts[ni].time,
+                lat: cue.lat,
+                lon: cue.lon,
+                ele: allPts[ni].ele,
+                pointType: cue.pointType,
+                baseName: cue.name,
+                baseNotes: cue.notes,
+                segName: "",
+                isStart: false,
+                dist: nil,
+                grade: nil,
+                gradeClass: .flat
+            )
+        }
+
+        // 기존 TCX가 없으므로 sourceRouteID에서 가져올 수 없으면 경고
+        guard let sourceID = course.sourceRouteID,
+              let sourceRoute = routes.first(where: { $0.routeID == sourceID }),
+              let tcxCourse = try? TCXCourse(data: sourceRoute.tcxData) else {
+            NSSound.beep()
+            return
+        }
+
+        guard let cued = try? tcxCourse.build(entries: entries, forRWGPS: false),
+              let rwgps = try? tcxCourse.build(entries: entries, forRWGPS: true) else {
+            NSSound.beep(); return
+        }
+        Exporter.saveToFolder(prefix: "course_\(course.id.uuidString.prefix(8))", cued: cued.data, rwgps: rwgps.data)
     }
 }

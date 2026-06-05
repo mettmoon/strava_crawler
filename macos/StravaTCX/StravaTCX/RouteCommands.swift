@@ -13,6 +13,13 @@ struct RouteCommands: Commands {
 
             Divider()
 
+            Button("코스로 만들기") {
+                handler?.makeIntoCourse()
+            }
+            .disabled(handler == nil || handler?.canExport == false)
+
+            Divider()
+
             Button("다시 불러오기") {
                 handler?.redownload()
             }
