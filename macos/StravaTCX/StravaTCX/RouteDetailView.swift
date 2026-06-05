@@ -15,13 +15,20 @@ struct RouteDetailView: View {
     @State private var entries: [CoursePointEntry] = []
     @State private var parseError: String?
     @State private var showDeleteConfirm = false
+    @State private var navPath: [SegmentInfo] = []
+    @State private var selectedSegmentID: String?
 
     var body: some View {
-        Group {
-            switch record.status {
-            case .processing: processingView
-            case .failed: failedView
-            case .ready: readyView
+        NavigationStack(path: $navPath) {
+            Group {
+                switch record.status {
+                case .processing: processingView
+                case .failed: failedView
+                case .ready: readyView
+                }
+            }
+            .navigationDestination(for: SegmentInfo.self) { seg in
+                SegmentDetailView(segment: seg)
             }
         }
         .task(id: record.persistentModelID) { loadCourse() }
@@ -134,7 +141,7 @@ struct RouteDetailView: View {
     private var segmentsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("세그먼트").font(.headline)
-            Table(record.segments) {
+            Table(record.segments, selection: $selectedSegmentID) {
                 TableColumn("#") { s in Text(s.order.map(String.init) ?? "—") }
                     .width(28)
                 TableColumn("이름") { s in Text(s.name) }
@@ -151,6 +158,12 @@ struct RouteDetailView: View {
                 .width(90)
             }
             .frame(minHeight: 180)
+            .onChange(of: selectedSegmentID) { _, id in
+                guard let id,
+                      let seg = record.segments.first(where: { $0.segmentID == id }) else { return }
+                navPath = [seg]
+                selectedSegmentID = nil
+            }
         }
     }
 
