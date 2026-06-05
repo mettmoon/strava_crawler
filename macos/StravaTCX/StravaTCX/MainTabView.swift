@@ -45,6 +45,25 @@ struct MainTabView: View {
         }
     }
 
+    private var selectedCuePoints: [CourseCuePoint] {
+        switch selection {
+        case .course(let c):
+            return c.cuePoints
+        case .route(let record):
+            guard let course = parsedCourse else { return [] }
+            return Cuesheet.makeEntries(
+                trackPoints: course.trackPoints,
+                segments: record.segments,
+                minCategory: record.minCategory
+            ).entries.map { entry in
+                CourseCuePoint(lat: entry.lat, lon: entry.lon,
+                               name: entry.baseName, pointType: entry.pointType)
+            }
+        default:
+            return []
+        }
+    }
+
     private var selectedMarkers: [ElevationMarker] {
         let pts = selectedTrackPoints
         guard !pts.isEmpty else { return [] }
@@ -285,7 +304,7 @@ struct MainTabView: View {
             TabView {
                 Tab("지도", systemImage: "map.fill") {
                     VStack(spacing: 0) {
-                        RouteMapView(trackPoints: selectedTrackPoints, highlightPoints: highlightPoints)
+                        RouteMapView(trackPoints: selectedTrackPoints, highlightPoints: highlightPoints, cuePoints: selectedCuePoints)
                         Divider()
                         ElevationChartView(trackPoints: selectedTrackPoints, markers: selectedMarkers)
                     }

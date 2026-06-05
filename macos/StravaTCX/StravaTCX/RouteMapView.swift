@@ -4,9 +4,20 @@ import StravaTCXKit
 
 final class HighlightPolyline: MKPolyline {}
 
+final class CueAnnotation: MKPointAnnotation {
+    let cue: CourseCuePoint
+    init(cue: CourseCuePoint) {
+        self.cue = cue
+        super.init()
+        coordinate = CLLocationCoordinate2D(latitude: cue.lat, longitude: cue.lon)
+        title = cue.name.isEmpty ? cue.pointType : cue.name
+    }
+}
+
 struct RouteMapView: NSViewRepresentable {
     let trackPoints: [TrackPoint]
     var highlightPoints: [TrackPoint] = []
+    var cuePoints: [CourseCuePoint] = []
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -23,11 +34,11 @@ struct RouteMapView: NSViewRepresentable {
         let signature = trackPoints.map(\.cumKm)
 
         if coordinator.builtPointSignature != signature {
-            // trackPoints 변경 → 전체 재구성
             map.removeOverlays(map.overlays)
             map.removeAnnotations(map.annotations)
             coordinator.mainPolyline = nil
             coordinator.builtPointSignature = signature
+            coordinator.cueAnnotations = []
 
             guard trackPoints.count >= 2 else { return }
 
@@ -36,21 +47,10 @@ struct RouteMapView: NSViewRepresentable {
             map.addOverlay(polyline, level: .aboveRoads)
             coordinator.mainPolyline = polyline
 
-            let start = MKPointAnnotation()
-            start.coordinate = coords.first!
-            start.title = "시작"
-            let end = MKPointAnnotation()
-            end.coordinate = coords.last!
-            end.title = "종료"
-            coordinator.startAnnotation = start
-            coordinator.endAnnotation = end
-            map.addAnnotations([start, end])
-
             let fitRect = polyline.boundingMapRect.insetBy(
                 dx: -polyline.boundingMapRect.width * 0.1,
                 dy: -polyline.boundingMapRect.height * 0.1
             )
-            // 처음 등장 시 frame이 아직 0일 수 있으므로 한 런루프 뒤에 적용
             if map.frame.size == .zero {
                 DispatchQueue.main.async { map.setVisibleMapRect(fitRect, animated: false) }
             } else {
@@ -59,47 +59,31 @@ struct RouteMapView: NSViewRepresentable {
         }
 
         updateHighlight(map: map, coordinator: coordinator)
+        updateCuePoints(map: map, coordinator: coordinator)
     }
 
-    // MARK: - 하이라이트 overlay/annotation만 교체
+    // MARK: - 하이라이트 overlay만 교체
 
     private func updateHighlight(map: MKMapView, coordinator: Coordinator) {
-        // 기존 하이라이트 제거
         if let hl = coordinator.highlightPolyline { map.removeOverlay(hl) }
         coordinator.highlightPolyline = nil
-        if let a = coordinator.hlStartAnnotation { map.removeAnnotation(a) }
-        if let a = coordinator.hlEndAnnotation   { map.removeAnnotation(a) }
-        coordinator.hlStartAnnotation = nil
-        coordinator.hlEndAnnotation   = nil
 
-        guard highlightPoints.count >= 2 else {
-            // 기본 마커 복구 (이미 있으면 스킵)
-            let existingIDs = Set(map.annotations.map { ObjectIdentifier($0 as AnyObject) })
-            if let s = coordinator.startAnnotation,
-               !existingIDs.contains(ObjectIdentifier(s)) { map.addAnnotation(s) }
-            if let e = coordinator.endAnnotation,
-               !existingIDs.contains(ObjectIdentifier(e)) { map.addAnnotation(e) }
-            return
-        }
-
-        // 기본 마커 숨기기
-        if let s = coordinator.startAnnotation { map.removeAnnotation(s) }
-        if let e = coordinator.endAnnotation   { map.removeAnnotation(e) }
+        guard highlightPoints.count >= 2 else { return }
 
         let hlCoords = highlightPoints.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
         let hlPolyline = HighlightPolyline(coordinates: hlCoords, count: hlCoords.count)
         map.addOverlay(hlPolyline, level: .aboveRoads)
         coordinator.highlightPolyline = hlPolyline
+    }
 
-        let hlStart = MKPointAnnotation()
-        hlStart.coordinate = hlCoords.first!
-        hlStart.title = "시작"
-        let hlEnd = MKPointAnnotation()
-        hlEnd.coordinate = hlCoords.last!
-        hlEnd.title = "종료"
-        coordinator.hlStartAnnotation = hlStart
-        coordinator.hlEndAnnotation   = hlEnd
-        map.addAnnotations([hlStart, hlEnd])
+    private func updateCuePoints(map: MKMapView, coordinator: Coordinator) {
+        let newIDs = Set(cuePoints.map(\.id))
+        let oldIDs = Set(coordinator.cueAnnotations.map(\.cue.id))
+        guard newIDs != oldIDs else { return }
+
+        map.removeAnnotations(coordinator.cueAnnotations)
+        coordinator.cueAnnotations = cuePoints.map { CueAnnotation(cue: $0) }
+        map.addAnnotations(coordinator.cueAnnotations)
     }
 
     // MARK: - Coordinator
@@ -107,11 +91,8 @@ struct RouteMapView: NSViewRepresentable {
     final class Coordinator: NSObject, MKMapViewDelegate {
         var builtPointSignature: [Double] = []
         var mainPolyline: MKPolyline?
-        var startAnnotation: MKPointAnnotation?
-        var endAnnotation: MKPointAnnotation?
         var highlightPolyline: HighlightPolyline?
-        var hlStartAnnotation: MKPointAnnotation?
-        var hlEndAnnotation: MKPointAnnotation?
+        var cueAnnotations: [CueAnnotation] = []
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             guard let polyline = overlay as? MKPolyline else {
@@ -131,11 +112,20 @@ struct RouteMapView: NSViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
-            guard let point = annotation as? MKPointAnnotation else { return nil }
-            let view = MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: nil)
-            view.markerTintColor = point.title == "시작" ? .systemGreen : .systemRed
-            view.glyphText = point.title == "시작" ? "S" : "E"
-            return view
+            guard let ca = annotation as? CueAnnotation else { return nil }
+            let glyph = cuePointGlyph(for: ca.cue.pointType)
+            let v = MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: "cuePoint")
+            v.clusteringIdentifier = nil
+            v.displayPriority = .required
+            v.canShowCallout = true
+            v.markerTintColor = glyph.color
+            if let sym = glyph.symbol {
+                v.glyphImage = NSImage(systemSymbolName: sym, accessibilityDescription: nil)
+            } else if let txt = glyph.text {
+                v.glyphText = txt
+            }
+            v.zPriority = .defaultSelected
+            return v
         }
     }
 }
