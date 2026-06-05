@@ -17,7 +17,6 @@ public struct CoursePointEntry: Sendable {
     public var dist: String?
     public var grade: String?
     public var gradeClass: Classification.GradeClass
-
     public init(idx: Int, time: String? = nil, lat: Double, lon: Double, ele: Double? = nil, pointType: String, baseName: String, baseNotes: String, segName: String, isStart: Bool, dist: String? = nil, grade: String? = nil, gradeClass: Classification.GradeClass) {
         self.idx = idx
         self.time = time
@@ -111,11 +110,12 @@ public final class TCXCourse {
 
         if forRWGPS {
             if e.isStart {
-                let body = [Classification.normalizeDistanceText(e.dist), Classification.formatGrade(e.grade)]
+                let meta = [Classification.normalizeDistanceText(e.dist), Classification.formatGrade(e.grade)]
                     .compactMap { $0 }
                     .filter { !$0.isEmpty }
                     .joined(separator: ", ")
-                notes = e.gradeClass.arrow + body
+                let prefix = e.gradeClass.arrow + (meta.isEmpty ? "" : meta + " ")
+                notes = prefix + e.baseName
             } else {
                 notes = "🏁" + Classification.resolveSegmentName(e.segName)
             }
