@@ -3,12 +3,15 @@ import SwiftData
 import AppKit
 import StravaTCXKit
 
+private enum SidebarTab { case routes, segments }
+
 struct MainTabView: View {
     @Environment(\.modelContext) private var context
     @Environment(ImportCoordinator.self) private var coordinator
     @Query(sort: \RouteRecord.createdAt, order: .reverse) private var routes: [RouteRecord]
 
     @State private var selection: SidebarItem?
+    @State private var sidebarTab: SidebarTab = .routes
     @State private var inspectorIsPresented = true
     @State private var showingMyRoutes = false
     @State private var showingLogin = false
@@ -140,41 +143,49 @@ struct MainTabView: View {
     // MARK: - Sidebar
 
     private var sidebar: some View {
-        List(selection: $selection) {
-            if !routes.isEmpty {
-                Section {
-                    ForEach(routes) { route in
-                        RouteRow(route: route)
-                            .tag(SidebarItem.route(route))
-                    }
-                    .onDelete(perform: deleteRoutes)
-                } header: {
-                    Label("경로", systemImage: "bicycle")
-                }
+        VStack(spacing: 0) {
+            Picker("", selection: $sidebarTab) {
+                Text("경로").tag(SidebarTab.routes)
+                Text("구간").tag(SidebarTab.segments)
             }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
 
-            if !segments.isEmpty {
-                Section {
-                    ForEach(segments) { segment in
-                        SegmentRow(segment: segment)
-                            .tag(SidebarItem.segment(segment))
+            Divider()
+
+            let isEmpty = sidebarTab == .routes ? routes.isEmpty : segments.isEmpty
+            if isEmpty {
+                ContentUnavailableView {
+                    Label(
+                        sidebarTab == .routes ? "경로 없음" : "구간 없음",
+                        systemImage: sidebarTab == .routes ? "bicycle" : "mountain.2"
+                    )
+                } description: {
+                    if sidebarTab == .routes {
+                        Text("+ 버튼으로 내 경로에서 가져오세요.")
                     }
-                } header: {
-                    Label("구간", systemImage: "mountain.2")
+                }
+            } else {
+                List(selection: $selection) {
+                    switch sidebarTab {
+                    case .routes:
+                        ForEach(routes) { route in
+                            RouteRow(route: route)
+                                .tag(SidebarItem.route(route))
+                        }
+                        .onDelete(perform: deleteRoutes)
+                    case .segments:
+                        ForEach(segments) { segment in
+                            SegmentRow(segment: segment)
+                                .tag(SidebarItem.segment(segment))
+                        }
+                    }
                 }
             }
         }
         .navigationTitle("Strava TCX")
         .navigationSplitViewColumnWidth(min: 220, ideal: 240)
-        .overlay {
-            if routes.isEmpty && segments.isEmpty {
-                ContentUnavailableView {
-                    Label("저장된 항목 없음", systemImage: "tray")
-                } description: {
-                    Text("+ 버튼으로 내 경로에서 가져오세요.")
-                }
-            }
-        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button(action: addTapped) {
