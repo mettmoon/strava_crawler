@@ -1,16 +1,13 @@
 import SwiftUI
-import AppKit
 import StravaTCXKit
 
 struct RouteDetailView: View {
     @Environment(ImportCoordinator.self) private var coordinator
-    @Environment(\.modelContext) private var modelContext
     @Bindable var record: RouteRecord
 
     @State private var course: TCXCourse?
     @State private var entries: [CoursePointEntry] = []
     @State private var parseError: String?
-    @State private var showDeleteConfirm = false
 
     var body: some View {
         Group {
@@ -67,44 +64,12 @@ struct RouteDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(record.title)
-                    .font(.headline)
-                    .lineLimit(2)
-                Spacer()
-                Menu {
-                    Button(action: export) {
-                        Label("TCX 내보내기…", systemImage: "square.and.arrow.up")
-                    }
-                    .disabled(course == nil)
-
-                    Divider()
-
-                    Button { coordinator.redownload(record) } label: {
-                        Label("다시 불러오기", systemImage: "arrow.clockwise")
-                    }
-                    Button(role: .destructive) { showDeleteConfirm = true } label: {
-                        Label("삭제", systemImage: "trash")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-            }
+            Text(record.title)
+                .font(.headline)
+                .lineLimit(2)
             Text(record.createdAt.formatted(date: .abbreviated, time: .shortened))
                 .font(.caption)
                 .foregroundStyle(.secondary)
-        }
-        .confirmationDialog(
-            "'\(record.title)'을(를) 삭제하시겠습니까?",
-            isPresented: $showDeleteConfirm,
-            titleVisibility: .visible
-        ) {
-            Button("삭제", role: .destructive) { modelContext.delete(record) }
-        } message: {
-            Text("TCX 데이터와 세그먼트 정보가 삭제됩니다.")
         }
     }
 
@@ -238,15 +203,6 @@ struct RouteDetailView: View {
             minCategory: record.minCategory
         ).entries
         record.coursePointCount = entries.count
-    }
-
-    private func export() {
-        guard let course,
-              let cued = try? course.build(entries: entries, forRWGPS: false),
-              let rwgps = try? course.build(entries: entries, forRWGPS: true) else {
-            NSSound.beep(); return
-        }
-        Exporter.saveToFolder(prefix: record.fileNamePrefix, cued: cued.data, rwgps: rwgps.data)
     }
 }
 

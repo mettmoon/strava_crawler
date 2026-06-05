@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import AppKit
 import StravaTCXKit
 
 struct MainTabView: View {
@@ -14,6 +15,7 @@ struct MainTabView: View {
     @State private var showingLoginAlert = false
     @State private var cachedCourse: TCXCourse?
     @State private var cachedRouteID: String?
+    @State private var showRouteDeleteConfirm = false
 
     // MARK: - computed
 
@@ -57,6 +59,64 @@ struct MainTabView: View {
             cachedCourse = try? TCXCourse(data: r.tcxData)
             cachedRouteID = r.routeID
         }
+        .focusedSceneValue(\.routeCommandHandler, {
+            guard case .route(let record) = selection else { return nil }
+            return RouteCommandHandler(
+                export: {
+                    guard let course = cachedCourse else { NSSound.beep(); return }
+                    let entries = Cuesheet.makeEntries(
+                        trackPoints: course.trackPoints,
+                        segments: record.segments,
+                        minCategory: record.minCategory
+                    ).entries
+                    guard let cued = try? course.build(entries: entries, forRWGPS: false),
+                          let rwgps = try? course.build(entries: entries, forRWGPS: true) else {
+                        NSSound.beep(); return
+                    }
+                    Exporter.saveToFolder(prefix: record.fileNamePrefix, cued: cued.data, rwgps: rwgps.data)
+                },
+                redownload: {
+                    coordinator.redownload(record)
+                },
+                delete: {
+                    showRouteDeleteConfirm = true
+                },
+                canExport: cachedCourse != nil
+            )
+        }())
+        .confirmationDialog(
+            {
+                if case .route(let r) = selection { return "'\(r.title)'을(를) 삭제하시겠습니까?" }
+                return "경로를 삭제하시겠습니까?"
+            }(),
+            isPresented: $showRouteDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("삭제", role: .destructive) {
+                if case .route(let r) = selection {
+                    context.delete(r)
+                    selection = nil
+                }
+            }
+        } message: {
+            Text("TCX 데이터와 세그먼트 정보가 삭제됩니다.")
+        }
+        .focusedSceneValue(\.selectedSegment, {
+            guard case .segment(let s) = selection else { return nil }
+            return s
+        }())
+        .focusedSceneValue(\.segmentCommandHandler, {
+            guard case .segment(let s) = selection else { return nil }
+            return SegmentCommandHandler(
+                reload: {
+                    await coordinator.reloadSegment(s.segmentID, context: context)
+                },
+                delete: {
+                    coordinator.deleteSegment(s.segmentID, context: context)
+                    selection = nil
+                }
+            )
+        }())
         .task { coordinator.reconcileOnLaunch(context: context) }
         .sheet(isPresented: $showingMyRoutes) {
             MyRoutesView { coordinator.importRoute($0, into: context) }

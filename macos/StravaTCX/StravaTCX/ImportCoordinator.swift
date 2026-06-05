@@ -85,6 +85,38 @@ final class ImportCoordinator {
         run(record)
     }
 
+    /// segmentID 의 캐시를 무효화하고 네트워크에서 재수집한 뒤, 해당 ID 를 포함하는 모든 RouteRecord 를 업데이트한다.
+    func reloadSegment(_ segmentID: String, context: ModelContext) async {
+        let cookie = AppSettings.cookie
+        segmentCache.removeValue(forKey: segmentID)
+        try? FileManager.default.removeItem(at: Self.cacheFile(for: segmentID))
+
+        do {
+            var info = try await ds.fetchSegment(id: segmentID, cookie: cookie)
+            segmentCache[segmentID] = info
+            Self.saveToDisk(info)
+
+            let descriptor = FetchDescriptor<RouteRecord>()
+            let records = (try? context.fetch(descriptor)) ?? []
+            for record in records {
+                guard let idx = record.segments.firstIndex(where: { $0.segmentID == segmentID }) else { continue }
+                info.order = record.segments[idx].order
+                record.segments[idx] = info
+            }
+        } catch {
+            // 실패 시 조용히 무시 (UI 에서 별도 처리 가능)
+        }
+    }
+
+    /// segmentID 를 포함하는 모든 RouteRecord.segments 에서 해당 항목을 제거한다.
+    func deleteSegment(_ segmentID: String, context: ModelContext) {
+        let descriptor = FetchDescriptor<RouteRecord>()
+        let records = (try? context.fetch(descriptor)) ?? []
+        for record in records {
+            record.segments.removeAll { $0.segmentID == segmentID }
+        }
+    }
+
     /// 앱 종료 등으로 중단된 채 남은 processing 레코드를 failed 로 정리한다.
     func reconcileOnLaunch(context: ModelContext) {
         let descriptor = FetchDescriptor<RouteRecord>(
