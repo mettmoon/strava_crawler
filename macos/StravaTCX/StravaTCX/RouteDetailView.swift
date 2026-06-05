@@ -2,8 +2,8 @@ import SwiftUI
 import StravaTCXKit
 
 struct RouteDetailView: View {
-    @Environment(ImportCoordinator.self) private var coordinator
-    @Bindable var record: RouteRecord
+    @Environment(RouteListViewModel.self) private var routeVM
+    var route: Route
     var onCourseParsed: ((TCXCourse?) -> Void)?
     var onHighlight: (([TrackPoint]) -> Void)?
 
@@ -12,22 +12,26 @@ struct RouteDetailView: View {
     @State private var parseError: String?
     @State private var selectedSegmentID: String?
     @State private var selectedEntryID: Int?
+    @State private var minCategory: String?
 
     var body: some View {
         Group {
-            switch record.status {
+            switch route.status {
             case .processing: processingView
             case .failed:     failedView
             case .ready:      readyView
             }
         }
-        .task(id: record.persistentModelID) { loadCourse() }
+        .task(id: route.id) {
+            minCategory = route.minCategory
+            loadCourse()
+        }
     }
 
     // MARK: - 상태별 화면
 
     private var processingView: some View {
-        let p = coordinator.progress(for: record)
+        let p = routeVM.progress(for: route.id)
         return ContentUnavailableView {
             Label("처리 중", systemImage: "arrow.down.circle")
         } description: {
@@ -39,9 +43,9 @@ struct RouteDetailView: View {
         ContentUnavailableView {
             Label("처리 실패", systemImage: "exclamationmark.triangle")
         } description: {
-            Text(record.errorMessage ?? "알 수 없는 오류")
+            Text(route.errorMessage ?? "알 수 없는 오류")
         } actions: {
-            Button("다시 시도") { coordinator.retry(record) }
+            Button("다시 시도") { routeVM.retry(routeID: route.id) }
                 .buttonStyle(.borderedProminent)
         }
     }
@@ -68,10 +72,10 @@ struct RouteDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(record.title)
+            Text(route.title)
                 .font(.headline)
                 .lineLimit(2)
-            Text(record.createdAt.formatted(date: .abbreviated, time: .shortened))
+            Text(route.createdAt.formatted(date: .abbreviated, time: .shortened))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -80,13 +84,13 @@ struct RouteDetailView: View {
     private var summarySection: some View {
         Section {
             VStack(spacing: 0) {
-                SummaryRow("Route ID", record.routeID)
+                SummaryRow("Route ID", route.id)
                 Divider().padding(.leading, 8)
-                SummaryRow("Trackpoint", "\(record.trackPointCount) 개")
+                SummaryRow("Trackpoint", "\(route.trackPointCount) 개")
                 Divider().padding(.leading, 8)
-                SummaryRow("세그먼트", "\(record.segments.count) 개")
+                SummaryRow("세그먼트", "\(route.segments.count) 개")
                 Divider().padding(.leading, 8)
-                SummaryRow("최소 카테고리", record.minCategory.map(categoryLabel) ?? "전체")
+                SummaryRow("최소 카테고리", minCategory.map(categoryLabel) ?? "전체")
                 Divider().padding(.leading, 8)
                 SummaryRow("CoursePoint", "\(entries.count) 개")
             }
@@ -98,7 +102,7 @@ struct RouteDetailView: View {
 
     private var segmentsSection: some View {
         Section {
-            Table(record.segments, selection: $selectedSegmentID) {
+            Table(route.segments, selection: $selectedSegmentID) {
                 TableColumn("#") { s in
                     Text(s.order.map(String.init) ?? "—")
                         .foregroundStyle(.secondary)
@@ -126,7 +130,7 @@ struct RouteDetailView: View {
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .onChange(of: selectedSegmentID) { _, id in
                 selectedEntryID = nil
-                guard let id, let seg = record.segments.first(where: { $0.segmentID == id }),
+                guard let id, let seg = route.segments.first(where: { $0.segmentID == id }),
                       let pts = course?.trackPoints else {
                     onHighlight?([]); return
                 }
@@ -172,7 +176,7 @@ struct RouteDetailView: View {
             HStack {
                 sectionHeader("CoursePoint", systemImage: "flag.checkered")
                 Spacer()
-                Picker("최소 카테고리", selection: $record.minCategory) {
+                Picker("최소 카테고리", selection: $minCategory) {
                     Text("전체").tag(String?.none)
                     Text("4↑").tag(String?.some("4"))
                     Text("3↑").tag(String?.some("3"))
@@ -183,7 +187,10 @@ struct RouteDetailView: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .controlSize(.mini)
-                .onChange(of: record.minCategory) { _, _ in recomputeEntries() }
+                .onChange(of: minCategory) { _, newVal in
+                    recomputeEntries()
+                    Task { await routeVM.updateMinCategory(routeID: route.id, minCategory: newVal) }
+                }
             }
         }
     }
@@ -202,8 +209,6 @@ struct RouteDetailView: View {
             .map { IdentifiedEntry(id: $0.offset, entry: $0.element) }
     }
 
-    // MARK: - 로직
-
     // MARK: - 하이라이트 헬퍼
 
     private func sliceTrackPoints(_ pts: [TrackPoint], for seg: SegmentInfo) -> [TrackPoint] {
@@ -217,10 +222,8 @@ struct RouteDetailView: View {
     private func highlightForEntry(_ entry: CoursePointEntry?, in pts: [TrackPoint]) -> [TrackPoint] {
         guard let entry else { return [] }
         let segName = entry.segName
-        // 같은 segName을 가진 시작/종료 entry 쌍을 찾는다
         let segEntries = entries.filter { $0.segName == segName }.sorted { $0.idx < $1.idx }
         guard let first = segEntries.first, let last = segEntries.last, first.idx < last.idx else {
-            // 단일 entry: 그 지점만 표시 (앞뒤 5개)
             let i = entry.idx
             let lo = max(0, i - 5), hi = min(pts.count - 1, i + 5)
             return Array(pts[lo...hi])
@@ -231,9 +234,9 @@ struct RouteDetailView: View {
     private func loadCourse() {
         course = nil; parseError = nil; entries = []
         onCourseParsed?(nil)
-        guard record.status == .ready, !record.tcxData.isEmpty else { return }
+        guard route.status == .ready, !route.tcxData.isEmpty else { return }
         do {
-            let parsed = try TCXCourse(data: record.tcxData)
+            let parsed = try TCXCourse(data: route.tcxData)
             course = parsed
             onCourseParsed?(parsed)
             recomputeEntries()
@@ -246,13 +249,9 @@ struct RouteDetailView: View {
         guard let course else { return }
         entries = Cuesheet.makeEntries(
             trackPoints: course.trackPoints,
-            segments: record.segments,
-            minCategory: record.minCategory
+            segments: route.segments,
+            minCategory: minCategory
         ).entries
-        // 실제로 바뀔 때만 저장해 불필요한 SwiftData 변경 알림 방지
-        if record.coursePointCount != entries.count {
-            record.coursePointCount = entries.count
-        }
     }
 }
 

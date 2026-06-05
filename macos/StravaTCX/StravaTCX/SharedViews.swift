@@ -4,7 +4,7 @@ import StravaTCXKit
 // MARK: - Sidebar 선택 타입
 
 enum SidebarItem: Hashable {
-    case route(RouteRecord)
+    case route(Route)
     case segment(SegmentInfo)
     case course(CourseRecord)
 }

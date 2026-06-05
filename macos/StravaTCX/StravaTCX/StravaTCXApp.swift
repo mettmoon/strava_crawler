@@ -3,18 +3,18 @@ import SwiftData
 
 @main
 struct StravaTCXApp: App {
-    @State private var coordinator = ImportCoordinator()
+    @State private var container = try! AppContainer()
 
     var body: some Scene {
         WindowGroup {
             MainTabView()
-                .environment(coordinator)
+                .environment(container.makeRouteListViewModel())
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
         .defaultSize(width: 1100, height: 680)
         .windowResizability(.contentMinSize)
-        .modelContainer(for: [RouteRecord.self, CourseRecord.self])
+        .modelContainer(container.modelContainer)
         .commands { SegmentCommands() }
         .commands { RouteCommands() }
         .commands { CourseCommands() }
@@ -26,7 +26,7 @@ struct StravaTCXApp: App {
         .windowToolbarStyle(.unified)
         .defaultSize(width: 1400, height: 860)
         .windowResizability(.contentMinSize)
-        .modelContainer(for: [RouteRecord.self, CourseRecord.self])
+        .modelContainer(container.modelContainer)
 
         Settings {
             SettingsView()
