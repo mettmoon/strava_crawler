@@ -29,7 +29,7 @@ enum Exporter {
 
     @MainActor
     @discardableResult
-    static func saveSingle(prefix: String, data: Data, suffix: String = "") -> Bool {
+    static func saveSingle(filename: String, data: Data) -> Bool {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -38,8 +38,7 @@ enum Exporter {
         panel.message = "TCX 파일을 저장할 폴더를 선택하세요"
         guard panel.runModal() == .OK, let dir = panel.url else { return false }
 
-        let filename = suffix.isEmpty ? "\(prefix).tcx" : "\(prefix)_\(suffix).tcx"
-        let url = dir.appendingPathComponent(filename)
+        let url = dir.appendingPathComponent(filename + ".tcx")
         do {
             try data.write(to: url)
             NSWorkspace.shared.activateFileViewerSelecting([url])

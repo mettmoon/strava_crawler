@@ -421,6 +421,6 @@ struct MainTabView: View {
         guard let result = try? tcxCourse.buildFromCourse(cuePoints: cueSpecs) else {
             NSSound.beep(); return
         }
-        Exporter.saveSingle(prefix: "course_\(course.id.uuidString.prefix(8))", data: result.data)
+        Exporter.saveSingle(filename: "\(course.title)", data: result.data)
     }
 }
