@@ -8,6 +8,7 @@ extension FocusedValues {
     @Entry var routeCommandHandler: RouteCommandHandler? = nil
     @Entry var courseCommandHandler: CourseCommandHandler? = nil
     @Entry var createCourseAction: (() -> Void)? = nil
+    @Entry var addRouteAction: (() -> Void)? = nil
 }
 
 /// Commands 블록에서 modelContext·coordinator 에 접근할 수 없으므로,
