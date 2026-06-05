@@ -2,8 +2,12 @@ import SwiftUI
 import MapKit
 import StravaTCXKit
 
+// 하이라이트 폴리라인 구분 태그
+private final class HighlightPolyline: MKPolyline {}
+
 struct RouteMapView: NSViewRepresentable {
     let trackPoints: [TrackPoint]
+    var highlightPoints: [TrackPoint] = []
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -20,10 +24,26 @@ struct RouteMapView: NSViewRepresentable {
         map.removeAnnotations(map.annotations)
         guard trackPoints.count >= 2 else { return }
 
-        // 경로 폴리라인
+        // 전체 경로 폴리라인
         let coords = trackPoints.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
         let polyline = MKPolyline(coordinates: coords, count: coords.count)
         map.addOverlay(polyline, level: .aboveRoads)
+
+        // 하이라이트 구간
+        if highlightPoints.count >= 2 {
+            let hlCoords = highlightPoints.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+            let hlPolyline = HighlightPolyline(coordinates: hlCoords, count: hlCoords.count)
+            map.addOverlay(hlPolyline, level: .aboveRoads)
+
+            let hlStart = MKPointAnnotation()
+            hlStart.coordinate = hlCoords.first!
+            hlStart.title = "시작"
+            let hlEnd = MKPointAnnotation()
+            hlEnd.coordinate = hlCoords.last!
+            hlEnd.title = "종료"
+            map.addAnnotations([hlStart, hlEnd])
+            return
+        }
 
         // 시작/종료 마커
         let start = MKPointAnnotation()
@@ -34,7 +54,6 @@ struct RouteMapView: NSViewRepresentable {
         end.title = "종료"
         map.addAnnotations([start, end])
 
-        // 경로 전체가 보이도록 지도 범위 설정
         // 처음 등장 시 frame이 아직 0일 수 있으므로 한 런루프 뒤에 적용
         let fitRect = polyline.boundingMapRect.insetBy(
             dx: -polyline.boundingMapRect.width * 0.1,
@@ -57,8 +76,13 @@ struct RouteMapView: NSViewRepresentable {
                 return MKOverlayRenderer(overlay: overlay)
             }
             let renderer = MKPolylineRenderer(polyline: polyline)
-            renderer.strokeColor = NSColor.systemOrange
-            renderer.lineWidth = 3
+            if polyline is HighlightPolyline {
+                renderer.strokeColor = NSColor.systemCyan
+                renderer.lineWidth = 5
+            } else {
+                renderer.strokeColor = NSColor.systemOrange
+                renderer.lineWidth = 3
+            }
             renderer.lineCap = .round
             renderer.lineJoin = .round
             return renderer

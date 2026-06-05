@@ -226,6 +226,36 @@ struct RouteGeometryBuilder {
 
     private func scn(_ v: simd_float3) -> SCNVector3 { SCNVector3(v.x, v.y, v.z) }
 
+    /// 전체 경로 좌표계 기준으로 임의 TrackPoint 의 3D 위치를 반환한다.
+    func position(for point: TrackPoint) -> SCNVector3 {
+        let sampled = downsample(points)
+        guard sampled.count >= 2 else { return .init() }
+
+        let lats = sampled.map(\.lat)
+        let lons = sampled.map(\.lon)
+        let eles = sampled.compactMap(\.ele)
+
+        let centerLat = (lats.min()! + lats.max()!) / 2
+        let centerLon = (lons.min()! + lons.max()!) / 2
+        let eleMin  = eles.isEmpty ? 0.0 : eles.min()!
+        let eleMax  = eles.isEmpty ? 1.0 : eles.max()!
+        let eleRange = max(eleMax - eleMin, 1.0)
+
+        let mPerDegLat = 111_320.0
+        let mPerDegLon = 111_320.0 * cos(centerLat * .pi / 180)
+
+        let xSpan = (lons.max()! - lons.min()!) * mPerDegLon
+        let zSpan = (lats.max()! - lats.min()!) * mPerDegLat
+        let hSpan = max(xSpan, zSpan, 1.0)
+        let hScale = 100.0 / hSpan
+        let eleScale = (hSpan * hScale * 0.05) / eleRange * exaggeration
+
+        let x = Float((point.lon - centerLon) * mPerDegLon * hScale)
+        let z = Float(-(point.lat - centerLat) * mPerDegLat * hScale)
+        let y = Float(((point.ele ?? eleMin) - eleMin) * eleScale)
+        return SCNVector3(x, y, z)
+    }
+
     // MARK: - 다운샘플링
 
     private func downsample(_ pts: [TrackPoint]) -> [TrackPoint] {

@@ -3,6 +3,7 @@ import StravaTCXKit
 
 struct SegmentDetailView: View {
     let segment: SegmentInfo
+    var onHighlight: (([TrackPoint]) -> Void)?
 
     var body: some View {
         ScrollView {

@@ -4,10 +4,13 @@ import StravaTCXKit
 struct RouteDetailView: View {
     @Environment(ImportCoordinator.self) private var coordinator
     @Bindable var record: RouteRecord
+    var onHighlight: (([TrackPoint]) -> Void)?
 
     @State private var course: TCXCourse?
     @State private var entries: [CoursePointEntry] = []
     @State private var parseError: String?
+    @State private var selectedSegmentID: String?
+    @State private var selectedEntryID: Int?
 
     var body: some View {
         Group {
@@ -94,7 +97,7 @@ struct RouteDetailView: View {
 
     private var segmentsSection: some View {
         Section {
-            Table(record.segments) {
+            Table(record.segments, selection: $selectedSegmentID) {
                 TableColumn("#") { s in
                     Text(s.order.map(String.init) ?? "—")
                         .foregroundStyle(.secondary)
@@ -120,6 +123,14 @@ struct RouteDetailView: View {
             .alternatingRowBackgrounds()
             .frame(minHeight: 140)
             .clipShape(RoundedRectangle(cornerRadius: 10))
+            .onChange(of: selectedSegmentID) { _, id in
+                selectedEntryID = nil
+                guard let id, let seg = record.segments.first(where: { $0.segmentID == id }),
+                      let pts = course?.trackPoints else {
+                    onHighlight?([]); return
+                }
+                onHighlight?(sliceTrackPoints(pts, for: seg))
+            }
         } header: {
             sectionHeader("세그먼트", systemImage: "mountain.2")
         }
@@ -127,7 +138,7 @@ struct RouteDetailView: View {
 
     private var coursePointsSection: some View {
         Section {
-            Table(rows) {
+            Table(rows, selection: $selectedEntryID) {
                 TableColumn("위치") { r in
                     Text(r.entry.isStart ? "시작" : "종료")
                         .foregroundStyle(r.entry.isStart ? .primary : .secondary)
@@ -148,6 +159,14 @@ struct RouteDetailView: View {
             .alternatingRowBackgrounds()
             .frame(minHeight: 180)
             .clipShape(RoundedRectangle(cornerRadius: 10))
+            .onChange(of: selectedEntryID) { _, id in
+                selectedSegmentID = nil
+                guard let id, let pts = course?.trackPoints else {
+                    onHighlight?([]); return
+                }
+                let entry = rows.first(where: { $0.id == id })?.entry
+                onHighlight?(highlightForEntry(entry, in: pts))
+            }
         } header: {
             HStack {
                 sectionHeader("CoursePoint", systemImage: "flag.checkered")
@@ -183,6 +202,30 @@ struct RouteDetailView: View {
     }
 
     // MARK: - 로직
+
+    // MARK: - 하이라이트 헬퍼
+
+    private func sliceTrackPoints(_ pts: [TrackPoint], for seg: SegmentInfo) -> [TrackPoint] {
+        guard let sp = seg.startPoint, let ep = seg.endPoint else { return [] }
+        let startIdx = Geo.nearestIndex(pts, lat: sp[0], lon: sp[1]) ?? 0
+        let endIdx   = Geo.nearestIndex(pts, lat: ep[0], lon: ep[1], startIdx: startIdx + 1) ?? (pts.count - 1)
+        guard startIdx < endIdx else { return [] }
+        return Array(pts[startIdx...endIdx])
+    }
+
+    private func highlightForEntry(_ entry: CoursePointEntry?, in pts: [TrackPoint]) -> [TrackPoint] {
+        guard let entry else { return [] }
+        let segName = entry.segName
+        // 같은 segName을 가진 시작/종료 entry 쌍을 찾는다
+        let segEntries = entries.filter { $0.segName == segName }.sorted { $0.idx < $1.idx }
+        guard let first = segEntries.first, let last = segEntries.last, first.idx < last.idx else {
+            // 단일 entry: 그 지점만 표시 (앞뒤 5개)
+            let i = entry.idx
+            let lo = max(0, i - 5), hi = min(pts.count - 1, i + 5)
+            return Array(pts[lo...hi])
+        }
+        return Array(pts[first.idx...last.idx])
+    }
 
     private func loadCourse() {
         course = nil; parseError = nil; entries = []
