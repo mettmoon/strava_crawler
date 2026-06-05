@@ -101,6 +101,53 @@ public final class TCXCourse {
         return (data, newCps.count)
     }
 
+    /// 코스 편집기에서 저장된 큐포인트를 그대로 TCX로 내보낼 때 사용. 이름을 가공하지 않는다.
+    public struct CuePointSpec: Sendable {
+        public var idx: Int
+        public var time: String?
+        public var lat: Double
+        public var lon: Double
+        public var ele: Double?
+        public var name: String
+        public var pointType: String
+        public var notes: String
+        public init(idx: Int, time: String? = nil, lat: Double, lon: Double, ele: Double? = nil,
+                    name: String, pointType: String, notes: String) {
+            self.idx = idx; self.time = time; self.lat = lat; self.lon = lon; self.ele = ele
+            self.name = name; self.pointType = pointType; self.notes = notes
+        }
+    }
+
+    public func buildFromCourse(cuePoints: [CuePointSpec]) throws -> (data: Data, count: Int) {
+        guard let doc = try? XMLDocument(data: originalData),
+              let course = TCXCourse.firstElement(in: doc.rootElement(), localName: "Course") else {
+            throw TCXError.parseFailed
+        }
+        doc.characterEncoding = "UTF-8"
+        doc.version = "1.0"
+
+        for child in (course.children ?? []) where child.localName == "CoursePoint" {
+            child.detach()
+        }
+
+        var newCps = cuePoints.sorted { $0.idx < $1.idx }.map { c in
+            (idx: c.idx, element: Self.makeCoursePointElement(
+                name: c.name, time: c.time, lat: c.lat, lon: c.lon, ele: c.ele,
+                pointType: c.pointType, notes: c.notes.isEmpty ? nil : c.notes,
+                allowEmptyName: true
+            ))
+        }
+
+        let children = course.children ?? []
+        let lastTrack = children.lastIndex { $0.localName == "Track" }
+        let insertAt = lastTrack.map { $0 + 1 } ?? children.count
+        for (offset, cp) in newCps.enumerated() {
+            course.insertChild(cp.element, at: insertAt + offset)
+        }
+
+        return (doc.xmlData(options: []), newCps.count)
+    }
+
     // MARK: - CoursePoint 생성
 
     private func makeCoursePoint(entry e: CoursePointEntry, forRWGPS: Bool) -> XMLElement {
