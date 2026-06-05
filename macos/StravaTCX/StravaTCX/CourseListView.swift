@@ -12,16 +12,13 @@ struct CourseRow: View {
                 .font(.body)
                 .lineLimit(1)
             HStack(spacing: 8) {
-                Label("\(course.routePoints.count) 경유지", systemImage: "mappin")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if !course.cuePoints.isEmpty {
-                    Label("\(course.cuePoints.count) 큐", systemImage: "flag")
+                if course.totalDistanceKm > 0 {
+                    Label(String(format: "%.1f km", course.totalDistanceKm), systemImage: "arrow.right")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                if course.totalDistanceKm > 0 {
-                    Text(String(format: "%.1f km", course.totalDistanceKm))
+                if course.totalElevationGainM > 0 {
+                    Label(String(format: "%.0f m", course.totalElevationGainM), systemImage: "arrow.up.right")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
