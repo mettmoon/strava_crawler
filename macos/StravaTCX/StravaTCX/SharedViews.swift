@@ -1,24 +1,14 @@
 import SwiftUI
 import StravaTCXKit
 
-// MARK: - 공통 UI 헬퍼
+// MARK: - Sidebar 선택 타입
 
-struct InfoRow: View {
-    let label: String
-    let value: String
-    init(_ label: String, _ value: String) {
-        self.label = label
-        self.value = value
-    }
-    var body: some View {
-        HStack {
-            Text(label).foregroundStyle(.secondary)
-            Spacer()
-            Text(value).fontWeight(.medium)
-        }
-        .frame(maxWidth: 360)
-    }
+enum SidebarItem: Hashable {
+    case route(RouteRecord)
+    case segment(SegmentInfo)
 }
+
+// MARK: - 공통 헬퍼
 
 func categoryLabel(_ cat: String?) -> String {
     guard let cat else { return "—" }
@@ -27,27 +17,37 @@ func categoryLabel(_ cat: String?) -> String {
 
 func pointTypeColor(_ pointType: String) -> Color {
     switch pointType {
-    case "Summit": return .green
-    case "Valley": return .blue
+    case "Summit":  return .green
+    case "Valley":  return .blue
     case "Straight": return .secondary
-    case "Sprint": return .purple
-    default: return .orange   // First~Hors Category
+    case "Sprint":  return .purple
+    default:        return .orange
     }
 }
 
-/// Table 행용 식별 래퍼 (CoursePointEntry 는 Identifiable 아님)
+func trackPoints(for segment: SegmentInfo) -> [TrackPoint] {
+    guard let coords = segment.coordinates, !coords.isEmpty else { return [] }
+    let elevs = segment.elevations
+    let dists = segment.distances
+    return coords.enumerated().map { i, c in
+        let lat  = c.count >= 1 ? c[0] : 0
+        let lon  = c.count >= 2 ? c[1] : 0
+        let ele  = (elevs != nil && i < elevs!.count) ? elevs![i] : nil
+        let cumKm = (dists != nil && i < dists!.count) ? dists![i] / 1000.0 : 0
+        return TrackPoint(lat: lat, lon: lon, ele: ele, time: nil, cumKm: cumKm)
+    }
+}
+
+/// Table 행용 식별 래퍼
 struct IdentifiedEntry: Identifiable {
     let id: Int
     let entry: CoursePointEntry
 }
 
-/// CoursePoint 엔트리의 RWGPS Notes 미리보기 텍스트.
 func previewNotes(for e: CoursePointEntry) -> String {
     if e.isStart {
         let body = [Classification.normalizeDistanceText(e.dist), Classification.formatGrade(e.grade)]
-            .compactMap { $0 }
-            .filter { !$0.isEmpty }
-            .joined(separator: ", ")
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
         return e.gradeClass.arrow + body
     } else {
         return "🏁" + Classification.resolveSegmentName(e.segName)
