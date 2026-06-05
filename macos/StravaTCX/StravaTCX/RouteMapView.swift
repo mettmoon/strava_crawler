@@ -35,11 +35,18 @@ struct RouteMapView: NSViewRepresentable {
         map.addAnnotations([start, end])
 
         // 경로 전체가 보이도록 지도 범위 설정
-        map.setVisibleMapRect(
-            polyline.boundingMapRect.insetBy(dx: -polyline.boundingMapRect.width * 0.1,
-                                             dy: -polyline.boundingMapRect.height * 0.1),
-            animated: false
+        // 처음 등장 시 frame이 아직 0일 수 있으므로 한 런루프 뒤에 적용
+        let fitRect = polyline.boundingMapRect.insetBy(
+            dx: -polyline.boundingMapRect.width * 0.1,
+            dy: -polyline.boundingMapRect.height * 0.1
         )
+        if map.frame.size == .zero {
+            DispatchQueue.main.async {
+                map.setVisibleMapRect(fitRect, animated: false)
+            }
+        } else {
+            map.setVisibleMapRect(fitRect, animated: false)
+        }
     }
 
     // MARK: - Coordinator

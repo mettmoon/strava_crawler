@@ -9,8 +9,10 @@ struct StravaTCXApp: App {
         WindowGroup {
             MainTabView()
                 .environment(coordinator)
-                .frame(minWidth: 820, minHeight: 560)
         }
+        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 1100, height: 680)
         .windowResizability(.contentMinSize)
         .modelContainer(for: RouteRecord.self)
 

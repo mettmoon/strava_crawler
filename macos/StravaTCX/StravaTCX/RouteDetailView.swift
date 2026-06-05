@@ -2,10 +2,6 @@ import SwiftUI
 import AppKit
 import StravaTCXKit
 
-/// 저장된 라우트 상세 — 요약 + 세그먼트 + CoursePoint(필터) + TCX 내보내기.
-///
-/// CoursePoint 와 내보낼 TCX 는 저장돼 있지 않고, 원본 TCX·세그먼트로부터 현재
-/// `minCategory` 기준으로 즉석 계산한다.
 struct RouteDetailView: View {
     @Environment(ImportCoordinator.self) private var coordinator
     @Environment(\.modelContext) private var modelContext
@@ -15,20 +11,13 @@ struct RouteDetailView: View {
     @State private var entries: [CoursePointEntry] = []
     @State private var parseError: String?
     @State private var showDeleteConfirm = false
-    @State private var navPath: [SegmentInfo] = []
-    @State private var selectedSegmentID: String?
 
     var body: some View {
-        NavigationStack(path: $navPath) {
-            Group {
-                switch record.status {
-                case .processing: processingView
-                case .failed: failedView
-                case .ready: readyView
-                }
-            }
-            .navigationDestination(for: SegmentInfo.self) { seg in
-                SegmentDetailView(segment: seg)
+        Group {
+            switch record.status {
+            case .processing: processingView
+            case .failed:     failedView
+            case .ready:      readyView
             }
         }
         .task(id: record.persistentModelID) { loadCourse() }
@@ -52,125 +41,151 @@ struct RouteDetailView: View {
             Text(record.errorMessage ?? "알 수 없는 오류")
         } actions: {
             Button("다시 시도") { coordinator.retry(record) }
+                .buttonStyle(.borderedProminent)
         }
     }
 
     private var readyView: some View {
-        TabView {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    header
-                    if let parseError {
-                        Label(parseError, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
-                    }
-                    summary
-                    segmentsSection
-                    coursePointsSection
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                header
+                if let parseError {
+                    Label(parseError, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                        .font(.footnote)
                 }
-                .padding(24)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                summarySection
+                segmentsSection
+                coursePointsSection
             }
-            .tabItem { Label("상세", systemImage: "doc.text") }
-
-            RouteMapView(trackPoints: course?.trackPoints ?? [])
-                .tabItem { Label("지도", systemImage: "map.fill") }
-
-            Route3DView(trackPoints: course?.trackPoints ?? [])
-                .tabItem { Label("3D 경로", systemImage: "mountain.2.fill") }
+            .padding(16)
         }
+        .scrollContentBackground(.hidden)
     }
 
-    // MARK: - ready 구성요소
+    // MARK: - 구성요소
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(record.title).font(.largeTitle.bold())
-                Text(record.createdAt.formatted(date: .long, time: .shortened))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button { export() } label: {
-                Label("TCX 내보내기…", systemImage: "square.and.arrow.up")
-            }
-            .controlSize(.large)
-            .disabled(course == nil)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(record.title)
+                    .font(.headline)
+                    .lineLimit(2)
+                Spacer()
+                Menu {
+                    Button(action: export) {
+                        Label("TCX 내보내기…", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(course == nil)
 
-            Menu {
-                Button(role: .destructive) { showDeleteConfirm = true } label: {
-                    Label("삭제하기", systemImage: "trash")
+                    Divider()
+
+                    Button { coordinator.redownload(record) } label: {
+                        Label("다시 불러오기", systemImage: "arrow.clockwise")
+                    }
+                    Button(role: .destructive) { showDeleteConfirm = true } label: {
+                        Label("삭제", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
-                Button { coordinator.redownload(record) } label: {
-                    Label("다시 불러오기", systemImage: "arrow.clockwise")
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .imageScale(.large)
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+            Text(record.createdAt.formatted(date: .abbreviated, time: .shortened))
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .confirmationDialog(
             "'\(record.title)'을(를) 삭제하시겠습니까?",
             isPresented: $showDeleteConfirm,
             titleVisibility: .visible
         ) {
-            Button("삭제", role: .destructive) { deleteRecord() }
-            Button("취소", role: .cancel) {}
+            Button("삭제", role: .destructive) { modelContext.delete(record) }
         } message: {
-            Text("저장된 TCX 데이터와 세그먼트 정보가 삭제됩니다. 세그먼트 캐시는 유지됩니다.")
+            Text("TCX 데이터와 세그먼트 정보가 삭제됩니다.")
         }
     }
 
-    private var summary: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 8) {
-                InfoRow("Route ID", record.routeID)
-                InfoRow("Trackpoint", "\(record.trackPointCount) 개")
-                InfoRow("세그먼트", "\(record.segments.count) 개")
-                InfoRow("최소 카테고리", record.minCategory.map(categoryLabel) ?? "전체")
-                InfoRow("CoursePoint", "\(entries.count) 개")
+    private var summarySection: some View {
+        Section {
+            VStack(spacing: 0) {
+                SummaryRow("Route ID", record.routeID)
+                Divider().padding(.leading, 8)
+                SummaryRow("Trackpoint", "\(record.trackPointCount) 개")
+                Divider().padding(.leading, 8)
+                SummaryRow("세그먼트", "\(record.segments.count) 개")
+                Divider().padding(.leading, 8)
+                SummaryRow("최소 카테고리", record.minCategory.map(categoryLabel) ?? "전체")
+                Divider().padding(.leading, 8)
+                SummaryRow("CoursePoint", "\(entries.count) 개")
             }
-            .padding(8)
-        } label: {
-            Label("요약", systemImage: "doc.text")
+            .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 10))
+        } header: {
+            sectionHeader("요약", systemImage: "doc.text")
         }
     }
 
     private var segmentsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("세그먼트").font(.headline)
-            Table(record.segments, selection: $selectedSegmentID) {
-                TableColumn("#") { s in Text(s.order.map(String.init) ?? "—") }
-                    .width(28)
-                TableColumn("이름") { s in Text(s.name) }
+        Section {
+            Table(record.segments) {
+                TableColumn("#") { s in
+                    Text(s.order.map(String.init) ?? "—")
+                        .foregroundStyle(.secondary)
+                }
+                .width(28)
+                TableColumn("이름") { s in Text(s.name).lineLimit(1) }
                 TableColumn("카테고리") { s in
                     Text(categoryLabel(s.climbCategory))
                         .foregroundStyle(s.climbCategory == nil ? Color.secondary : Color.orange)
                 }
-                .width(80)
-                TableColumn("거리") { s in Text(s.distanceText ?? "—") }.width(80)
+                .width(70)
+                TableColumn("거리") { s in
+                    Text(s.distanceText ?? "—").foregroundStyle(.secondary)
+                }
+                .width(70)
                 TableColumn("경사") { s in
                     let g = Classification.gradeClass(s.avgGrade)
                     Text("\(g.arrow) \(s.avgGrade ?? "—")")
                 }
-                .width(90)
+                .width(80)
             }
-            .frame(minHeight: 180)
-            .onChange(of: selectedSegmentID) { _, id in
-                guard let id,
-                      let seg = record.segments.first(where: { $0.segmentID == id }) else { return }
-                navPath = [seg]
-                selectedSegmentID = nil
-            }
+            .tableStyle(.inset)
+            .alternatingRowBackgrounds()
+            .frame(minHeight: 140)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        } header: {
+            sectionHeader("세그먼트", systemImage: "mountain.2")
         }
     }
 
     private var coursePointsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        Section {
+            Table(rows) {
+                TableColumn("위치") { r in
+                    Text(r.entry.isStart ? "시작" : "종료")
+                        .foregroundStyle(r.entry.isStart ? .primary : .secondary)
+                }
+                .width(44)
+                TableColumn("타입") { r in
+                    Text(r.entry.pointType)
+                        .foregroundStyle(pointTypeColor(r.entry.pointType))
+                }
+                .width(100)
+                TableColumn("Notes") { r in
+                    Text(previewNotes(for: r.entry))
+                        .monospaced()
+                        .lineLimit(1)
+                }
+            }
+            .tableStyle(.inset)
+            .alternatingRowBackgrounds()
+            .frame(minHeight: 180)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        } header: {
             HStack {
-                Text("CoursePoint (\(entries.count))").font(.headline)
+                sectionHeader("CoursePoint", systemImage: "flag.checkered")
                 Spacer()
                 Picker("최소 카테고리", selection: $record.minCategory) {
                     Text("전체").tag(String?.none)
@@ -180,25 +195,19 @@ struct RouteDetailView: View {
                     Text("1↑").tag(String?.some("1"))
                     Text("HC").tag(String?.some("HC"))
                 }
-                .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(maxWidth: 280)
+                .pickerStyle(.menu)
+                .controlSize(.mini)
                 .onChange(of: record.minCategory) { _, _ in recomputeEntries() }
             }
-            Table(rows) {
-                TableColumn("위치") { r in
-                    Text(r.entry.isStart ? "시작" : "종료")
-                        .foregroundStyle(r.entry.isStart ? .primary : .secondary)
-                }
-                .width(48)
-                TableColumn("PointType") { r in
-                    Text(r.entry.pointType).foregroundStyle(pointTypeColor(r.entry.pointType))
-                }
-                .width(130)
-                TableColumn("Notes (RWGPS)") { r in Text(previewNotes(for: r.entry)).monospaced() }
-            }
-            .frame(minHeight: 220)
         }
+    }
+
+    private func sectionHeader(_ title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .textCase(nil)
     }
 
     private var rows: [IdentifiedEntry] {
@@ -211,9 +220,7 @@ struct RouteDetailView: View {
     // MARK: - 로직
 
     private func loadCourse() {
-        course = nil
-        parseError = nil
-        entries = []
+        course = nil; parseError = nil; entries = []
         guard record.status == .ready, !record.tcxData.isEmpty else { return }
         do {
             course = try TCXCourse(data: record.tcxData)
@@ -226,22 +233,38 @@ struct RouteDetailView: View {
     private func recomputeEntries() {
         guard let course else { return }
         entries = Cuesheet.makeEntries(
-            trackPoints: course.trackPoints, segments: record.segments, minCategory: record.minCategory
+            trackPoints: course.trackPoints,
+            segments: record.segments,
+            minCategory: record.minCategory
         ).entries
         record.coursePointCount = entries.count
-    }
-
-    private func deleteRecord() {
-        modelContext.delete(record)
     }
 
     private func export() {
         guard let course,
               let cued = try? course.build(entries: entries, forRWGPS: false),
               let rwgps = try? course.build(entries: entries, forRWGPS: true) else {
-            NSSound.beep()
-            return
+            NSSound.beep(); return
         }
         Exporter.saveToFolder(prefix: record.fileNamePrefix, cued: cued.data, rwgps: rwgps.data)
+    }
+}
+
+// MARK: - SummaryRow
+
+private struct SummaryRow: View {
+    let label: String
+    let value: String
+    init(_ label: String, _ value: String) { self.label = label; self.value = value }
+
+    var body: some View {
+        HStack {
+            Text(label).foregroundStyle(.secondary)
+            Spacer()
+            Text(value).fontWeight(.medium)
+        }
+        .font(.callout)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
     }
 }
