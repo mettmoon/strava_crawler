@@ -112,4 +112,17 @@ final class CourseRecord {
     var totalDistanceKm: Double {
         allTrackPoints.last?.cumKm ?? 0
     }
+
+    /// 획득고도 (m). 고도 데이터가 없으면 0.
+    var totalElevationGainM: Double {
+        let pts = allTrackPoints
+        var gain: Double = 0
+        guard pts.count > 1 else { return gain }
+        for i in 1 ..< pts.count {
+            guard let prev = pts[i - 1].ele, let curr = pts[i].ele else { continue }
+            let diff = curr - prev
+            if diff > 0 { gain += diff }
+        }
+        return gain
+    }
 }
