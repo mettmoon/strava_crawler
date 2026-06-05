@@ -7,6 +7,7 @@ private enum SidebarTab { case routes, segments, courses }
 
 struct MainTabView: View {
     @Environment(\.modelContext) private var context
+    @Environment(\.openWindow) private var openWindow
     @Environment(ImportCoordinator.self) private var coordinator
     @Query(sort: \RouteRecord.createdAt, order: .reverse) private var routes: [RouteRecord]
     @Query(sort: \CourseRecord.createdAt, order: .reverse) private var courses: [CourseRecord]
@@ -158,10 +159,12 @@ struct MainTabView: View {
         .focusedSceneValue(\.courseCommandHandler, {
             guard case .course(let c) = selection else { return nil }
             return CourseCommandHandler(
+                edit: { openWindow(id: "course-editor", value: c.id) },
                 exportTCX: { exportCourseTCX(c) },
                 delete: { showCourseDeleteConfirm = true }
             )
         }())
+        .focusedSceneValue(\.createCourseAction, { createCourse() })
         .focusedSceneValue(\.selectedSegment, {
             guard case .segment(let s) = selection else { return nil }
             return s
@@ -236,7 +239,7 @@ struct MainTabView: View {
                     if sidebarTab == .routes {
                         Text("+ 버튼으로 내 경로에서 가져오세요.")
                     } else if sidebarTab == .courses {
-                        Text("+ 버튼으로 새 코스를 만들거나\n경로 메뉴에서 \"코스로 만들기\"를 사용하세요.")
+                        Text("메뉴 > 코스 > 새 코스로 만들거나\n경로 메뉴에서 \"코스로 만들기\"를 사용하세요.")
                     }
                 }
             } else {
@@ -266,9 +269,11 @@ struct MainTabView: View {
         .navigationTitle("Strava TCX")
         .navigationSplitViewColumnWidth(min: 220, ideal: 240)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button(action: addTapped) {
-                    Label("추가하기", systemImage: "plus")
+            if sidebarTab != .courses {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: addTapped) {
+                        Label("추가하기", systemImage: "plus")
+                    }
                 }
             }
         }
@@ -330,15 +335,15 @@ struct MainTabView: View {
     // MARK: - 액션
 
     private func addTapped() {
-        if sidebarTab == .courses {
-            let newCourse = CourseRecord(title: "새 코스 \(courses.count + 1)")
-            context.insert(newCourse)
-            selection = .course(newCourse)
-            sidebarTab = .courses
-        } else {
-            if AppSettings.cookie.isEmpty { showingLoginAlert = true }
-            else { showingMyRoutes = true }
-        }
+        if AppSettings.cookie.isEmpty { showingLoginAlert = true }
+        else { showingMyRoutes = true }
+    }
+
+    private func createCourse() {
+        let newCourse = CourseRecord(title: "새 코스 \(courses.count + 1)")
+        context.insert(newCourse)
+        sidebarTab = .courses
+        selection = .course(newCourse)
     }
 
     private func deleteRoutes(_ offsets: IndexSet) {

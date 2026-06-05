@@ -7,6 +7,7 @@ extension FocusedValues {
     @Entry var segmentCommandHandler: SegmentCommandHandler? = nil
     @Entry var routeCommandHandler: RouteCommandHandler? = nil
     @Entry var courseCommandHandler: CourseCommandHandler? = nil
+    @Entry var createCourseAction: (() -> Void)? = nil
 }
 
 /// Commands 블록에서 modelContext·coordinator 에 접근할 수 없으므로,
@@ -25,6 +26,7 @@ struct RouteCommandHandler {
 }
 
 struct CourseCommandHandler {
+    var edit: () -> Void
     var exportTCX: () -> Void
     var delete: () -> Void
 }

@@ -1,46 +1,25 @@
 import SwiftUI
 import SwiftData
-import MapKit
 import StravaTCXKit
 
 // MARK: - CourseDetailView
 
 /// 코스 선택 시 오른쪽 인스펙터 패널.
-/// 지도(읽기 전용) + 큐시트 목록을 표시하고, "편집" 버튼으로 CourseEditorView 시트를 연다.
+/// 큐시트 목록을 표시한다.
 struct CourseDetailView: View {
     @Bindable var course: CourseRecord
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(spacing: 0) {
-            // 상단 타이틀 + 편집 버튼
+            // 상단 타이틀
             HStack {
                 Text(course.title)
                     .font(.headline)
                     .lineLimit(1)
                 Spacer()
-                Button("편집") { openWindow(id: "course-editor", value: course.id) }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-
-            Divider()
-
-            // 지도
-            let pts = course.allTrackPoints
-            if pts.count >= 2 {
-                RouteMapView(trackPoints: pts)
-                    .frame(minHeight: 200)
-            } else {
-                ContentUnavailableView {
-                    Label("경로 없음", systemImage: "map")
-                } description: {
-                    Text("편집 버튼을 눌러 지도를 클릭하면 경로가 생성됩니다.")
-                }
-                .frame(minHeight: 200)
-            }
 
             Divider()
 
