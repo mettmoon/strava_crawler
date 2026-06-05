@@ -4,6 +4,7 @@ import StravaTCXKit
 struct RouteDetailView: View {
     @Environment(ImportCoordinator.self) private var coordinator
     @Bindable var record: RouteRecord
+    var onCourseParsed: ((TCXCourse?) -> Void)?
     var onHighlight: (([TrackPoint]) -> Void)?
 
     @State private var course: TCXCourse?
@@ -229,9 +230,12 @@ struct RouteDetailView: View {
 
     private func loadCourse() {
         course = nil; parseError = nil; entries = []
+        onCourseParsed?(nil)
         guard record.status == .ready, !record.tcxData.isEmpty else { return }
         do {
-            course = try TCXCourse(data: record.tcxData)
+            let parsed = try TCXCourse(data: record.tcxData)
+            course = parsed
+            onCourseParsed?(parsed)
             recomputeEntries()
         } catch {
             parseError = error.localizedDescription
