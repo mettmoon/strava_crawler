@@ -68,6 +68,14 @@ struct CourseEditorView: View {
     @State private var showDiscardConfirm = false
     @State private var closeConfirmed = false
 
+    // 카카오 검색
+    @State private var searchQuery = ""
+    @State private var searchResults: [KakaoLocalResult] = []
+    @State private var isSearching = false
+    @State private var searchError: String?
+    @State private var mapViewRef: MKMapView?   // 맵 뷰 직접 참조 (검색 시 visible rect 조회용)
+    @State private var pendingSearch = false
+
     init(course: CourseRecord) {
         self.course = course
         _draft = State(initialValue: CourseEditorDraft(from: course))
@@ -78,7 +86,12 @@ struct CourseEditorView: View {
             toolbar
             Divider()
             HSplitView {
-                CourseEditMapView(draft: draft, isCalculating: $isCalculating)
+                CourseEditMapView(draft: draft, isCalculating: $isCalculating,
+                                  searchResults: $searchResults,
+                                  mapViewRef: $mapViewRef,
+                                  onSearchInVisibleRect: { rect in
+                    performSearch(in: rect)
+                })
                     .frame(minWidth: 400)
                 CueSheetPanel(draft: draft)
                     .frame(minWidth: 220, idealWidth: 280, maxWidth: 360)
@@ -104,6 +117,44 @@ struct CourseEditorView: View {
                 dismiss()
                 NSApp.keyWindow?.close()
             }
+        }
+    }
+
+    // MARK: - 카카오 검색
+
+    /// 툴바 엔터/버튼 → 현재 맵 visible rect로 즉시 검색
+    private func triggerSearch() {
+        print("[Search] triggerSearch called, query='\(searchQuery)', mapViewRef=\(mapViewRef != nil ? "있음" : "nil")")
+        searchResults = []
+        searchError = nil
+        if let map = mapViewRef {
+            let rect = map.visibleMapRect
+            print("[Search] visibleMapRect=\(rect)")
+            performSearch(in: rect)
+        } else {
+            print("[Search] mapViewRef가 nil — 검색 불가")
+        }
+    }
+
+    private func performSearch(in rect: MKMapRect) {
+        let query = searchQuery.trimmingCharacters(in: .whitespaces)
+        print("[Search] performSearch query='\(query)'")
+        guard !query.isEmpty else { print("[Search] 쿼리 비어있음, 종료"); return }
+        isSearching = true
+        searchError = nil
+        Task { @MainActor in
+            do {
+                print("[Search] API 호출 시작")
+                let results = try await KakaoLocalSearch.search(query: query, in: rect)
+                print("[Search] 결과 \(results.count)건: \(results.map(\.name))")
+                searchResults = results
+                if searchResults.isEmpty { searchError = "검색 결과 없음" }
+            } catch {
+                print("[Search] 오류: \(error)")
+                searchError = error.localizedDescription
+                searchResults = []
+            }
+            isSearching = false
         }
     }
 
@@ -133,6 +184,47 @@ struct CourseEditorView: View {
                 .keyboardShortcut("z", modifiers: [.command, .shift])
             }
             .buttonStyle(.borderless)
+
+            Divider().frame(height: 20)
+
+            // 카카오 검색
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("장소 검색 (화면 범위)", text: $searchQuery)
+                    .textFieldStyle(.plain)
+                    .frame(width: 200)
+                    .onSubmit { triggerSearch() }
+                if isSearching {
+                    ProgressView().controlSize(.small)
+                } else if !searchResults.isEmpty {
+                    Text("\(searchResults.count)건")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button {
+                        searchQuery = ""
+                        searchResults = []
+                        searchError = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("검색 초기화")
+                } else {
+                    Button {
+                        triggerSearch()
+                    } label: {
+                        Image(systemName: "arrow.right.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(searchQuery.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 7))
+            .help(searchError ?? "카카오 로컬 검색")
 
             Spacer()
 
@@ -283,9 +375,14 @@ private struct CuePointAddSheet: View {
 struct CourseEditMapView: NSViewRepresentable {
     var draft: CourseEditorDraft
     @Binding var isCalculating: Bool
+    @Binding var searchResults: [KakaoLocalResult]
+    @Binding var mapViewRef: MKMapView?
+    var onSearchInVisibleRect: (MKMapRect) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(draft: draft, isCalculatingBinding: $isCalculating)
+        Coordinator(draft: draft, isCalculatingBinding: $isCalculating,
+                    searchResultsBinding: $searchResults,
+                    onSearchInVisibleRect: onSearchInVisibleRect)
     }
 
     func makeNSView(context: Context) -> MKMapView {
@@ -294,6 +391,7 @@ struct CourseEditMapView: NSViewRepresentable {
         map.showsCompass = true
         map.showsScale = true
         context.coordinator.mapView = map
+        DispatchQueue.main.async { mapViewRef = map }
 
         let rightClick = NSClickGestureRecognizer(target: context.coordinator,
                                                    action: #selector(Coordinator.handleRightClick(_:)))
@@ -310,7 +408,10 @@ struct CourseEditMapView: NSViewRepresentable {
 
     func updateNSView(_ map: MKMapView, context: Context) {
         context.coordinator.draft = draft
+        context.coordinator.onSearchInVisibleRect = onSearchInVisibleRect
         context.coordinator.refresh()
+        context.coordinator.updateSearchAnnotations(map: map, results: searchResults)
+
     }
 
     // MARK: - Coordinator
@@ -318,15 +419,22 @@ struct CourseEditMapView: NSViewRepresentable {
     final class Coordinator: NSObject, MKMapViewDelegate {
         var draft: CourseEditorDraft
         var isCalculatingBinding: Binding<Bool>
+        var searchResultsBinding: Binding<[KakaoLocalResult]>
+        var onSearchInVisibleRect: (MKMapRect) -> Void
         weak var mapView: MKMapView?
 
         private var draggingIndex: Int?
         private var needsFitOnFirstLoad = true
         private var builtRouteSignature: String = ""
+        private var builtSearchSignature: String = ""
 
-        init(draft: CourseEditorDraft, isCalculatingBinding: Binding<Bool>) {
+        init(draft: CourseEditorDraft, isCalculatingBinding: Binding<Bool>,
+             searchResultsBinding: Binding<[KakaoLocalResult]>,
+             onSearchInVisibleRect: @escaping (MKMapRect) -> Void) {
             self.draft = draft
             self.isCalculatingBinding = isCalculatingBinding
+            self.searchResultsBinding = searchResultsBinding
+            self.onSearchInVisibleRect = onSearchInVisibleRect
         }
 
         // MARK: 맵 갱신
@@ -357,6 +465,20 @@ struct CourseEditMapView: NSViewRepresentable {
             if needsFitOnFirstLoad && !draft.routePoints.isEmpty {
                 needsFitOnFirstLoad = false
                 fitMap(map: map)
+            }
+        }
+
+        // MARK: 검색 결과 어노테이션
+
+        func updateSearchAnnotations(map: MKMapView, results: [KakaoLocalResult]) {
+            let sig = results.map(\.id).joined(separator: ",")
+            guard sig != builtSearchSignature else { return }
+            builtSearchSignature = sig
+
+            let existing = map.annotations.compactMap { $0 as? SearchResultAnnotation }
+            map.removeAnnotations(existing)
+            for r in results {
+                map.addAnnotation(SearchResultAnnotation(result: r))
             }
         }
 
@@ -421,6 +543,7 @@ struct CourseEditMapView: NSViewRepresentable {
             let pt = gesture.location(in: map)
             let coord = map.convert(pt, toCoordinateFrom: map)
 
+            // RoutePoint 위 우클릭 → 삭제 메뉴
             let hitRadius: CGFloat = 20
             for ann in map.annotations.compactMap({ $0 as? RoutePointAnnotation }) {
                 let annPt = map.convert(ann.coordinate, toPointTo: map)
@@ -430,13 +553,18 @@ struct CourseEditMapView: NSViewRepresentable {
                 }
             }
 
+            // 경로 위인지 확인 (500m 이내)
             let allPts = draftAllTrackPoints()
-            guard !allPts.isEmpty,
-                  let ni = Geo.nearestIndex(allPts, lat: coord.latitude, lon: coord.longitude) else { return }
-            let snapPt = allPts[ni]
-            guard Geo.haversineKm(coord.latitude, coord.longitude, snapPt.lat, snapPt.lon) < 0.5 else { return }
+            let onRoute: (lat: Double, lon: Double, cumKm: Double)? = {
+                guard !allPts.isEmpty,
+                      let ni = Geo.nearestIndex(allPts, lat: coord.latitude, lon: coord.longitude),
+                      Geo.haversineKm(coord.latitude, coord.longitude,
+                                      allPts[ni].lat, allPts[ni].lon) < 0.5
+                else { return nil }
+                return (allPts[ni].lat, allPts[ni].lon, allPts[ni].cumKm)
+            }()
 
-            showCueMenu(snapLat: snapPt.lat, snapLon: snapPt.lon, cumKm: snapPt.cumKm, in: map)
+            showContextMenu(coord: coord, onRoute: onRoute, in: map)
         }
 
         private func draftAllTrackPoints() -> [TrackPoint] {
@@ -463,13 +591,44 @@ struct CourseEditMapView: NSViewRepresentable {
             NSMenu.popUpContextMenu(menu, with: NSApp.currentEvent ?? NSEvent(), for: map)
         }
 
-        private func showCueMenu(snapLat: Double, snapLon: Double, cumKm: Double, in map: MKMapView) {
+        private func showContextMenu(coord: CLLocationCoordinate2D,
+                                     onRoute: (lat: Double, lon: Double, cumKm: Double)?,
+                                     in map: MKMapView) {
             let menu = NSMenu()
-            let item = NSMenuItem(title: "큐시트 추가하기",
-                                   action: #selector(addCueFromMenu(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = CueMenuInfo(snapLat: snapLat, snapLon: snapLon, cumKm: cumKm)
-            menu.addItem(item)
+
+            // 경로 위일 때만 큐시트 추가
+            if let snap = onRoute {
+                let cueItem = NSMenuItem(title: "큐시트 추가하기",
+                                         action: #selector(addCueFromMenu(_:)), keyEquivalent: "")
+                cueItem.target = self
+                cueItem.representedObject = CueMenuInfo(snapLat: snap.lat, snapLon: snap.lon, cumKm: snap.cumKm)
+                menu.addItem(cueItem)
+                menu.addItem(.separator())
+            }
+
+            // 카카오 검색 (항상)
+            let searchItem = NSMenuItem(title: "이 위치에서 카카오 검색",
+                                        action: #selector(kakaoSearchHere(_:)), keyEquivalent: "")
+            searchItem.target = self
+            searchItem.representedObject = coord
+            menu.addItem(searchItem)
+
+            menu.addItem(.separator())
+
+            // 카카오맵에서 보기
+            let mapItem = NSMenuItem(title: "카카오맵에서 보기",
+                                      action: #selector(openKakaoMap(_:)), keyEquivalent: "")
+            mapItem.target = self
+            mapItem.representedObject = coord
+            menu.addItem(mapItem)
+
+            // 카카오맵 로드뷰에서 보기
+            let rvItem = NSMenuItem(title: "카카오맵 로드뷰에서 보기",
+                                     action: #selector(openKakaoRoadview(_:)), keyEquivalent: "")
+            rvItem.target = self
+            rvItem.representedObject = coord
+            menu.addItem(rvItem)
+
             NSMenu.popUpContextMenu(menu, with: NSApp.currentEvent ?? NSEvent(), for: map)
         }
 
@@ -506,6 +665,21 @@ struct CourseEditMapView: NSViewRepresentable {
             } else {
                 builtRouteSignature = ""; refresh()
             }
+        }
+
+        @objc private func kakaoSearchHere(_ sender: NSMenuItem) {
+            guard let map = mapView else { return }
+            onSearchInVisibleRect(map.visibleMapRect)
+        }
+
+        @objc private func openKakaoMap(_ sender: NSMenuItem) {
+            guard let coord = sender.representedObject as? CLLocationCoordinate2D else { return }
+            NSWorkspace.shared.open(KakaoLocalSearch.webURL(lat: coord.latitude, lon: coord.longitude))
+        }
+
+        @objc private func openKakaoRoadview(_ sender: NSMenuItem) {
+            guard let coord = sender.representedObject as? CLLocationCoordinate2D else { return }
+            NSWorkspace.shared.open(KakaoLocalSearch.roadvewURL(lat: coord.latitude, lon: coord.longitude))
         }
 
         @objc private func addCueFromMenu(_ sender: NSMenuItem) {
@@ -560,6 +734,14 @@ struct CourseEditMapView: NSViewRepresentable {
                 } else if let symbol = glyph.symbol {
                     v.glyphImage = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
                 }
+                v.canShowCallout = true
+                v.titleVisibility = .visible
+                return v
+            }
+            if annotation is SearchResultAnnotation {
+                let v = MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: "searchResult")
+                v.markerTintColor = .systemPink
+                v.glyphImage = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
                 v.canShowCallout = true
                 v.titleVisibility = .visible
                 return v
@@ -670,4 +852,15 @@ final class CuePolyline: MKPolyline {}
 
 private struct CueMenuInfo {
     let snapLat, snapLon, cumKm: Double
+}
+
+final class SearchResultAnnotation: MKPointAnnotation {
+    let result: KakaoLocalResult
+    init(result: KakaoLocalResult) {
+        self.result = result
+        super.init()
+        coordinate = CLLocationCoordinate2D(latitude: result.lat, longitude: result.lon)
+        title = result.name
+        subtitle = result.address.isEmpty ? result.category : result.address
+    }
 }
