@@ -382,7 +382,7 @@ struct MainTabView: View {
                 let meta = [Classification.normalizeDistanceText(entry.dist), Classification.formatGrade(entry.grade)]
                     .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
                 let prefix = entry.gradeClass.arrow + (meta.isEmpty ? "" : meta + " ")
-                displayName = prefix + entry.baseName
+                displayName = prefix
             } else {
                 displayName = "🏁" + Classification.resolveSegmentName(entry.segName)
             }
@@ -403,14 +403,12 @@ struct MainTabView: View {
         let allPts = course.allTrackPoints
         guard !allPts.isEmpty else { NSSound.beep(); return }
 
-        let entries = course.cuePoints.compactMap { cue -> CoursePointEntry? in
+        let cueSpecs = course.cuePoints.compactMap { cue -> TCXCourse.CuePointSpec? in
             guard let ni = Geo.nearestIndex(allPts, lat: cue.lat, lon: cue.lon) else { return nil }
-            return CoursePointEntry(
+            return TCXCourse.CuePointSpec(
                 idx: ni, time: allPts[ni].time,
                 lat: cue.lat, lon: cue.lon, ele: allPts[ni].ele,
-                pointType: cue.pointType, baseName: cue.name,
-                baseNotes: cue.notes, segName: cue.name,
-                isStart: true, gradeClass: .flat
+                name: cue.name, pointType: cue.pointType, notes: cue.notes
             )
         }
 
@@ -420,10 +418,9 @@ struct MainTabView: View {
             NSSound.beep(); return
         }
 
-        guard let cued = try? tcxCourse.build(entries: entries, forRWGPS: false),
-              let rwgps = try? tcxCourse.build(entries: entries, forRWGPS: true) else {
+        guard let result = try? tcxCourse.buildFromCourse(cuePoints: cueSpecs) else {
             NSSound.beep(); return
         }
-        Exporter.saveToFolder(prefix: "course_\(course.id.uuidString.prefix(8))", cued: cued.data, rwgps: rwgps.data)
+        Exporter.saveSingle(prefix: "course_\(course.id.uuidString.prefix(8))", data: result.data)
     }
 }
