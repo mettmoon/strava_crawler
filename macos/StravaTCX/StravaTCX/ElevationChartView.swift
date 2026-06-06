@@ -7,6 +7,7 @@ import StravaTCXKit
 struct ElevationChartView: View {
     let trackPoints: [TrackPoint]
     var markers: [ElevationMarker] = []
+    @Binding var hoverInfo: RouteHoverInfo?
 
     @State private var scale: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
@@ -46,9 +47,18 @@ struct ElevationChartView: View {
                 ScrollView(.horizontal, showsIndicators: true) {
                     Canvas { ctx, size in
                         drawChart(ctx: ctx, size: size,
-                                  stripH: stripH, placements: placements)
+                                  stripH: stripH, placements: placements,
+                                  hoverInfo: hoverInfo)
                     }
                     .frame(width: contentWidth, height: stripH + chartBodyHeight)
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active(let location):
+                            updateHover(location: location, contentWidth: contentWidth)
+                        case .ended:
+                            hoverInfo = nil
+                        }
+                    }
                     .background(
                         WheelZoomView { delta in applyZoom(delta: delta) }
                     )
@@ -190,7 +200,8 @@ struct ElevationChartView: View {
     // MARK: - Canvas 그리기
 
     private func drawChart(ctx: GraphicsContext, size: CGSize,
-                           stripH: CGFloat, placements: [Placement]) {
+                           stripH: CGFloat, placements: [Placement],
+                           hoverInfo: RouteHoverInfo?) {
         guard let (minEle, maxEle) = eleRange, maxEle > minEle else { return }
         let eleSpan  = maxEle - minEle
         let bodyTop  = stripH
@@ -325,6 +336,73 @@ struct ElevationChartView: View {
                                             width: r * 2, height: r * 2)),
                      with: .color(p.color))
         }
+
+        if let hoverInfo,
+           let elevation = hoverInfo.elevationMeters {
+            let hoverX = min(max(xPos(hoverInfo.distanceKm), 0), size.width)
+            let hoverY = min(max(yPos(elevation), bodyTop), bodyBot)
+            let guideColor = Color.cyan.opacity(0.72)
+
+            var vLine = Path()
+            vLine.move(to: CGPoint(x: hoverX, y: bodyTop))
+            vLine.addLine(to: CGPoint(x: hoverX, y: bodyBot))
+            ctx.stroke(vLine, with: .color(guideColor),
+                       style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+
+            var hLine = Path()
+            hLine.move(to: CGPoint(x: 0, y: hoverY))
+            hLine.addLine(to: CGPoint(x: size.width, y: hoverY))
+            ctx.stroke(hLine, with: .color(guideColor),
+                       style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+
+            let dotR: CGFloat = 4
+            ctx.fill(Path(ellipseIn: CGRect(
+                x: hoverX - dotR,
+                y: hoverY - dotR,
+                width: dotR * 2,
+                height: dotR * 2
+            )), with: .color(.cyan))
+
+            let bubbleW: CGFloat = 104
+            let bubbleH: CGFloat = 58
+            var bubbleX = hoverX + 10
+            if bubbleX + bubbleW > size.width - 6 {
+                bubbleX = hoverX - bubbleW - 10
+            }
+            var bubbleY = hoverY - bubbleH - 10
+            if bubbleY < bodyTop + 6 {
+                bubbleY = hoverY + 10
+            }
+            if bubbleY + bubbleH > bodyBot - 6 {
+                bubbleY = bodyBot - bubbleH - 6
+            }
+            bubbleX = min(max(bubbleX, 6), size.width - bubbleW - 6)
+            bubbleY = min(max(bubbleY, bodyTop + 6), bodyBot - bubbleH - 6)
+
+            let bubbleRect = CGRect(x: bubbleX, y: bubbleY, width: bubbleW, height: bubbleH)
+            ctx.fill(Path(roundedRect: bubbleRect, cornerRadius: 4),
+                     with: .color(Color(nsColor: .windowBackgroundColor).opacity(0.96)))
+            ctx.stroke(Path(roundedRect: bubbleRect, cornerRadius: 4),
+                       with: .color(.secondary.opacity(0.35)),
+                       style: StrokeStyle(lineWidth: 0.8))
+
+            let attrs = AttributeContainer([
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: NSColor.labelColor
+            ])
+            let distanceText = formatRouteDistance(hoverInfo.distanceKm)
+            let elevationText = formatRouteElevation(hoverInfo.elevationMeters)
+            let gradeText = formatRouteGrade(hoverInfo.gradePercent)
+            ctx.draw(Text(AttributedString(distanceText, attributes: attrs)),
+                     at: CGPoint(x: bubbleRect.midX, y: bubbleRect.minY + 13),
+                     anchor: .center)
+            ctx.draw(Text(AttributedString(elevationText, attributes: attrs)),
+                     at: CGPoint(x: bubbleRect.midX, y: bubbleRect.minY + 29),
+                     anchor: .center)
+            ctx.draw(Text(AttributedString(gradeText, attributes: attrs)),
+                     at: CGPoint(x: bubbleRect.midX, y: bubbleRect.minY + 45),
+                     anchor: .center)
+        }
     }
 
     // MARK: - 헬퍼
@@ -347,6 +425,16 @@ struct ElevationChartView: View {
             if d < bestDist { bestDist = d; best = i }
         }
         return best
+    }
+
+    private func updateHover(location: CGPoint, contentWidth: CGFloat) {
+        guard !trackPoints.isEmpty, totalKm > 0, contentWidth > 0 else {
+            hoverInfo = nil
+            return
+        }
+        let x = min(max(location.x, 0), contentWidth)
+        let km = Double(x / contentWidth) * totalKm
+        hoverInfo = routeHoverInfo(trackPoints: trackPoints, nearestToDistanceKm: km)
     }
 
     private func clamped(_ s: CGFloat) -> CGFloat {
