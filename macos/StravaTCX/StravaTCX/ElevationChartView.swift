@@ -22,6 +22,7 @@ struct ElevationChartView: View {
     private let maxScale: CGFloat = 30.0
     private let scaleStep: CGFloat = 1.4
     private let approxCharW: CGFloat = 6.5
+    private let maxMarkerRows = 4
 
     /// 자연 너비: scale=1 일 때의 콘텐츠 폭
     private var naturalWidth: CGFloat { CGFloat(totalKm) * minPixelsPerKm }
@@ -33,21 +34,24 @@ struct ElevationChartView: View {
     }
 
     private var stripH: CGFloat {
-        actualRowCount == 0 ? 0 : rowPad + CGFloat(actualRowCount) * rowHeight + rowPad
+        visibleRowCount == 0 ? 0 : rowPad + CGFloat(visibleRowCount) * rowHeight + rowPad
     }
     private var totalHeight: CGFloat { stripH + chartBodyHeight + 16 }
+    private var visibleRowCount: Int { min(actualRowCount, maxMarkerRows) }
 
     var body: some View {
         GeometryReader { geo in
             // contentWidth: naturalWidth * scale, 최소 뷰 너비
             let contentWidth = max(geo.size.width, naturalWidth * scale)
             let placements = computePlacements(contentWidth: contentWidth)
+            let hiddenMarkerCount = placements.filter { $0.row >= maxMarkerRows }.count
 
             ZStack(alignment: .bottomTrailing) {
                 ScrollView(.horizontal, showsIndicators: true) {
                     Canvas { ctx, size in
                         drawChart(ctx: ctx, size: size,
                                   stripH: stripH, placements: placements,
+                                  hiddenMarkerCount: hiddenMarkerCount,
                                   hoverInfo: hoverInfo)
                     }
                     .frame(width: contentWidth, height: stripH + chartBodyHeight)
@@ -125,7 +129,12 @@ struct ElevationChartView: View {
                 viewWidth = geo.size.width
                 resetScale()
             }
-            .onChange(of: geo.size.width) { _, w in viewWidth = w }
+            .onChange(of: geo.size.width) { _, w in
+                viewWidth = w
+                scale = clamped(scale)
+                lastScale = scale
+                recalcRowCount()
+            }
         }
         .frame(height: totalHeight)
         .onChange(of: scale)              { _, _ in recalcRowCount() }
@@ -201,6 +210,7 @@ struct ElevationChartView: View {
 
     private func drawChart(ctx: GraphicsContext, size: CGSize,
                            stripH: CGFloat, placements: [Placement],
+                           hiddenMarkerCount: Int,
                            hoverInfo: RouteHoverInfo?) {
         guard let (minEle, maxEle) = eleRange, maxEle > minEle else { return }
         let eleSpan  = maxEle - minEle
@@ -301,40 +311,60 @@ struct ElevationChartView: View {
             ctx.stroke(vLine, with: .color(p.color.opacity(0.35)),
                        style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
 
-            // 레이블 y (행 기준)
-            let labelY = rowPad + CGFloat(p.row) * rowHeight
-            let labelW = CGFloat(p.label.count) * approxCharW
-            let labelCX = p.mx  // 레이블 중앙 = 마커 x
-            let labelMidY = labelY + rowHeight / 2
+            if p.row < maxMarkerRows {
+                // 레이블 y (행 기준)
+                let labelY = rowPad + CGFloat(p.row) * rowHeight
+                let labelW = CGFloat(p.label.count) * approxCharW
+                let labelCX = p.mx  // 레이블 중앙 = 마커 x
+                let labelMidY = labelY + rowHeight / 2
 
-            // 레이블 → 차트 연결 수직선 (레이블 아래 ~ 차트 상단)
-            var stem = Path()
-            stem.move(to: CGPoint(x: p.mx, y: labelY + rowHeight - 1))
-            stem.addLine(to: CGPoint(x: p.mx, y: bodyTop))
-            ctx.stroke(stem, with: .color(p.color.opacity(0.4)),
-                       style: StrokeStyle(lineWidth: 0.8))
+                // 레이블 → 차트 연결 수직선 (레이블 아래 ~ 차트 상단)
+                var stem = Path()
+                stem.move(to: CGPoint(x: p.mx, y: labelY + rowHeight - 1))
+                stem.addLine(to: CGPoint(x: p.mx, y: bodyTop))
+                ctx.stroke(stem, with: .color(p.color.opacity(0.4)),
+                           style: StrokeStyle(lineWidth: 0.8))
 
-            // 레이블 배경 pill
-            let pillRect = CGRect(x: labelCX - labelW / 2 - 3,
-                                  y: labelY + 1,
-                                  width: labelW + 6,
-                                  height: rowHeight - 3)
-            ctx.fill(Path(roundedRect: pillRect, cornerRadius: 3),
-                     with: .color(p.color.opacity(0.15)))
+                // 레이블 배경 pill
+                let pillRect = CGRect(x: labelCX - labelW / 2 - 3,
+                                      y: labelY + 1,
+                                      width: labelW + 6,
+                                      height: rowHeight - 3)
+                ctx.fill(Path(roundedRect: pillRect, cornerRadius: 3),
+                         with: .color(p.color.opacity(0.15)))
 
-            // 레이블 텍스트
-            let textAttrs = AttributeContainer([
-                .font: NSFont.systemFont(ofSize: 9, weight: .medium),
-                .foregroundColor: NSColor(p.color)
-            ])
-            ctx.draw(Text(AttributedString(p.label, attributes: textAttrs)),
-                     at: CGPoint(x: labelCX, y: labelMidY), anchor: .center)
+                // 레이블 텍스트
+                let textAttrs = AttributeContainer([
+                    .font: NSFont.systemFont(ofSize: 9, weight: .medium),
+                    .foregroundColor: NSColor(p.color)
+                ])
+                ctx.draw(Text(AttributedString(p.label, attributes: textAttrs)),
+                         at: CGPoint(x: labelCX, y: labelMidY), anchor: .center)
+            }
 
             // 마커 점 (고도 위치)
             let r: CGFloat = 3.5
             ctx.fill(Path(ellipseIn: CGRect(x: p.mx - r, y: canvasMY - r,
                                             width: r * 2, height: r * 2)),
                      with: .color(p.color))
+        }
+
+        if hiddenMarkerCount > 0, stripH > 0 {
+            let label = "+\(hiddenMarkerCount)"
+            let attrs = AttributeContainer([
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium),
+                .foregroundColor: NSColor.secondaryLabelColor
+            ])
+            let labelW = CGFloat(label.count) * approxCharW + 10
+            let rect = CGRect(x: size.width - labelW - 6,
+                              y: rowPad,
+                              width: labelW,
+                              height: rowHeight - 3)
+            ctx.fill(Path(roundedRect: rect, cornerRadius: 3),
+                     with: .color(.secondary.opacity(0.12)))
+            ctx.draw(Text(AttributedString(label, attributes: attrs)),
+                     at: CGPoint(x: rect.midX, y: rect.midY),
+                     anchor: .center)
         }
 
         if let hoverInfo,
