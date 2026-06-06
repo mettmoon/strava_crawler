@@ -21,6 +21,7 @@ struct MainTabView: View {
     @State private var showRouteDeleteConfirm = false
     @State private var showCourseDeleteConfirm = false
     @State private var highlightPoints: [TrackPoint] = []
+    @State private var routeHoverInfo: RouteHoverInfo?
 
     // MARK: - computed
 
@@ -112,6 +113,7 @@ struct MainTabView: View {
         .onChange(of: selection) { _, _ in
             highlightPoints = []
             parsedCourse = nil
+            routeHoverInfo = nil
         }
         .focusedSceneValue(\.routeCommandHandler, {
             guard case .route(let route) = selection else { return nil }
@@ -303,9 +305,18 @@ struct MainTabView: View {
             TabView {
                 Tab("지도", systemImage: "map.fill") {
                     VStack(spacing: 0) {
-                        RouteMapView(trackPoints: selectedTrackPoints, highlightPoints: highlightPoints, cuePoints: selectedCuePoints)
+                        RouteMapView(
+                            trackPoints: selectedTrackPoints,
+                            highlightPoints: highlightPoints,
+                            cuePoints: selectedCuePoints,
+                            hoverInfo: $routeHoverInfo
+                        )
                         Divider()
-                        ElevationChartView(trackPoints: selectedTrackPoints, markers: selectedMarkers)
+                        ElevationChartView(
+                            trackPoints: selectedTrackPoints,
+                            markers: selectedMarkers,
+                            hoverInfo: $routeHoverInfo
+                        )
                     }
                 }
                 Tab("3D 경로", systemImage: "mountain.2.fill") {
