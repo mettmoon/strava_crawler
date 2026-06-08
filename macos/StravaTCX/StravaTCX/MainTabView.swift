@@ -22,6 +22,7 @@ struct MainTabView: View {
     @State private var showCourseDeleteConfirm = false
     @State private var highlightPoints: [TrackPoint] = []
     @State private var routeHoverInfo: RouteHoverInfo?
+    @State private var routePendingCourseCreation: Route?
 
     // MARK: - computed
 
@@ -138,8 +139,8 @@ struct MainTabView: View {
                     showRouteDeleteConfirm = true
                 },
                 makeIntoCourse: {
-                    guard let course = parsedCourse else { NSSound.beep(); return }
-                    makeCourseFromRoute(route: route, tcxCourse: course)
+                    guard parsedCourse != nil else { NSSound.beep(); return }
+                    routePendingCourseCreation = route
                 },
                 canExport: parsedCourse != nil
             )
@@ -213,6 +214,12 @@ struct MainTabView: View {
             StravaLoginView { value, csrf in
                 AppSettings.cookie = value
                 if let csrf { AppSettings.csrfToken = csrf }
+            }
+        }
+        .sheet(item: $routePendingCourseCreation) { route in
+            RouteSegmentSelectionSheet(route: route) { selectedSegments in
+                guard let course = parsedCourse else { NSSound.beep(); return }
+                makeCourseFromRoute(route: route, tcxCourse: course, selectedSegments: selectedSegments)
             }
         }
         .alert("로그인해야 합니다", isPresented: $showingLoginAlert) {
@@ -371,7 +378,7 @@ struct MainTabView: View {
         for i in offsets { context.delete(courses[i]) }
     }
 
-    private func makeCourseFromRoute(route: Route, tcxCourse: TCXCourse) {
+    private func makeCourseFromRoute(route: Route, tcxCourse: TCXCourse, selectedSegments: [SegmentInfo]) {
         let pts = tcxCourse.trackPoints
         guard !pts.isEmpty else { NSSound.beep(); return }
 
@@ -384,8 +391,8 @@ struct MainTabView: View {
 
         let cuesheetResult = Cuesheet.makeEntries(
             trackPoints: pts,
-            segments: route.segments,
-            minCategory: route.minCategory
+            segments: selectedSegments,
+            minCategory: nil
         )
         newCourse.cuePoints = cuesheetResult.entries.map { entry in
             let displayName: String
