@@ -11,7 +11,6 @@ struct RouteDetailView: View {
     @State private var entries: [CoursePointEntry] = []
     @State private var parseError: String?
     @State private var selectedSegmentID: String?
-    @State private var selectedEntryID: Int?
     @State private var minCategory: String?
 
     var body: some View {
@@ -61,7 +60,6 @@ struct RouteDetailView: View {
                 }
                 summarySection
                 segmentsSection
-                coursePointsSection
             }
             .padding(16)
         }
@@ -129,7 +127,6 @@ struct RouteDetailView: View {
             .frame(minHeight: 140)
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .onChange(of: selectedSegmentID) { _, id in
-                selectedEntryID = nil
                 guard let id, let seg = route.segments.first(where: { $0.segmentID == id }),
                       let pts = course?.trackPoints else {
                     onHighlight?([]); return
@@ -141,72 +138,11 @@ struct RouteDetailView: View {
         }
     }
 
-    private var coursePointsSection: some View {
-        Section {
-            Table(rows, selection: $selectedEntryID) {
-                TableColumn("위치") { r in
-                    Text(r.entry.isStart ? "시작" : "종료")
-                        .foregroundStyle(r.entry.isStart ? .primary : .secondary)
-                }
-                .width(44)
-                TableColumn("타입") { r in
-                    Text(r.entry.pointType)
-                        .foregroundStyle(pointTypeColor(r.entry.pointType))
-                }
-                .width(100)
-                TableColumn("Notes") { r in
-                    Text(previewNotes(for: r.entry))
-                        .monospaced()
-                        .lineLimit(1)
-                }
-            }
-            .tableStyle(.inset)
-            .alternatingRowBackgrounds()
-            .frame(minHeight: 180)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .onChange(of: selectedEntryID) { _, id in
-                selectedSegmentID = nil
-                guard let id, let pts = course?.trackPoints else {
-                    onHighlight?([]); return
-                }
-                let entry = rows.first(where: { $0.id == id })?.entry
-                onHighlight?(highlightForEntry(entry, in: pts))
-            }
-        } header: {
-            HStack {
-                sectionHeader("CoursePoint", systemImage: "flag.checkered")
-                Spacer()
-                Picker("최소 카테고리", selection: $minCategory) {
-                    Text("전체").tag(String?.none)
-                    Text("4↑").tag(String?.some("4"))
-                    Text("3↑").tag(String?.some("3"))
-                    Text("2↑").tag(String?.some("2"))
-                    Text("1↑").tag(String?.some("1"))
-                    Text("HC").tag(String?.some("HC"))
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .controlSize(.mini)
-                .onChange(of: minCategory) { _, newVal in
-                    recomputeEntries()
-                    Task { await routeVM.updateMinCategory(routeID: route.id, minCategory: newVal) }
-                }
-            }
-        }
-    }
-
     private func sectionHeader(_ title: String, systemImage: String) -> some View {
         Label(title, systemImage: systemImage)
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.secondary)
             .textCase(nil)
-    }
-
-    private var rows: [IdentifiedEntry] {
-        entries
-            .sorted { $0.idx < $1.idx }
-            .enumerated()
-            .map { IdentifiedEntry(id: $0.offset, entry: $0.element) }
     }
 
     // MARK: - 하이라이트 헬퍼
@@ -217,18 +153,6 @@ struct RouteDetailView: View {
         let endIdx   = Geo.nearestIndex(pts, lat: ep[0], lon: ep[1], startIdx: startIdx + 1) ?? (pts.count - 1)
         guard startIdx < endIdx else { return [] }
         return Array(pts[startIdx...endIdx])
-    }
-
-    private func highlightForEntry(_ entry: CoursePointEntry?, in pts: [TrackPoint]) -> [TrackPoint] {
-        guard let entry else { return [] }
-        let segName = entry.segName
-        let segEntries = entries.filter { $0.segName == segName }.sorted { $0.idx < $1.idx }
-        guard let first = segEntries.first, let last = segEntries.last, first.idx < last.idx else {
-            let i = entry.idx
-            let lo = max(0, i - 5), hi = min(pts.count - 1, i + 5)
-            return Array(pts[lo...hi])
-        }
-        return Array(pts[first.idx...last.idx])
     }
 
     private func loadCourse() {
