@@ -16,16 +16,6 @@ func categoryLabel(_ cat: String?) -> String {
     return cat == "HC" ? "HC" : "Cat \(cat)"
 }
 
-func pointTypeColor(_ pointType: String) -> Color {
-    switch pointType {
-    case "Summit":  return .green
-    case "Valley":  return .blue
-    case "Straight": return .secondary
-    case "Sprint":  return .purple
-    default:        return .orange
-    }
-}
-
 func trackPoints(for segment: SegmentInfo) -> [TrackPoint] {
     guard let coords = segment.coordinates, !coords.isEmpty else { return [] }
     let elevs = segment.elevations
@@ -140,20 +130,4 @@ private func directionLabel(for degrees: Double) -> String {
     let labels = ["↑", "↗", "→", "↘", "↓", "↙", "←", "↖"]
     let index = Int((degrees + 22.5) / 45.0) % labels.count
     return labels[index]
-}
-
-/// Table 행용 식별 래퍼
-struct IdentifiedEntry: Identifiable {
-    let id: Int
-    let entry: CoursePointEntry
-}
-
-func previewNotes(for e: CoursePointEntry) -> String {
-    if e.isStart {
-        let body = [Classification.normalizeDistanceText(e.dist), Classification.formatGrade(e.grade)]
-            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
-        return e.gradeClass.arrow + body
-    } else {
-        return "🏁" + Classification.resolveSegmentName(e.segName)
-    }
 }
