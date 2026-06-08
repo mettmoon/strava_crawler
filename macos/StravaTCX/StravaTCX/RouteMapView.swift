@@ -14,6 +14,22 @@ final class CueAnnotation: MKPointAnnotation {
     }
 }
 
+final class EndpointAnnotation: MKPointAnnotation {
+    enum Kind {
+        case start
+        case end
+    }
+
+    let kind: Kind
+
+    init(kind: Kind, point: TrackPoint) {
+        self.kind = kind
+        super.init()
+        coordinate = CLLocationCoordinate2D(latitude: point.lat, longitude: point.lon)
+        title = kind == .start ? "시작점" : "종료점"
+    }
+}
+
 final class HoverAnnotation: MKPointAnnotation {}
 
 final class HoverMapView: MKMapView {
@@ -72,7 +88,7 @@ struct RouteMapView: NSViewRepresentable {
 
     func updateNSView(_ map: MKMapView, context: Context) {
         let coordinator = context.coordinator
-        let signature = trackPoints.map(\.cumKm)
+        let signature = trackPoints.map { "\($0.lat),\($0.lon),\($0.cumKm)" }
         coordinator.trackPoints = trackPoints
         coordinator.hoverInfo = $hoverInfo
 
@@ -82,6 +98,7 @@ struct RouteMapView: NSViewRepresentable {
             coordinator.mainPolyline = nil
             coordinator.builtPointSignature = signature
             coordinator.highlightSignature = []
+            coordinator.endpointAnnotations = []
             coordinator.cueAnnotations = []
             coordinator.hoverAnnotation = nil
             coordinator.hideTooltip()
@@ -98,6 +115,12 @@ struct RouteMapView: NSViewRepresentable {
             let polyline = MKPolyline(coordinates: coords, count: coords.count)
             map.addOverlay(polyline, level: .aboveRoads)
             coordinator.mainPolyline = polyline
+            let endpointAnnotations = [
+                EndpointAnnotation(kind: .start, point: trackPoints[0]),
+                EndpointAnnotation(kind: .end, point: trackPoints[trackPoints.count - 1]),
+            ]
+            coordinator.endpointAnnotations = endpointAnnotations
+            map.addAnnotations(endpointAnnotations)
 
             let fitRect = polyline.boundingMapRect.insetBy(
                 dx: -polyline.boundingMapRect.width * 0.1,
@@ -146,10 +169,11 @@ struct RouteMapView: NSViewRepresentable {
     // MARK: - Coordinator
 
     final class Coordinator: NSObject, MKMapViewDelegate {
-        var builtPointSignature: [Double] = []
+        var builtPointSignature: [String] = []
         var highlightSignature: [Double] = []
         var mainPolyline: MKPolyline?
         var highlightPolyline: HighlightPolyline?
+        var endpointAnnotations: [EndpointAnnotation] = []
         var cueAnnotations: [CueAnnotation] = []
         var hoverAnnotation: HoverAnnotation?
         var trackPoints: [TrackPoint] = []
@@ -364,6 +388,21 @@ struct RouteMapView: NSViewRepresentable {
                 return view
             }
 
+            if let endpoint = annotation as? EndpointAnnotation {
+                let identifier = endpoint.kind == .start ? "routeStartPoint" : "routeEndPoint"
+                let v = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
+                    ?? MKAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+                let image = endpoint.kind == .start ? Self.startEndpointImage : Self.endEndpointImage
+                v.annotation = annotation
+                v.image = image
+                v.centerOffset = CGPoint(x: 0, y: -image.size.height / 2)
+                v.clusteringIdentifier = nil
+                v.displayPriority = .required
+                v.canShowCallout = true
+                v.zPriority = .defaultSelected
+                return v
+            }
+
             guard let ca = annotation as? CueAnnotation else { return nil }
             let glyph = cuePointGlyph(for: ca.cue.pointType)
             let v = MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: "cuePoint")
@@ -395,5 +434,47 @@ struct RouteMapView: NSViewRepresentable {
             image.unlockFocus()
             return image
         }()
+
+        private static let startEndpointImage = endpointLabelImage(text: "Start", color: .systemGreen)
+        private static let endEndpointImage = endpointLabelImage(text: "End", color: .systemRed)
+
+        private static func endpointLabelImage(text: String, color: NSColor) -> NSImage {
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 11, weight: .bold),
+                .foregroundColor: NSColor.white,
+            ]
+            let textSize = (text as NSString).size(withAttributes: attributes)
+            let width = ceil(textSize.width) + 22
+            let size = NSSize(width: width, height: 28)
+            let image = NSImage(size: size)
+
+            image.lockFocus()
+            let midX = size.width / 2
+            let pointer = NSBezierPath()
+            pointer.move(to: NSPoint(x: midX, y: 0))
+            pointer.line(to: NSPoint(x: midX - 6, y: 7))
+            pointer.line(to: NSPoint(x: midX + 6, y: 7))
+            pointer.close()
+            color.setFill()
+            pointer.fill()
+
+            let pillRect = NSRect(x: 1, y: 6, width: size.width - 2, height: 21)
+            let pill = NSBezierPath(roundedRect: pillRect, xRadius: 6, yRadius: 6)
+            color.setFill()
+            pill.fill()
+            NSColor.white.withAlphaComponent(0.75).setStroke()
+            pill.lineWidth = 1
+            pill.stroke()
+
+            let textRect = NSRect(
+                x: (size.width - textSize.width) / 2,
+                y: pillRect.midY - textSize.height / 2,
+                width: textSize.width,
+                height: textSize.height
+            )
+            (text as NSString).draw(in: textRect, withAttributes: attributes)
+            image.unlockFocus()
+            return image
+        }
     }
 }
