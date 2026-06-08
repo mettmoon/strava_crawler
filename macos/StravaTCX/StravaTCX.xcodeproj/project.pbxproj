@@ -14,9 +14,22 @@
 		AA00000000000000000011 /* StravaTCX.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = StravaTCX.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		D0A3A5E22FD778B0004C01A6 /* Exceptions for "StravaTCX" folder in "StravaTCX" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = AA00000000000000000010 /* StravaTCX */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		AA00000000000000000020 /* StravaTCX */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D0A3A5E22FD778B0004C01A6 /* Exceptions for "StravaTCX" folder in "StravaTCX" target */,
+			);
 			path = StravaTCX;
 			sourceTree = "<group>";
 		};
