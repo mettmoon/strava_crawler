@@ -6,6 +6,7 @@ import StravaTCXKit
 /// "+ 새 코스"로 새 코스를 만들고 즉시 편집기를 연다. "불러오기"로 보기, "편집"으로 편집기 윈도우.
 struct CourseLibraryView: View {
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
     @Environment(\.modelContext) private var context
     @Query(sort: \CourseRecord.createdAt, order: .reverse) private var courses: [CourseRecord]
 
@@ -46,7 +47,7 @@ struct CourseLibraryView: View {
             content
         }
         .frame(minWidth: 360, idealWidth: 440, minHeight: 420, idealHeight: 600)
-        .navigationTitle("코스 목록")
+        .navigationTitle("코스 불러오기")
         .focusedSceneValue(\.createCourseAction, { createCourse() })
     }
 
@@ -65,8 +66,14 @@ struct CourseLibraryView: View {
                 ForEach(filteredCourses) { course in
                     CourseLibraryRow(
                         course: course,
-                        onLoad: { openWindow(id: "course-workspace", value: course.id) },
-                        onEdit: { openWindow(id: "course-editor", value: course.id) }
+                        onLoad: {
+                            openWindow(id: "course-workspace", value: course.id)
+                            dismissWindow(id: "course-library")
+                        },
+                        onEdit: {
+                            openWindow(id: "course-editor", value: course.id)
+                            dismissWindow(id: "course-library")
+                        }
                     )
                 }
                 .onDelete(perform: deleteCourses)
@@ -78,6 +85,7 @@ struct CourseLibraryView: View {
         let newCourse = CourseRecord(title: "새 코스 \(courses.count + 1)")
         context.insert(newCourse)
         openWindow(id: "course-editor", value: newCourse.id)
+        dismissWindow(id: "course-library")
     }
 
     private func deleteCourses(_ offsets: IndexSet) {

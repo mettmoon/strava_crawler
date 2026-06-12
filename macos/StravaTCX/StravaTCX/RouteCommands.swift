@@ -7,7 +7,7 @@ struct RouteCommands: Commands {
 
     var body: some Commands {
         CommandMenu("경로") {
-            Button("경로 목록 보기") {
+            Button("경로 불러오기…") {
                 openWindow(id: "route-library")
             }
             .keyboardShortcut("1", modifiers: [.command, .shift])
