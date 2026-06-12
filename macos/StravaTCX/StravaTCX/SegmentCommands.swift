@@ -7,7 +7,7 @@ struct SegmentCommands: Commands {
 
     var body: some Commands {
         CommandMenu("구간") {
-            Button("구간 목록 보기") {
+            Button("구간 불러오기…") {
                 openWindow(id: "segment-library")
             }
             .keyboardShortcut("2", modifiers: [.command, .shift])

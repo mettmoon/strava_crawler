@@ -5,6 +5,7 @@ import StravaTCXKit
 /// "+ 추가"로 Strava에서 가져오고, "불러오기"로 워크스페이스 윈도우를 연다.
 struct RouteLibraryView: View {
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
     @Environment(RouteListViewModel.self) private var routeVM
 
     @State private var searchText = ""
@@ -48,7 +49,7 @@ struct RouteLibraryView: View {
             content
         }
         .frame(minWidth: 360, idealWidth: 440, minHeight: 420, idealHeight: 600)
-        .navigationTitle("경로 목록")
+        .navigationTitle("경로 불러오기")
         .task { await routeVM.reconcile() }
         .task { await routeVM.load() }
         .sheet(isPresented: $showingMyRoutes) {
@@ -86,6 +87,7 @@ struct RouteLibraryView: View {
                 ForEach(filteredRoutes) { route in
                     RouteLibraryRow(route: route, progress: routeVM.progress(for: route.id)) {
                         openWindow(id: "route-workspace", value: route.id)
+                        dismissWindow(id: "route-library")
                     }
                 }
             }

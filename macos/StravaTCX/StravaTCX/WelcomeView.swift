@@ -21,20 +21,20 @@ struct WelcomeView: View {
 
             VStack(spacing: 12) {
                 DispatchButton(
-                    title: "경로 목록",
-                    subtitle: "Strava에서 가져온 경로 보기/관리",
+                    title: "경로 불러오기",
+                    subtitle: "Strava에서 가져온 경로 열기",
                     systemImage: "bicycle"
                 ) { openWindow(id: "route-library") }
 
                 DispatchButton(
-                    title: "구간 목록",
-                    subtitle: "저장된 모든 구간 둘러보기",
+                    title: "구간 불러오기",
+                    subtitle: "저장된 구간 열기",
                     systemImage: "mountain.2"
                 ) { openWindow(id: "segment-library") }
 
                 DispatchButton(
-                    title: "코스 목록",
-                    subtitle: "직접 만든 코스 보기/편집",
+                    title: "코스 불러오기",
+                    subtitle: "코스 보기 또는 편집",
                     systemImage: "map"
                 ) { openWindow(id: "course-library") }
             }

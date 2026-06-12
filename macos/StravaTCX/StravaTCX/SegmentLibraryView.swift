@@ -5,6 +5,7 @@ import StravaTCXKit
 /// "불러오기"를 누르면 구간 상세 워크스페이스 윈도우가 열린다.
 struct SegmentLibraryView: View {
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
     @State private var vm: SegmentLibraryViewModel
 
     init(vm: SegmentLibraryViewModel) {
@@ -39,7 +40,7 @@ struct SegmentLibraryView: View {
             content
         }
         .frame(minWidth: 360, idealWidth: 420, minHeight: 420, idealHeight: 600)
-        .navigationTitle("구간 목록")
+        .navigationTitle("구간 불러오기")
         .task { await vm.load() }
     }
 
@@ -60,6 +61,7 @@ struct SegmentLibraryView: View {
                 ForEach(vm.filteredSegments) { segment in
                     LibraryRow(segment: segment) {
                         openWindow(id: "segment-workspace", value: segment.segmentID)
+                        dismissWindow(id: "segment-library")
                     }
                 }
             }

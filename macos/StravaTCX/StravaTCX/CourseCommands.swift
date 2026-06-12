@@ -7,7 +7,7 @@ struct CourseCommands: Commands {
 
     var body: some Commands {
         CommandMenu("코스") {
-            Button("코스 목록 보기") {
+            Button("코스 불러오기…") {
                 openWindow(id: "course-library")
             }
             .keyboardShortcut("3", modifiers: [.command, .shift])
