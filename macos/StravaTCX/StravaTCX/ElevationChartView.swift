@@ -8,6 +8,8 @@ struct ElevationChartView: View {
     let trackPoints: [TrackPoint]
     var markers: [ElevationMarker] = []
     @Binding var hoverInfo: RouteHoverInfo?
+    /// 호버 위치에서 우클릭 → "웨이포인트 추가" 선택 시 호출. 인자: 누적 거리(km).
+    var onAddCueAtHover: ((Double) -> Void)? = nil
 
     @State private var scale: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
@@ -65,6 +67,12 @@ struct ElevationChartView: View {
                     }
                     .background(
                         WheelZoomView { delta in applyZoom(delta: delta) }
+                    )
+                    .overlay(
+                        RightClickCatcher(onRightClick: {
+                            guard let info = hoverInfo, onAddCueAtHover != nil else { return }
+                            showRightClickMenu(distanceKm: info.distanceKm)
+                        })
                     )
                 }
                 .gesture(
@@ -491,6 +499,66 @@ struct ElevationChartView: View {
         let w = max(viewWidth > 0 ? viewWidth : 1000, naturalWidth * scale)
         let p = computePlacements(contentWidth: w)
         actualRowCount = (p.map(\.row).max() ?? -1) + 1
+    }
+
+    // MARK: - 우클릭 메뉴
+
+    private func showRightClickMenu(distanceKm: Double) {
+        guard let onAddCueAtHover else { return }
+        let menu = NSMenu()
+        let target = MenuActionTarget { onAddCueAtHover(distanceKm) }
+        let item = NSMenuItem(title: "웨이포인트 추가", action: #selector(MenuActionTarget.fire), keyEquivalent: "")
+        item.target = target
+        menu.addItem(item)
+        // target은 popUpContextMenu 동안 retain되어야 한다.
+        objc_setAssociatedObject(menu, &MenuActionTarget.assocKey, target, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        if let event = NSApp.currentEvent, let view = event.window?.contentView {
+            NSMenu.popUpContextMenu(menu, with: event, for: view)
+        }
+    }
+}
+
+private final class MenuActionTarget: NSObject {
+    static var assocKey: UInt8 = 0
+    let action: () -> Void
+    init(_ action: @escaping () -> Void) { self.action = action }
+    @objc func fire() { action() }
+}
+
+// MARK: - 우클릭 캡처
+
+private struct RightClickCatcher: NSViewRepresentable {
+    var onRightClick: () -> Void
+
+    func makeNSView(context: Context) -> _RightClickView {
+        _RightClickView(onRightClick: onRightClick)
+    }
+    func updateNSView(_ v: _RightClickView, context: Context) { v.onRightClick = onRightClick }
+
+    final class _RightClickView: NSView {
+        var onRightClick: () -> Void
+        init(onRightClick: @escaping () -> Void) {
+            self.onRightClick = onRightClick
+            super.init(frame: .zero)
+        }
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            // 우클릭만 가로채고, 다른 마우스 이벤트는 아래로 통과시킨다.
+            if let event = NSApp.currentEvent {
+                switch event.type {
+                case .rightMouseDown, .rightMouseUp, .rightMouseDragged:
+                    return self
+                default:
+                    return nil
+                }
+            }
+            return nil
+        }
+
+        override func rightMouseDown(with event: NSEvent) {
+            onRightClick()
+        }
     }
 }
 
