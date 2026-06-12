@@ -95,6 +95,123 @@ func formatRouteDistance(_ km: Double) -> String {
     km < 1 ? String(format: "%.0f m", km * 1000) : String(format: "%.2f km", km)
 }
 
+// MARK: - 그래프 드래그 구간 선택
+
+/// 고도 그래프에서 드래그로 선택한 누적 거리 구간(km).
+/// `startKm` ≤ `endKm` 으로 정규화해 사용한다.
+struct ChartRangeSelection: Equatable, Sendable {
+    var startKm: Double
+    var endKm: Double
+    /// 사용자가 드래그를 끝냈는지 여부. 드래그 중에는 false.
+    var isDragging: Bool
+
+    var lowerKm: Double { min(startKm, endKm) }
+    var upperKm: Double { max(startKm, endKm) }
+    var lengthKm: Double { upperKm - lowerKm }
+}
+
+/// 선택 구간의 통계 (거리/고도/경사).
+struct RouteRangeStats: Equatable {
+    var startKm: Double
+    var endKm: Double
+    var lengthKm: Double
+    var startEle: Double?
+    var endEle: Double?
+    var minEle: Double?
+    var maxEle: Double?
+    var ascentMeters: Double
+    var descentMeters: Double
+    var averageGradePercent: Double?
+}
+
+func routeRangeStats(trackPoints pts: [TrackPoint], range: ChartRangeSelection) -> RouteRangeStats? {
+    guard pts.count >= 2 else { return nil }
+    let lo = range.lowerKm
+    let hi = range.upperKm
+    guard hi > lo else { return nil }
+
+    let startInfo = routeHoverInfo(trackPoints: pts, nearestToDistanceKm: lo)
+    let endInfo = routeHoverInfo(trackPoints: pts, nearestToDistanceKm: hi)
+    let startEle = startInfo?.elevationMeters
+    let endEle = endInfo?.elevationMeters
+
+    var minEle: Double? = startEle
+    var maxEle: Double? = startEle
+    var ascent: Double = 0
+    var descent: Double = 0
+
+    var prevEle: Double? = startEle
+    if let s = startEle {
+        minEle = s
+        maxEle = s
+    }
+
+    for tp in pts where tp.cumKm >= lo && tp.cumKm <= hi {
+        if let e = tp.ele {
+            if let mn = minEle { minEle = min(mn, e) } else { minEle = e }
+            if let mx = maxEle { maxEle = max(mx, e) } else { maxEle = e }
+            if let p = prevEle {
+                let d = e - p
+                if d > 0 { ascent += d } else { descent += -d }
+            }
+            prevEle = e
+        }
+    }
+    if let e = endEle {
+        if let mn = minEle { minEle = min(mn, e) } else { minEle = e }
+        if let mx = maxEle { maxEle = max(mx, e) } else { maxEle = e }
+        if let p = prevEle {
+            let d = e - p
+            if d > 0 { ascent += d } else { descent += -d }
+        }
+    }
+
+    let length = hi - lo
+    let avgGrade: Double? = {
+        guard let s = startEle, let e = endEle, length > 0 else { return nil }
+        return (e - s) / (length * 1000) * 100
+    }()
+
+    return RouteRangeStats(
+        startKm: lo,
+        endKm: hi,
+        lengthKm: length,
+        startEle: startEle,
+        endEle: endEle,
+        minEle: minEle,
+        maxEle: maxEle,
+        ascentMeters: ascent,
+        descentMeters: descent,
+        averageGradePercent: avgGrade
+    )
+}
+
+/// 트랙포인트에서 누적 거리(km)에 해당하는 좌표를 보간으로 계산.
+func interpolateTrackPoint(in pts: [TrackPoint], atDistanceKm km: Double) -> (lat: Double, lon: Double, ele: Double?)? {
+    guard let info = routeHoverInfo(trackPoints: pts, nearestToDistanceKm: km) else { return nil }
+    return (info.lat, info.lon, info.elevationMeters)
+}
+
+/// 드래그 구간에 해당하는 트랙포인트 부분 배열(시작/끝은 보간점 포함).
+func trackPointsInRange(_ pts: [TrackPoint], range: ChartRangeSelection) -> [TrackPoint] {
+    guard pts.count >= 2 else { return [] }
+    let lo = range.lowerKm
+    let hi = range.upperKm
+    guard hi > lo else { return [] }
+
+    var result: [TrackPoint] = []
+    if let s = interpolateTrackPoint(in: pts, atDistanceKm: lo) {
+        result.append(TrackPoint(lat: s.lat, lon: s.lon, ele: s.ele, time: nil, cumKm: lo))
+    }
+    for tp in pts where tp.cumKm > lo && tp.cumKm < hi {
+        result.append(tp)
+    }
+    if let e = interpolateTrackPoint(in: pts, atDistanceKm: hi) {
+        result.append(TrackPoint(lat: e.lat, lon: e.lon, ele: e.ele, time: nil, cumKm: hi))
+    }
+    return result
+}
+
 func formatRouteElevation(_ meters: Double?) -> String {
     guard let meters else { return "—" }
     return String(format: "%.0f m", meters)

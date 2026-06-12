@@ -12,6 +12,7 @@ struct SegmentWorkspaceView: View {
     @State private var highlightPoints: [TrackPoint] = []
     @State private var hoverInfo: RouteHoverInfo?
     @State private var showDeleteConfirm = false
+    @State private var rangeSelection: ChartRangeSelection?
 
     var body: some View {
         Group {
@@ -61,8 +62,17 @@ struct SegmentWorkspaceView: View {
         let pts = trackPoints(for: segment)
         contentPane(trackPoints: pts)
             .inspector(isPresented: .constant(true)) {
-                SegmentDetailView(segment: segment) { highlights in
-                    highlightPoints = highlights
+                ZStack {
+                    SegmentDetailView(segment: segment) { highlights in
+                        highlightPoints = highlights
+                    }
+                    .opacity(rangeSelection == nil ? 1 : 0)
+                    .allowsHitTesting(rangeSelection == nil)
+
+                    if let range = rangeSelection {
+                        RangeStatsInspectorView(trackPoints: pts, range: range)
+                            .background(.background)
+                    }
                 }
                 .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
             }
@@ -84,13 +94,15 @@ struct SegmentWorkspaceView: View {
                             trackPoints: pts,
                             highlightPoints: highlightPoints,
                             cuePoints: [],
-                            hoverInfo: $hoverInfo
+                            hoverInfo: $hoverInfo,
+                            rangeSelection: rangeSelection
                         )
                         Divider()
                         ElevationChartView(
                             trackPoints: pts,
                             markers: [],
-                            hoverInfo: $hoverInfo
+                            hoverInfo: $hoverInfo,
+                            rangeSelection: $rangeSelection
                         )
                     }
                 }
