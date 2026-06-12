@@ -376,6 +376,15 @@ private struct CueSheetPanel: View {
                                 }
                             }
                         ))
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                if let idx = draft.cuePoints.firstIndex(where: { $0.id == cue.id }) {
+                                    draft.removeCuePoints(at: IndexSet(integer: idx))
+                                }
+                            } label: {
+                                Label("삭제", systemImage: "trash")
+                            }
+                        }
                     }
                     .onDelete { draft.removeCuePoints(at: $0) }
                 }
