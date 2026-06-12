@@ -11,23 +11,17 @@ final class RouteListViewModel {
     private let importRouteUseCase: ImportRouteUseCase
     private let retryImportUseCase: RetryImportUseCase
     private let reconcileUseCase: ReconcileImportsUseCase
-    private let reloadSegmentUseCase: ReloadSegmentUseCase
-    private let deleteSegmentUseCase: DeleteSegmentUseCase
     private let routeRepository: any RouteRepository
 
     init(
         importRouteUseCase: ImportRouteUseCase,
         retryImportUseCase: RetryImportUseCase,
         reconcileUseCase: ReconcileImportsUseCase,
-        reloadSegmentUseCase: ReloadSegmentUseCase,
-        deleteSegmentUseCase: DeleteSegmentUseCase,
         routeRepository: any RouteRepository
     ) {
         self.importRouteUseCase = importRouteUseCase
         self.retryImportUseCase = retryImportUseCase
         self.reconcileUseCase = reconcileUseCase
-        self.reloadSegmentUseCase = reloadSegmentUseCase
-        self.deleteSegmentUseCase = deleteSegmentUseCase
         self.routeRepository = routeRepository
     }
 
@@ -101,16 +95,6 @@ final class RouteListViewModel {
     func delete(routeID: String) async {
         try? await routeRepository.delete(id: routeID)
         routes.removeAll { $0.id == routeID }
-    }
-
-    func reloadSegment(segmentID: String) async throws {
-        try await reloadSegmentUseCase.execute(segmentID: segmentID)
-        await load()
-    }
-
-    func deleteSegment(segmentID: String) async throws {
-        try await deleteSegmentUseCase.execute(segmentID: segmentID)
-        await load()
     }
 
     func updateMinCategory(routeID: String, minCategory: String?) async {

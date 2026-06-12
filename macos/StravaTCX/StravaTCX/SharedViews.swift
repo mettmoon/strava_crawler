@@ -5,7 +5,6 @@ import StravaTCXKit
 
 enum SidebarItem: Hashable {
     case route(Route)
-    case segment(SegmentInfo)
     case course(CourseRecord)
 }
 

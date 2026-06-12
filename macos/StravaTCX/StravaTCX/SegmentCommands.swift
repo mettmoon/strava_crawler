@@ -1,9 +1,8 @@
 import SwiftUI
 
 struct SegmentCommands: Commands {
-    @FocusedValue(\.selectedSegment) private var selectedSegment
-    @FocusedValue(\.segmentCommandHandler) private var handler
     @FocusedValue(\.addRouteAction) private var addRoute
+    @FocusedValue(\.segmentCommandHandler) private var handler
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
@@ -27,16 +26,14 @@ struct SegmentCommands: Commands {
                 guard let h = handler else { return }
                 Task { try await h.reload() }
             }
-            .disabled(selectedSegment == nil)
+            .disabled(handler == nil)
             .keyboardShortcut("R", modifiers: [.command, .shift])
-
-            Divider()
 
             Button("삭제하기") {
                 guard let h = handler else { return }
                 Task { try? await h.delete() }
             }
-            .disabled(selectedSegment == nil)
+            .disabled(handler == nil)
         }
     }
 }

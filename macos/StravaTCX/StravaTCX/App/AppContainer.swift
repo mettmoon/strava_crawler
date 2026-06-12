@@ -67,7 +67,7 @@ final class AppContainer {
             remoteService: remoteService,
             credentialsProvider: credProvider
         )
-        deleteSegmentUseCase = DeleteSegmentUseCase(routeRepository: routeRepository)
+        deleteSegmentUseCase = DeleteSegmentUseCase(routeRepository: routeRepository, segmentRepository: segmentRepository)
         buildCuesheetUseCase = BuildCuesheetUseCase(routeRepository: routeRepository)
         exportTCXUseCase = ExportTCXUseCase(routeRepository: routeRepository)
         makeCourseFromRouteUseCase = MakeCourseFromRouteUseCase(
@@ -85,8 +85,6 @@ final class AppContainer {
             importRouteUseCase: importRouteUseCase,
             retryImportUseCase: retryImportUseCase,
             reconcileUseCase: reconcileImportsUseCase,
-            reloadSegmentUseCase: reloadSegmentUseCase,
-            deleteSegmentUseCase: deleteSegmentUseCase,
             routeRepository: routeRepository
         )
     }
