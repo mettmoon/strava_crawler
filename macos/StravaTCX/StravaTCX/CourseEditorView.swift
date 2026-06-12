@@ -372,7 +372,6 @@ private struct CueSheetPanel: View {
                         ))
                     }
                     .onDelete { draft.removeCuePoints(at: $0) }
-                    .onMove { draft.moveCuePoints(from: $0, to: $1) }
                 }
             }
         }

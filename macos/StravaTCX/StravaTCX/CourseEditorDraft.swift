@@ -26,7 +26,7 @@ final class CourseEditorDraft {
     init(from course: CourseRecord) {
         routePoints = course.routePoints
         trackSegments = course.trackSegments
-        cuePoints = course.cuePoints
+        cuePoints = course.cuePoints.sorted { $0.distanceMeters < $1.distanceMeters }
         title = course.title
 
         // UndoManager 변경 시 undoCount를 갱신해 SwiftUI View가 재렌더링되도록 한다.
@@ -156,6 +156,7 @@ final class CourseEditorDraft {
     func appendCuePoint(_ cue: CourseCuePoint) {
         let old = takeSnapshot()
         cuePoints.append(cue)
+        cuePoints.sort { $0.distanceMeters < $1.distanceMeters }
         registerUndo(before: old, actionName: "큐시트 추가")
     }
 
@@ -163,11 +164,5 @@ final class CourseEditorDraft {
         let old = takeSnapshot()
         cuePoints.remove(atOffsets: offsets)
         registerUndo(before: old, actionName: "큐시트 삭제")
-    }
-
-    func moveCuePoints(from: IndexSet, to: Int) {
-        let old = takeSnapshot()
-        cuePoints.move(fromOffsets: from, toOffset: to)
-        registerUndo(before: old, actionName: "큐시트 순서 변경")
     }
 }
