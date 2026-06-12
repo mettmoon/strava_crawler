@@ -317,7 +317,6 @@ struct SceneKitRouteView: NSViewRepresentable {
 
         // 프리셋/리셋은 항상 경로 중앙을 보도록 target 도 함께 원위치한다.
         let target = SCNVector3(0, 8, 0)
-        view.defaultCameraController.target = target
 
         let position: SCNVector3
         switch preset {
@@ -335,13 +334,26 @@ struct SceneKitRouteView: NSViewRepresentable {
             cam.look(at: target)
         }
 
+        // .orbitTurntable 은 yaw/pitch 를 내부에 누적 보관한다. 카메라 transform 만
+        // 갈아끼워서는 그 누적값이 다음 프레임에 다시 적용되어 좌우 회전이
+        // 리셋되지 않는다. pointOfView 를 재할당해 컨트롤러가 새 transform 기준으로
+        // 누적값을 재초기화하게 만들고, 진행 중인 관성도 끊는다.
+        let resyncController = {
+            let controller = view.defaultCameraController
+            controller.stopInertia()
+            controller.target = target
+            controller.pointOfView = cam
+        }
+
         if animated {
             SCNTransaction.begin()
             SCNTransaction.animationDuration = 0.4
+            SCNTransaction.completionBlock = resyncController
             move()
             SCNTransaction.commit()
         } else {
             move()
+            resyncController()
         }
     }
 
