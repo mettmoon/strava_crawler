@@ -3,9 +3,17 @@ import SwiftUI
 struct RouteCommands: Commands {
     @FocusedValue(\.routeCommandHandler) private var handler
     @FocusedValue(\.addRouteAction) private var addRoute
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandMenu("경로") {
+            Button("경로 목록 보기") {
+                openWindow(id: "route-library")
+            }
+            .keyboardShortcut("1", modifiers: [.command, .shift])
+
+            Divider()
+
             Button("경로 추가…") {
                 addRoute?()
             }

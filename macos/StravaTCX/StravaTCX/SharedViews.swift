@@ -1,13 +1,6 @@
 import SwiftUI
 import StravaTCXKit
 
-// MARK: - Sidebar 선택 타입
-
-enum SidebarItem: Hashable {
-    case route(Route)
-    case course(CourseRecord)
-}
-
 // MARK: - 공통 헬퍼
 
 func categoryLabel(_ cat: String?) -> String {
