@@ -18,6 +18,7 @@ struct CourseWorkspaceView: View {
 
     @State private var highlightPoints: [TrackPoint] = []
     @State private var hoverInfo: RouteHoverInfo?
+    @State private var selectedCueID: UUID?
     @State private var showDeleteConfirm = false
 
     private var course: CourseRecord? {
@@ -58,8 +59,13 @@ struct CourseWorkspaceView: View {
         let pts = course.allTrackPoints
         contentPane(trackPoints: pts, course: course)
             .inspector(isPresented: .constant(true)) {
-                CourseDetailView(course: course)
+                CourseDetailView(course: course, selectedCueID: $selectedCueID)
                     .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
+            }
+            .onChange(of: course.cuePoints.map(\.id)) { _, ids in
+                if let sel = selectedCueID, !ids.contains(sel) {
+                    selectedCueID = nil
+                }
             }
     }
 
@@ -72,6 +78,7 @@ struct CourseWorkspaceView: View {
                 Text("이 코스에는 아직 경로 데이터가 없습니다.")
             }
         } else {
+            let focusKm = focusedDistanceKm(for: pts, course: course)
             TabView {
                 Tab("지도", systemImage: "map.fill") {
                     VStack(spacing: 0) {
@@ -79,13 +86,18 @@ struct CourseWorkspaceView: View {
                             trackPoints: pts,
                             highlightPoints: highlightPoints,
                             cuePoints: course.cuePoints,
+                            focusedCueID: selectedCueID,
+                            onDeselectFocus: { selectedCueID = nil },
+                            onSelectCue: { selectedCueID = $0 },
                             hoverInfo: $hoverInfo
                         )
                         Divider()
                         ElevationChartView(
                             trackPoints: pts,
                             markers: markers(for: pts, course: course),
-                            hoverInfo: $hoverInfo
+                            focusedDistanceKm: focusKm,
+                            hoverInfo: $hoverInfo,
+                            onBackgroundClick: { selectedCueID = nil }
                         )
                     }
                 }
@@ -95,6 +107,13 @@ struct CourseWorkspaceView: View {
             }
             .tabViewStyle(.tabBarOnly)
         }
+    }
+
+    private func focusedDistanceKm(for pts: [TrackPoint], course: CourseRecord) -> Double? {
+        guard let id = selectedCueID,
+              let cue = course.cuePoints.first(where: { $0.id == id }),
+              let idx = Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon) else { return nil }
+        return pts[idx].cumKm
     }
 
     private func markers(for pts: [TrackPoint], course: CourseRecord) -> [ElevationMarker] {
