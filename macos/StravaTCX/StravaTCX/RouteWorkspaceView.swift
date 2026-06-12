@@ -4,12 +4,14 @@ import AppKit
 import StravaTCXKit
 
 /// 별도 윈도우에서 단일 경로(라우트)를 보여주는 워크스페이스.
-/// 좌측 사이드바 없이, 가운데 지도/3D 탭 + 우측 RouteDetailView 인스펙터로 구성된다.
+/// 좌측 사이드바 없이, 가운데 지도 + 우측 RouteDetailView 인스펙터로 구성된다.
+/// 3D 경로는 툴바의 버튼으로 별도 윈도우에서 띄운다.
 struct RouteWorkspaceView: View {
     var routeID: String?
     var container: AppContainer
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.modelContext) private var context
     @Environment(RouteListViewModel.self) private var routeVM
     @Query(sort: \CourseRecord.createdAt, order: .reverse) private var courses: [CourseRecord]
@@ -32,6 +34,16 @@ struct RouteWorkspaceView: View {
                 workspace(for: route)
                     .navigationTitle(route.title)
                     .navigationSubtitle("경로")
+                    .toolbar {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button {
+                                openWindow(id: "route-3d", value: route.id)
+                            } label: {
+                                Label("3D 경로", systemImage: "view.3d")
+                            }
+                            .help("3D 경로를 별도 창에서 열기")
+                        }
+                    }
             } else if routeID == nil {
                 ContentUnavailableView("경로를 찾을 수 없음", systemImage: "bicycle")
             } else {
@@ -102,30 +114,22 @@ struct RouteWorkspaceView: View {
                 Text("경로가 처리되면 지도가 표시됩니다.")
             }
         } else {
-            TabView {
-                Tab("지도", systemImage: "map.fill") {
-                    VStack(spacing: 0) {
-                        RouteMapView(
-                            trackPoints: pts,
-                            highlightPoints: highlightPoints,
-                            cuePoints: cuePoints(for: pts),
-                            hoverInfo: $routeHoverInfo,
-                            rangeSelection: rangeSelection
-                        )
-                        Divider()
-                        ElevationChartView(
-                            trackPoints: pts,
-                            markers: markers(for: pts),
-                            hoverInfo: $routeHoverInfo,
-                            rangeSelection: $rangeSelection
-                        )
-                    }
-                }
-                Tab("3D 경로", systemImage: "mountain.2.fill") {
-                    Route3DView(trackPoints: pts, highlightPoints: highlightPoints)
-                }
+            VStack(spacing: 0) {
+                RouteMapView(
+                    trackPoints: pts,
+                    highlightPoints: highlightPoints,
+                    cuePoints: cuePoints(for: pts),
+                    hoverInfo: $routeHoverInfo,
+                    rangeSelection: rangeSelection
+                )
+                Divider()
+                ElevationChartView(
+                    trackPoints: pts,
+                    markers: markers(for: pts),
+                    hoverInfo: $routeHoverInfo,
+                    rangeSelection: $rangeSelection
+                )
             }
-            .tabViewStyle(.tabBarOnly)
         }
     }
 

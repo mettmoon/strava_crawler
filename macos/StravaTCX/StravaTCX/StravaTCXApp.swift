@@ -90,6 +90,33 @@ struct StravaTCXApp: App {
         .windowResizability(.contentMinSize)
         .modelContainer(container.modelContainer)
 
+        WindowGroup("경로 3D", id: "route-3d", for: String.self) { $routeID in
+            Route3DWindowView(routeID: routeID, container: container)
+                .environment(routeListVM)
+        }
+        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 960, height: 640)
+        .windowResizability(.contentMinSize)
+        .modelContainer(container.modelContainer)
+
+        WindowGroup("구간 3D", id: "segment-3d", for: String.self) { $segmentID in
+            Segment3DWindowView(segmentID: segmentID, container: container)
+        }
+        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 960, height: 640)
+        .windowResizability(.contentMinSize)
+
+        WindowGroup("코스 3D", id: "course-3d", for: UUID.self) { $courseID in
+            Course3DWindowView(courseID: courseID, container: container)
+        }
+        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 960, height: 640)
+        .windowResizability(.contentMinSize)
+        .modelContainer(container.modelContainer)
+
         Settings {
             SettingsView()
         }
