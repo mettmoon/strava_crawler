@@ -365,10 +365,16 @@ private struct CueSheetPanel: View {
                 }
             } else {
                 List {
-                    ForEach(draft.cuePoints.indices, id: \.self) { i in
+                    ForEach(draft.cuePoints) { cue in
                         CuePointRow(cue: Binding(
-                            get: { draft.cuePoints[i] },
-                            set: { draft.cuePoints[i] = $0 }
+                            get: {
+                                draft.cuePoints.first(where: { $0.id == cue.id }) ?? cue
+                            },
+                            set: { newValue in
+                                if let idx = draft.cuePoints.firstIndex(where: { $0.id == cue.id }) {
+                                    draft.cuePoints[idx] = newValue
+                                }
+                            }
                         ))
                     }
                     .onDelete { draft.removeCuePoints(at: $0) }
