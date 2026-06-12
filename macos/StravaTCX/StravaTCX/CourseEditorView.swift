@@ -141,9 +141,52 @@ struct CourseEditorView: View {
             ElevationChartView(
                 trackPoints: pts,
                 markers: elevationMarkers(for: pts),
-                hoverInfo: $hoverInfo
+                hoverInfo: $hoverInfo,
+                onAddCueAtHover: { km in
+                    addCueFromElevation(distanceKm: km, trackPoints: pts)
+                }
             )
         }
+    }
+
+    private func addCueFromElevation(distanceKm: Double, trackPoints pts: [TrackPoint]) {
+        guard !pts.isEmpty else { return }
+        var bestIdx = 0
+        var bestDist = Double.infinity
+        for (i, tp) in pts.enumerated() {
+            let d = abs(tp.cumKm - distanceKm)
+            if d < bestDist { bestDist = d; bestIdx = i }
+        }
+        let snap = pts[bestIdx]
+
+        let alert = NSAlert()
+        alert.messageText = "큐시트 추가"
+        alert.addButton(withTitle: "추가")
+        alert.addButton(withTitle: "취소")
+
+        let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 260, height: 60))
+        stack.orientation = .vertical; stack.spacing = 8
+        let nameField = NSTextField(frame: .zero)
+        nameField.placeholderString = "이름"
+        let typePopup = NSPopUpButton()
+        for t in cuePointTypes { typePopup.addItem(withTitle: t.label) }
+        typePopup.selectItem(withTitle: cuePointLabel(for: "Straight"))
+        stack.addArrangedSubview(nameField)
+        stack.addArrangedSubview(typePopup)
+        alert.accessoryView = stack
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        let selectedLabel = typePopup.titleOfSelectedItem ?? ""
+        let selectedValue = cuePointTypes.first { $0.label == selectedLabel }?.value ?? "Straight"
+        let cue = CourseCuePoint(
+            lat: snap.lat, lon: snap.lon,
+            name: nameField.stringValue,
+            pointType: selectedValue,
+            notes: "",
+            distanceMeters: snap.cumKm * 1000
+        )
+        draft.appendCuePoint(cue)
     }
 
     private func elevationMarkers(for pts: [TrackPoint]) -> [ElevationMarker] {
