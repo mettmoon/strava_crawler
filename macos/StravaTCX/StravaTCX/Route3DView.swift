@@ -37,7 +37,9 @@ struct Route3DView: View {
                     exaggeration: exaggeration,
                     pathWidth: pathWidth,
                     cameraPreset: cameraPreset,
-                    resetToken: resetToken
+                    resetToken: resetToken,
+                    onPreset: { cameraPreset = $0 },
+                    onReset:  { cameraPreset = .isometric; resetToken = UUID() }
                 )
                 .ignoresSafeArea()
                 overlayControls
@@ -93,6 +95,36 @@ struct Route3DView: View {
 
 // MARK: - NSViewRepresentable
 
+/// 화살표 / +- / R / 1·2·3 키를 처리하는 SCNView.
+/// 회전·줌은 자체 처리하고, 프리셋/리셋은 SwiftUI 측 콜백으로 위임한다.
+final class KeyResponderSCNView: SCNView {
+    var onPreset: (CameraPreset) -> Void = { _ in }
+    var onReset:  () -> Void = {}
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func keyDown(with event: NSEvent) {
+        let rotateStep: Float = 8       // degree
+        let zoomStep:   Float = 4       // dollyToTarget delta (양수 = 가까이)
+        let controller = self.defaultCameraController
+
+        switch Int(event.keyCode) {
+        case 123: controller.rotateBy(x: -rotateStep, y: 0)         // ←
+        case 124: controller.rotateBy(x:  rotateStep, y: 0)         // →
+        case 126: controller.rotateBy(x: 0, y:  rotateStep)         // ↑
+        case 125: controller.rotateBy(x: 0, y: -rotateStep)         // ↓
+        case 24, 69:  controller.dolly(toTarget:  zoomStep)         // = / + (numpad)  → 줌인
+        case 27, 78:  controller.dolly(toTarget: -zoomStep)         // - / _ (numpad)  → 줌아웃
+        case 15:                                                    // R
+            onReset()
+        case 18: onPreset(.isometric)                               // 1
+        case 19: onPreset(.top)                                     // 2
+        case 20: onPreset(.side)                                    // 3
+        default: super.keyDown(with: event)
+        }
+    }
+}
+
 struct SceneKitRouteView: NSViewRepresentable {
     let trackPoints: [TrackPoint]
     var highlightPoints: [TrackPoint] = []
@@ -100,6 +132,8 @@ struct SceneKitRouteView: NSViewRepresentable {
     let pathWidth: Double
     var cameraPreset: CameraPreset = .isometric
     var resetToken: UUID = UUID()
+    var onPreset: (CameraPreset) -> Void = { _ in }
+    var onReset:  () -> Void = {}
 
     // MARK: Coordinator — 씬과 정규화 파라미터를 캐시
 
@@ -118,11 +152,13 @@ struct SceneKitRouteView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> SCNView {
-        let view = SCNView()
+        let view = KeyResponderSCNView()
         view.allowsCameraControl = true
         view.autoenablesDefaultLighting = false
         view.antialiasingMode = .multisampling4X
         view.backgroundColor = NSColor(calibratedRed: 0.08, green: 0.10, blue: 0.14, alpha: 1)
+        view.onPreset = onPreset
+        view.onReset  = onReset
 
         let controller = view.defaultCameraController
         controller.interactionMode = .orbitTurntable
@@ -131,10 +167,20 @@ struct SceneKitRouteView: NSViewRepresentable {
         controller.minimumVerticalAngle = -10
 
         rebuildScene(view: view, context: context)
+
+        // 뷰가 윈도우에 attach 되면 first responder 로 만들어 키 입력을 받게 한다.
+        DispatchQueue.main.async { [weak view] in
+            view?.window?.makeFirstResponder(view)
+        }
         return view
     }
 
     func updateNSView(_ view: SCNView, context: Context) {
+        if let keyView = view as? KeyResponderSCNView {
+            keyView.onPreset = onPreset
+            keyView.onReset  = onReset
+        }
+
         let coordinator = context.coordinator
         let signature = trackPoints.map(\.cumKm)
         let needsRebuild = coordinator.builtPointSignature != signature
