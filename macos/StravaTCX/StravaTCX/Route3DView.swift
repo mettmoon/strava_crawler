@@ -69,6 +69,13 @@ struct SceneKitRouteView: NSViewRepresentable {
         view.autoenablesDefaultLighting = false
         view.antialiasingMode = .multisampling4X
         view.backgroundColor = NSColor(calibratedRed: 0.08, green: 0.10, blue: 0.14, alpha: 1)
+
+        let controller = view.defaultCameraController
+        controller.interactionMode = .orbitTurntable
+        controller.inertiaEnabled = true
+        controller.maximumVerticalAngle = 89
+        controller.minimumVerticalAngle = -10
+
         rebuildScene(view: view, context: context)
         return view
     }
@@ -116,11 +123,17 @@ struct SceneKitRouteView: NSViewRepresentable {
         let cam = SCNNode()
         cam.camera = SCNCamera()
         cam.camera?.zFar = 1000
+        cam.camera?.zNear = 0.5
         cam.position = SCNVector3(0, 55, 100)
-        cam.look(at: SCNVector3(0, 8, 0))
+        let target = SCNVector3(0, 8, 0)
+        cam.look(at: target)
         scene.rootNode.addChildNode(cam)
 
         view.scene = scene
+        view.pointOfView = cam
+        view.defaultCameraController.target = target
+        view.defaultCameraController.pointOfView = cam
+
         updateHighlightPins(in: view, scene: result)
     }
 
