@@ -67,6 +67,7 @@ struct CourseEditorView: View {
     @State private var isCalculating = false
     @State private var showDiscardConfirm = false
     @State private var closeConfirmed = false
+    @State private var hoverInfo: RouteHoverInfo?
 
     // 카카오 검색
     @State private var searchQuery = ""
@@ -86,13 +87,18 @@ struct CourseEditorView: View {
             toolbar
             Divider()
             HSplitView {
-                CourseEditMapView(draft: draft, isCalculating: $isCalculating,
-                                  searchResults: $searchResults,
-                                  mapViewRef: $mapViewRef,
-                                  onSearchInVisibleRect: { rect in
-                    performSearch(in: rect)
-                })
-                    .frame(minWidth: 400)
+                VSplitView {
+                    CourseEditMapView(draft: draft, isCalculating: $isCalculating,
+                                      searchResults: $searchResults,
+                                      mapViewRef: $mapViewRef,
+                                      onSearchInVisibleRect: { rect in
+                        performSearch(in: rect)
+                    })
+                        .frame(minHeight: 200)
+                    elevationPane
+                        .frame(minHeight: 120)
+                }
+                .frame(minWidth: 400)
                 CueSheetPanel(draft: draft)
                     .frame(minWidth: 220, idealWidth: 280, maxWidth: 360)
             }
@@ -117,6 +123,39 @@ struct CourseEditorView: View {
                 dismiss()
                 NSApp.keyWindow?.close()
             }
+        }
+    }
+
+    // MARK: - 고도 그래프
+
+    @ViewBuilder
+    private var elevationPane: some View {
+        let pts = draft.allTrackPoints
+        if pts.isEmpty {
+            ContentUnavailableView {
+                Label("고도 데이터 없음", systemImage: "chart.xyaxis.line")
+            } description: {
+                Text("경로를 추가하면 고도 그래프가 표시됩니다.")
+            }
+        } else {
+            ElevationChartView(
+                trackPoints: pts,
+                markers: elevationMarkers(for: pts),
+                hoverInfo: $hoverInfo
+            )
+        }
+    }
+
+    private func elevationMarkers(for pts: [TrackPoint]) -> [ElevationMarker] {
+        draft.cuePoints.compactMap { cue in
+            guard cue.lat != 0 || cue.lon != 0,
+                  let idx = Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon) else { return nil }
+            return ElevationMarker(
+                id: cue.id.uuidString,
+                cumKm: pts[idx].cumKm,
+                label: cue.name.isEmpty ? cue.pointType : cue.name,
+                color: .cyan
+            )
         }
     }
 

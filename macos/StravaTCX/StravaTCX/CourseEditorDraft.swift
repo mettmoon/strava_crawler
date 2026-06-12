@@ -40,6 +40,26 @@ final class CourseEditorDraft {
         }
     }
 
+    /// 전체 트랙포인트 (모든 구간 이어붙임, 구간 이음새 중복 제거 후 cumKm 재계산).
+    /// `CourseRecord.allTrackPoints`와 동일한 규칙.
+    var allTrackPoints: [TrackPoint] {
+        var raw: [TrackPointCodable] = []
+        for (segIdx, seg) in trackSegments.enumerated() {
+            let slice = segIdx == 0 ? seg : Array(seg.dropFirst())
+            raw.append(contentsOf: slice)
+        }
+        var result: [TrackPoint] = []
+        var cumKm: Double = 0
+        for (i, tp) in raw.enumerated() {
+            if i > 0 {
+                let prev = raw[i - 1]
+                cumKm += Geo.haversineKm(prev.lat, prev.lon, tp.lat, tp.lon)
+            }
+            result.append(TrackPoint(lat: tp.lat, lon: tp.lon, ele: tp.ele, time: nil, cumKm: cumKm))
+        }
+        return result
+    }
+
     /// 현재 draft 상태를 SwiftData 모델에 반영한다.
     func commit(to course: CourseRecord) {
         course.routePoints = routePoints
