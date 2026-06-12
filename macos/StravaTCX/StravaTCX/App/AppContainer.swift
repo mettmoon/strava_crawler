@@ -98,4 +98,8 @@ final class AppContainer {
             computeSegmentUseCase: computeRouteSegmentUseCase
         )
     }
+
+    func makeSegmentLibraryViewModel() -> SegmentLibraryViewModel {
+        SegmentLibraryViewModel(segmentRepository: segmentRepository)
+    }
 }
