@@ -25,6 +25,7 @@ struct Route3DView: View {
     @State private var pathWidth: Double = 0.6
     @State private var cameraPreset: CameraPreset = .isometric
     @State private var resetToken: UUID = UUID()
+    @State private var showHelp: Bool = false
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
@@ -44,6 +45,7 @@ struct Route3DView: View {
                 .ignoresSafeArea()
                 overlayControls
                 cameraControls
+                helpButton
             }
         }
     }
@@ -90,6 +92,67 @@ struct Route3DView: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+    }
+
+    private var helpButton: some View {
+        Button {
+            showHelp.toggle()
+        } label: {
+            Image(systemName: "questionmark.circle.fill")
+                .font(.title2)
+                .symbolRenderingMode(.hierarchical)
+        }
+        .buttonStyle(.plain)
+        .help("3D 뷰 조작법 보기")
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        .popover(isPresented: $showHelp, arrowEdge: .trailing) {
+            HelpPopover()
+        }
+    }
+}
+
+private struct HelpPopover: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("3D 뷰 조작법").font(.headline)
+
+            section("마우스 / 트랙패드", rows: [
+                ("드래그",         "회전"),
+                ("⌥ + 드래그",    "이동(팬)"),
+                ("스크롤 / 핀치",  "줌"),
+            ])
+
+            section("키보드", rows: [
+                ("← → ↑ ↓", "회전"),
+                ("+  /  -",  "줌"),
+                ("1 / 2 / 3", "기본 / 상단 / 측면"),
+                ("R",         "리셋"),
+            ])
+        }
+        .padding(16)
+        .frame(width: 260)
+    }
+
+    @ViewBuilder
+    private func section(_ title: String, rows: [(String, String)]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+            ForEach(rows, id: \.0) { key, desc in
+                HStack(spacing: 8) {
+                    Text(key)
+                        .font(.system(.caption, design: .monospaced))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.secondary.opacity(0.15),
+                                    in: RoundedRectangle(cornerRadius: 4))
+                    Text(desc).font(.caption)
+                    Spacer(minLength: 0)
+                }
+            }
+        }
     }
 }
 
