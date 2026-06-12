@@ -3,9 +3,17 @@ import SwiftUI
 struct CourseCommands: Commands {
     @FocusedValue(\.courseCommandHandler) private var handler
     @FocusedValue(\.createCourseAction) private var createCourse
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandMenu("코스") {
+            Button("코스 목록 보기") {
+                openWindow(id: "course-library")
+            }
+            .keyboardShortcut("3", modifiers: [.command, .shift])
+
+            Divider()
+
             Button("새 코스") {
                 createCourse?()
             }

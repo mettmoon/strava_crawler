@@ -10,7 +10,7 @@ struct SegmentCommands: Commands {
             Button("구간 목록 보기") {
                 openWindow(id: "segment-library")
             }
-            .keyboardShortcut("L", modifiers: [.command, .shift])
+            .keyboardShortcut("2", modifiers: [.command, .shift])
 
             Divider()
 

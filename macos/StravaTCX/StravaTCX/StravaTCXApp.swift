@@ -3,28 +3,46 @@ import SwiftData
 
 @main
 struct StravaTCXApp: App {
-    @State private var container = try! AppContainer()
+    @State private var container: AppContainer
+    @State private var routeListVM: RouteListViewModel
+
+    init() {
+        let c = try! AppContainer()
+        _container = State(initialValue: c)
+        _routeListVM = State(initialValue: c.makeRouteListViewModel())
+    }
 
     var body: some Scene {
         WindowGroup {
-            MainTabView()
-                .environment(container.makeRouteListViewModel())
+            WelcomeView()
+                .environment(routeListVM)
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
-        .defaultSize(width: 1100, height: 680)
+        .defaultSize(width: 720, height: 600)
         .windowResizability(.contentMinSize)
         .modelContainer(container.modelContainer)
         .commands { SegmentCommands() }
         .commands { RouteCommands() }
         .commands { CourseCommands() }
 
-        WindowGroup("코스 편집", id: "course-editor", for: UUID.self) { $courseID in
-            CourseEditorWindowView(courseID: courseID)
+        WindowGroup("경로 목록", id: "route-library") {
+            RouteLibraryView()
+                .environment(routeListVM)
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
-        .defaultSize(width: 1400, height: 860)
+        .defaultSize(width: 460, height: 640)
+        .windowResizability(.contentMinSize)
+        .modelContainer(container.modelContainer)
+
+        WindowGroup("경로 상세", id: "route-workspace", for: String.self) { $routeID in
+            RouteWorkspaceView(routeID: routeID, container: container)
+                .environment(routeListVM)
+        }
+        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 1100, height: 680)
         .windowResizability(.contentMinSize)
         .modelContainer(container.modelContainer)
 
@@ -43,6 +61,34 @@ struct StravaTCXApp: App {
         .windowToolbarStyle(.unified)
         .defaultSize(width: 1100, height: 680)
         .windowResizability(.contentMinSize)
+
+        WindowGroup("코스 목록", id: "course-library") {
+            CourseLibraryView()
+        }
+        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 460, height: 640)
+        .windowResizability(.contentMinSize)
+        .modelContainer(container.modelContainer)
+
+        WindowGroup("코스 상세", id: "course-workspace", for: UUID.self) { $courseID in
+            CourseWorkspaceView(courseID: courseID, container: container)
+                .environment(routeListVM)
+        }
+        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 1100, height: 680)
+        .windowResizability(.contentMinSize)
+        .modelContainer(container.modelContainer)
+
+        WindowGroup("코스 편집", id: "course-editor", for: UUID.self) { $courseID in
+            CourseEditorWindowView(courseID: courseID)
+        }
+        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 1400, height: 860)
+        .windowResizability(.contentMinSize)
+        .modelContainer(container.modelContainer)
 
         Settings {
             SettingsView()
