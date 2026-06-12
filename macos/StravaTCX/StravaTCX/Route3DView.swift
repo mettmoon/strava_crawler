@@ -2,11 +2,29 @@ import SwiftUI
 import SceneKit
 import StravaTCXKit
 
+enum CameraPreset: String, CaseIterable, Identifiable {
+    case isometric = "기본"
+    case top = "상단"
+    case side = "측면"
+
+    var id: String { rawValue }
+
+    var symbol: String {
+        switch self {
+        case .isometric: return "view.3d"
+        case .top:       return "square.grid.2x2"
+        case .side:      return "rectangle"
+        }
+    }
+}
+
 struct Route3DView: View {
     let trackPoints: [TrackPoint]
     var highlightPoints: [TrackPoint] = []
     @State private var exaggeration: Double = 1.0
     @State private var pathWidth: Double = 0.6
+    @State private var cameraPreset: CameraPreset = .isometric
+    @State private var resetToken: UUID = UUID()
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
@@ -17,10 +35,13 @@ struct Route3DView: View {
                     trackPoints: trackPoints,
                     highlightPoints: highlightPoints,
                     exaggeration: exaggeration,
-                    pathWidth: pathWidth
+                    pathWidth: pathWidth,
+                    cameraPreset: cameraPreset,
+                    resetToken: resetToken
                 )
                 .ignoresSafeArea()
                 overlayControls
+                cameraControls
             }
         }
     }
@@ -39,6 +60,34 @@ struct Route3DView: View {
         .padding(12)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
         .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+    }
+
+    private var cameraControls: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            Picker("뷰", selection: $cameraPreset) {
+                ForEach(CameraPreset.allCases) { preset in
+                    Label(preset.rawValue, systemImage: preset.symbol).tag(preset)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 220)
+
+            Button {
+                cameraPreset = .isometric
+                resetToken = UUID()
+            } label: {
+                Label("리셋", systemImage: "arrow.counterclockwise")
+                    .font(.caption.bold())
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding(12)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
     }
 }
 
@@ -49,6 +98,8 @@ struct SceneKitRouteView: NSViewRepresentable {
     var highlightPoints: [TrackPoint] = []
     let exaggeration: Double
     let pathWidth: Double
+    var cameraPreset: CameraPreset = .isometric
+    var resetToken: UUID = UUID()
 
     // MARK: Coordinator — 씬과 정규화 파라미터를 캐시
 
@@ -59,6 +110,9 @@ struct SceneKitRouteView: NSViewRepresentable {
         var builtHalfWidth: Float = 0
 
         var cachedScene: RouteGeometryBuilder.RouteScene?
+
+        var appliedPreset: CameraPreset?
+        var appliedResetToken: UUID?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -92,6 +146,14 @@ struct SceneKitRouteView: NSViewRepresentable {
         } else {
             updateHighlightPins(in: view, scene: coordinator.cachedScene)
         }
+
+        let presetChanged = coordinator.appliedPreset != cameraPreset
+        let resetChanged  = coordinator.appliedResetToken != resetToken
+        if presetChanged || resetChanged {
+            applyCameraPreset(cameraPreset, to: view, animated: !needsRebuild)
+            coordinator.appliedPreset = cameraPreset
+            coordinator.appliedResetToken = resetToken
+        }
     }
 
     // MARK: - 씬 전체 재구성 (trackPoints / exaggeration / pathWidth 변경 시에만)
@@ -124,9 +186,7 @@ struct SceneKitRouteView: NSViewRepresentable {
         cam.camera = SCNCamera()
         cam.camera?.zFar = 1000
         cam.camera?.zNear = 0.5
-        cam.position = SCNVector3(0, 55, 100)
         let target = SCNVector3(0, 8, 0)
-        cam.look(at: target)
         scene.rootNode.addChildNode(cam)
 
         view.scene = scene
@@ -134,7 +194,46 @@ struct SceneKitRouteView: NSViewRepresentable {
         view.defaultCameraController.target = target
         view.defaultCameraController.pointOfView = cam
 
+        applyCameraPreset(cameraPreset, to: view, animated: false)
+        coordinator.appliedPreset = cameraPreset
+        coordinator.appliedResetToken = resetToken
+
         updateHighlightPins(in: view, scene: result)
+    }
+
+    // MARK: - 카메라 프리셋
+
+    private func applyCameraPreset(_ preset: CameraPreset, to view: SCNView, animated: Bool) {
+        guard let cam = view.pointOfView else { return }
+
+        // 프리셋/리셋은 항상 경로 중앙을 보도록 target 도 함께 원위치한다.
+        let target = SCNVector3(0, 8, 0)
+        view.defaultCameraController.target = target
+
+        let position: SCNVector3
+        switch preset {
+        case .isometric:
+            position = SCNVector3(target.x,        target.y + 55,  target.z + 100)
+        case .top:
+            // 정수직이면 look(at:) 의 up 벡터가 모호해지므로 z 방향으로 살짝 빗각.
+            position = SCNVector3(target.x,        target.y + 140, target.z + 1)
+        case .side:
+            position = SCNVector3(target.x + 130,  target.y + 20,  target.z)
+        }
+
+        let move = {
+            cam.position = position
+            cam.look(at: target)
+        }
+
+        if animated {
+            SCNTransaction.begin()
+            SCNTransaction.animationDuration = 0.4
+            move()
+            SCNTransaction.commit()
+        } else {
+            move()
+        }
     }
 
     // MARK: - 하이라이트 핀만 교체
