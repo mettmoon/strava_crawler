@@ -77,6 +77,15 @@ struct CourseEditorView: View {
     @State private var mapViewRef: MKMapView?   // 맵 뷰 직접 참조 (검색 시 visible rect 조회용)
     @State private var pendingSearch = false
 
+    @AppStorage(MapStyleStorageKey.editor) private var mapStyleRaw: String = MapStyleOption.standard.rawValue
+
+    private var mapStyle: Binding<MapStyleOption> {
+        Binding(
+            get: { MapStyleOption(rawValue: mapStyleRaw) ?? .standard },
+            set: { mapStyleRaw = $0.rawValue }
+        )
+    }
+
     init(course: CourseRecord) {
         self.course = course
         _draft = State(initialValue: CourseEditorDraft(from: course))
@@ -88,13 +97,18 @@ struct CourseEditorView: View {
             Divider()
             HSplitView {
                 VSplitView {
-                    CourseEditMapView(draft: draft, isCalculating: $isCalculating,
-                                      searchResults: $searchResults,
-                                      mapViewRef: $mapViewRef,
-                                      onSearchInVisibleRect: { rect in
-                        performSearch(in: rect)
-                    })
-                        .frame(minHeight: 200)
+                    ZStack(alignment: .topTrailing) {
+                        CourseEditMapView(draft: draft, isCalculating: $isCalculating,
+                                          searchResults: $searchResults,
+                                          mapViewRef: $mapViewRef,
+                                          mapStyle: mapStyle.wrappedValue,
+                                          onSearchInVisibleRect: { rect in
+                            performSearch(in: rect)
+                        })
+                        MapStylePicker(selection: mapStyle)
+                            .padding(8)
+                    }
+                    .frame(minHeight: 200)
                     elevationPane
                         .frame(minHeight: 120)
                 }
@@ -473,6 +487,7 @@ struct CourseEditMapView: NSViewRepresentable {
     @Binding var isCalculating: Bool
     @Binding var searchResults: [KakaoLocalResult]
     @Binding var mapViewRef: MKMapView?
+    var mapStyle: MapStyleOption = .standard
     var onSearchInVisibleRect: (MKMapRect) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -486,6 +501,8 @@ struct CourseEditMapView: NSViewRepresentable {
         map.delegate = context.coordinator
         map.showsCompass = true
         map.showsScale = true
+        applyMapStyle(mapStyle, to: map)
+        context.coordinator.appliedMapStyle = mapStyle
         context.coordinator.mapView = map
         DispatchQueue.main.async { mapViewRef = map }
 
@@ -503,6 +520,10 @@ struct CourseEditMapView: NSViewRepresentable {
     }
 
     func updateNSView(_ map: MKMapView, context: Context) {
+        if context.coordinator.appliedMapStyle != mapStyle {
+            applyMapStyle(mapStyle, to: map)
+            context.coordinator.appliedMapStyle = mapStyle
+        }
         context.coordinator.draft = draft
         context.coordinator.onSearchInVisibleRect = onSearchInVisibleRect
         context.coordinator.refresh()
@@ -517,6 +538,7 @@ struct CourseEditMapView: NSViewRepresentable {
         var isCalculatingBinding: Binding<Bool>
         var searchResultsBinding: Binding<[KakaoLocalResult]>
         var onSearchInVisibleRect: (MKMapRect) -> Void
+        var appliedMapStyle: MapStyleOption?
         weak var mapView: MKMapView?
 
         private var draggingIndex: Int?

@@ -63,11 +63,42 @@ final class HoverMapView: MKMapView {
     }
 }
 
-struct RouteMapView: NSViewRepresentable {
+struct RouteMapView: View {
     let trackPoints: [TrackPoint]
     var highlightPoints: [TrackPoint] = []
     var cuePoints: [CourseCuePoint] = []
     @Binding var hoverInfo: RouteHoverInfo?
+
+    @AppStorage(MapStyleStorageKey.main) private var mapStyleRaw: String = MapStyleOption.standard.rawValue
+
+    private var mapStyle: Binding<MapStyleOption> {
+        Binding(
+            get: { MapStyleOption(rawValue: mapStyleRaw) ?? .standard },
+            set: { mapStyleRaw = $0.rawValue }
+        )
+    }
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            RouteMapRepresentable(
+                trackPoints: trackPoints,
+                highlightPoints: highlightPoints,
+                cuePoints: cuePoints,
+                hoverInfo: $hoverInfo,
+                mapStyle: mapStyle.wrappedValue
+            )
+            MapStylePicker(selection: mapStyle)
+                .padding(8)
+        }
+    }
+}
+
+private struct RouteMapRepresentable: NSViewRepresentable {
+    let trackPoints: [TrackPoint]
+    var highlightPoints: [TrackPoint] = []
+    var cuePoints: [CourseCuePoint] = []
+    @Binding var hoverInfo: RouteHoverInfo?
+    var mapStyle: MapStyleOption
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -77,6 +108,8 @@ struct RouteMapView: NSViewRepresentable {
         map.delegate = context.coordinator
         map.showsCompass = true
         map.showsScale = true
+        applyMapStyle(mapStyle, to: map)
+        coordinator.appliedMapStyle = mapStyle
         map.onRouteMouseMoved = { [weak coordinator] map, point in
             coordinator?.handleMouseMoved(in: map, point: point)
         }
@@ -88,6 +121,10 @@ struct RouteMapView: NSViewRepresentable {
 
     func updateNSView(_ map: MKMapView, context: Context) {
         let coordinator = context.coordinator
+        if coordinator.appliedMapStyle != mapStyle {
+            applyMapStyle(mapStyle, to: map)
+            coordinator.appliedMapStyle = mapStyle
+        }
         let signature = trackPoints.map { "\($0.lat),\($0.lon),\($0.cumKm)" }
         coordinator.trackPoints = trackPoints
         coordinator.hoverInfo = $hoverInfo
@@ -169,6 +206,7 @@ struct RouteMapView: NSViewRepresentable {
     // MARK: - Coordinator
 
     final class Coordinator: NSObject, MKMapViewDelegate {
+        var appliedMapStyle: MapStyleOption?
         var builtPointSignature: [String] = []
         var highlightSignature: [Double] = []
         var mainPolyline: MKPolyline?
