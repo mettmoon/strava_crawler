@@ -67,6 +67,11 @@ struct RouteMapView: View {
     let trackPoints: [TrackPoint]
     var highlightPoints: [TrackPoint] = []
     var cuePoints: [CourseCuePoint] = []
+    var focusedCueID: UUID? = nil
+    /// 빈 영역(어떤 annotation도 아닌 곳) 클릭 시 호출. 큐 포커스 해제 등에 사용.
+    var onDeselectFocus: (() -> Void)? = nil
+    /// 사용자가 지도의 cue 핀을 직접 탭했을 때 호출. 인스펙터/그래프 선택 동기화에 사용.
+    var onSelectCue: ((UUID) -> Void)? = nil
     @Binding var hoverInfo: RouteHoverInfo?
 
     @AppStorage(MapStyleStorageKey.main) private var mapStyleRaw: String = MapStyleOption.standard.rawValue
@@ -84,6 +89,9 @@ struct RouteMapView: View {
                 trackPoints: trackPoints,
                 highlightPoints: highlightPoints,
                 cuePoints: cuePoints,
+                focusedCueID: focusedCueID,
+                onDeselectFocus: onDeselectFocus,
+                onSelectCue: onSelectCue,
                 hoverInfo: $hoverInfo,
                 mapStyle: mapStyle.wrappedValue
             )
@@ -97,6 +105,9 @@ private struct RouteMapRepresentable: NSViewRepresentable {
     let trackPoints: [TrackPoint]
     var highlightPoints: [TrackPoint] = []
     var cuePoints: [CourseCuePoint] = []
+    var focusedCueID: UUID? = nil
+    var onDeselectFocus: (() -> Void)? = nil
+    var onSelectCue: ((UUID) -> Void)? = nil
     @Binding var hoverInfo: RouteHoverInfo?
     var mapStyle: MapStyleOption
 
@@ -116,6 +127,16 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         map.onRouteMouseExited = { [weak coordinator] map in
             coordinator?.clearHover(in: map)
         }
+
+        let leftClick = NSClickGestureRecognizer(
+            target: coordinator,
+            action: #selector(Coordinator.handleEmptyAreaClick(_:))
+        )
+        leftClick.buttonMask = 1
+        leftClick.numberOfClicksRequired = 1
+        leftClick.delaysPrimaryMouseButtonEvents = false
+        map.addGestureRecognizer(leftClick)
+
         return map
     }
 
@@ -128,6 +149,8 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         let signature = trackPoints.map { "\($0.lat),\($0.lon),\($0.cumKm)" }
         coordinator.trackPoints = trackPoints
         coordinator.hoverInfo = $hoverInfo
+        coordinator.onDeselectFocus = onDeselectFocus
+        coordinator.onSelectCue = onSelectCue
 
         if coordinator.builtPointSignature != signature {
             map.removeOverlays(map.overlays)
@@ -172,6 +195,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
 
         updateHighlight(map: map, coordinator: coordinator)
         updateCuePoints(map: map, coordinator: coordinator)
+        coordinator.syncFocusedCue(in: map, focusedID: focusedCueID)
         coordinator.syncHoverPresentation(in: map, info: hoverInfo)
     }
 
@@ -216,6 +240,23 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         var hoverAnnotation: HoverAnnotation?
         var trackPoints: [TrackPoint] = []
         var hoverInfo: Binding<RouteHoverInfo?>?
+        var onDeselectFocus: (() -> Void)?
+        var onSelectCue: ((UUID) -> Void)?
+        var lastFocusedCueID: UUID?
+
+        @objc func handleEmptyAreaClick(_ gesture: NSClickGestureRecognizer) {
+            guard let map = gesture.view as? MKMapView, let superview = map.superview else { return }
+            let pointInMap = gesture.location(in: map)
+            let pointInSuper = map.convert(pointInMap, to: superview)
+            // 클릭 지점에 annotation이 있으면 무시 (annotation 자체 선택은 MKMapView가 처리).
+            var view = map.hitTest(pointInSuper)
+            while let v = view {
+                if v is MKAnnotationView { return }
+                if v === map { break }
+                view = v.superview
+            }
+            onDeselectFocus?()
+        }
 
         private let hoverHitThreshold: CGFloat = 10
         private weak var tooltipView: NSVisualEffectView?
@@ -246,6 +287,30 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             hoverInfo?.wrappedValue = nil
             removeHoverDot(in: map)
             hideTooltip()
+        }
+
+        func syncFocusedCue(in map: MKMapView, focusedID: UUID?) {
+            guard let id = focusedID,
+                  let annotation = cueAnnotations.first(where: { $0.cue.id == id }) else {
+                if let selected = map.selectedAnnotations.first as? CueAnnotation {
+                    map.deselectAnnotation(selected, animated: false)
+                }
+                lastFocusedCueID = nil
+                return
+            }
+
+            let alreadySelected = (map.selectedAnnotations.first as? CueAnnotation)?.cue.id == id
+            if lastFocusedCueID == id, alreadySelected { return }
+            lastFocusedCueID = id
+
+            // 화면 밖이거나 가장자리 근처면 중심을 옮긴다 (10% 인셋).
+            let mapPoint = MKMapPoint(annotation.coordinate)
+            let rect = map.visibleMapRect
+            let inset = rect.insetBy(dx: rect.size.width * 0.1, dy: rect.size.height * 0.1)
+            if !inset.contains(mapPoint) {
+                map.setCenter(annotation.coordinate, animated: true)
+            }
+            map.selectAnnotation(annotation, animated: true)
         }
 
         func syncHoverPresentation(in map: MKMapView, info: RouteHoverInfo?) {
@@ -394,6 +459,14 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             tooltipView = bubble
             tooltipLabel = label
             return (bubble, label)
+        }
+
+        func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
+            guard let cue = view.annotation as? CueAnnotation else { return }
+            // 같은 cue를 syncFocusedCue가 다시 select하는 경우는 콜백 발생을 피한다.
+            if lastFocusedCueID == cue.cue.id { return }
+            lastFocusedCueID = cue.cue.id
+            onSelectCue?(cue.cue.id)
         }
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {

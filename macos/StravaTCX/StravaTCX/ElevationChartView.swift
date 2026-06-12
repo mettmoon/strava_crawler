@@ -7,9 +7,13 @@ import StravaTCXKit
 struct ElevationChartView: View {
     let trackPoints: [TrackPoint]
     var markers: [ElevationMarker] = []
+    /// 외부에서 강조해서 표시할 위치 (누적 거리, km). 큐시트 항목 선택 시 사용.
+    var focusedDistanceKm: Double? = nil
     @Binding var hoverInfo: RouteHoverInfo?
     /// 호버 위치에서 우클릭 → "웨이포인트 추가" 선택 시 호출. 인자: 누적 거리(km).
     var onAddCueAtHover: ((Double) -> Void)? = nil
+    /// 차트 배경(아무 곳)을 클릭했을 때 호출. 큐 포커스 해제 등에 사용.
+    var onBackgroundClick: (() -> Void)? = nil
 
     @State private var scale: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
@@ -49,31 +53,48 @@ struct ElevationChartView: View {
             let hiddenMarkerCount = placements.filter { $0.row >= maxMarkerRows }.count
 
             ZStack(alignment: .bottomTrailing) {
-                ScrollView(.horizontal, showsIndicators: true) {
-                    Canvas { ctx, size in
-                        drawChart(ctx: ctx, size: size,
-                                  stripH: stripH, placements: placements,
-                                  hiddenMarkerCount: hiddenMarkerCount,
-                                  hoverInfo: hoverInfo)
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: true) {
+                        Canvas { ctx, size in
+                            drawChart(ctx: ctx, size: size,
+                                      stripH: stripH, placements: placements,
+                                      hiddenMarkerCount: hiddenMarkerCount,
+                                      hoverInfo: hoverInfo,
+                                      focusedDistanceKm: focusedDistanceKm)
+                        }
+                        .frame(width: contentWidth, height: stripH + chartBodyHeight)
+                        .overlay(alignment: .leading) {
+                            // 가로 스크롤 자동이동용 invisible anchors
+                            scrollAnchors(contentWidth: contentWidth)
+                        }
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active(let location):
+                                updateHover(location: location, contentWidth: contentWidth)
+                            case .ended:
+                                hoverInfo = nil
+                            }
+                        }
+                        .onTapGesture {
+                            onBackgroundClick?()
+                        }
+                        .background(
+                            WheelZoomView { delta in applyZoom(delta: delta) }
+                        )
+                        .overlay(
+                            RightClickCatcher(onRightClick: {
+                                guard let info = hoverInfo, onAddCueAtHover != nil else { return }
+                                showRightClickMenu(distanceKm: info.distanceKm)
+                            })
+                        )
                     }
-                    .frame(width: contentWidth, height: stripH + chartBodyHeight)
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case .active(let location):
-                            updateHover(location: location, contentWidth: contentWidth)
-                        case .ended:
-                            hoverInfo = nil
+                    .onChange(of: focusedDistanceKm) { _, km in
+                        guard let km, totalKm > 0 else { return }
+                        let bucket = scrollAnchorBucket(forKm: km)
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            proxy.scrollTo(bucket, anchor: .center)
                         }
                     }
-                    .background(
-                        WheelZoomView { delta in applyZoom(delta: delta) }
-                    )
-                    .overlay(
-                        RightClickCatcher(onRightClick: {
-                            guard let info = hoverInfo, onAddCueAtHover != nil else { return }
-                            showRightClickMenu(distanceKm: info.distanceKm)
-                        })
-                    )
                 }
                 .gesture(
                     MagnifyGesture()
@@ -150,6 +171,34 @@ struct ElevationChartView: View {
         .onChange(of: trackPoints.count)  { _, _ in resetScale() }
     }
 
+    // MARK: - 가로 스크롤 anchor
+
+    /// Canvas 위에 보이지 않는 anchor 뷰를 균일하게 배치한다.
+    /// `focusedDistanceKm` 변경 시 ScrollViewReader가 가장 가까운 anchor로 스크롤한다.
+    @ViewBuilder
+    private func scrollAnchors(contentWidth: CGFloat) -> some View {
+        let count = scrollAnchorCount
+        let step = contentWidth / CGFloat(max(count - 1, 1))
+        HStack(spacing: 0) {
+            ForEach(0..<count, id: \.self) { i in
+                Color.clear
+                    .frame(width: i == count - 1 ? 1 : step, height: 1)
+                    .id(i)
+            }
+        }
+        .frame(width: contentWidth, height: 1, alignment: .topLeading)
+        .allowsHitTesting(false)
+    }
+
+    private var scrollAnchorCount: Int { 200 }
+
+    private func scrollAnchorBucket(forKm km: Double) -> Int {
+        guard totalKm > 0 else { return 0 }
+        let ratio = min(max(km / totalKm, 0), 1)
+        let bucket = Int((ratio * Double(scrollAnchorCount - 1)).rounded())
+        return min(max(bucket, 0), scrollAnchorCount - 1)
+    }
+
     // MARK: - 레이블 배치 계산
 
     struct Placement {
@@ -219,7 +268,8 @@ struct ElevationChartView: View {
     private func drawChart(ctx: GraphicsContext, size: CGSize,
                            stripH: CGFloat, placements: [Placement],
                            hiddenMarkerCount: Int,
-                           hoverInfo: RouteHoverInfo?) {
+                           hoverInfo: RouteHoverInfo?,
+                           focusedDistanceKm: Double?) {
         guard let (minEle, maxEle) = eleRange, maxEle > minEle else { return }
         let eleSpan  = maxEle - minEle
         let bodyTop  = stripH
@@ -373,6 +423,37 @@ struct ElevationChartView: View {
             ctx.draw(Text(AttributedString(label, attributes: attrs)),
                      at: CGPoint(x: rect.midX, y: rect.midY),
                      anchor: .center)
+        }
+
+        // ── 큐시트 선택 마커 (호버보다 먼저 그려서, 호버가 위에 오도록) ─
+        if let focusedDistanceKm,
+           let focusedInfo = routeHoverInfo(trackPoints: trackPoints,
+                                            nearestToDistanceKm: focusedDistanceKm),
+           let focusedEle = focusedInfo.elevationMeters {
+            let fx = min(max(xPos(focusedInfo.distanceKm), 0), size.width)
+            let fy = min(max(yPos(focusedEle), bodyTop), bodyBot)
+            let focusColor = Color.pink
+
+            var fLine = Path()
+            fLine.move(to: CGPoint(x: fx, y: bodyTop))
+            fLine.addLine(to: CGPoint(x: fx, y: bodyBot))
+            ctx.stroke(fLine, with: .color(focusColor.opacity(0.85)),
+                       style: StrokeStyle(lineWidth: 1.5))
+
+            let outerR: CGFloat = 7
+            ctx.fill(Path(ellipseIn: CGRect(
+                x: fx - outerR, y: fy - outerR,
+                width: outerR * 2, height: outerR * 2
+            )), with: .color(focusColor.opacity(0.25)))
+            let innerR: CGFloat = 4
+            ctx.fill(Path(ellipseIn: CGRect(
+                x: fx - innerR, y: fy - innerR,
+                width: innerR * 2, height: innerR * 2
+            )), with: .color(focusColor))
+            ctx.stroke(Path(ellipseIn: CGRect(
+                x: fx - innerR, y: fy - innerR,
+                width: innerR * 2, height: innerR * 2
+            )), with: .color(.white), style: StrokeStyle(lineWidth: 1.2))
         }
 
         if let hoverInfo,

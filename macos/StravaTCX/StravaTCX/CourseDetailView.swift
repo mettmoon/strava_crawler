@@ -8,6 +8,7 @@ import StravaTCXKit
 /// 큐시트 목록을 표시한다.
 struct CourseDetailView: View {
     @Bindable var course: CourseRecord
+    @Binding var selectedCueID: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -43,23 +44,26 @@ struct CourseDetailView: View {
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
             } else {
-                List(course.cuePoints) { cue in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(cue.name.isEmpty ? cue.pointType : cue.name)
-                            .font(.body)
-                        HStack {
-                            Text(cuePointLabel(for: cue.pointType))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            if cue.distanceMeters > 0 {
-                                Text(String(format: "%.1f km", cue.distanceMeters / 1000))
+                List(selection: $selectedCueID) {
+                    ForEach(course.cuePoints) { cue in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(cue.name.isEmpty ? cue.pointType : cue.name)
+                                .font(.body)
+                            HStack {
+                                Text(cuePointLabel(for: cue.pointType))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+                                Spacer()
+                                if cue.distanceMeters > 0 {
+                                    Text(String(format: "%.1f km", cue.distanceMeters / 1000))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
+                        .padding(.vertical, 2)
+                        .tag(cue.id)
                     }
-                    .padding(.vertical, 2)
                 }
             }
         }
