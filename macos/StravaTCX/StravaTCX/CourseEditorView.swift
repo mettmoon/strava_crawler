@@ -68,6 +68,8 @@ struct CourseEditorView: View {
     @State private var showDiscardConfirm = false
     @State private var closeConfirmed = false
     @State private var hoverInfo: RouteHoverInfo?
+    @State private var selectedCueID: UUID?
+    @State private var rangeSelection: ChartRangeSelection?
 
     // 카카오 검색
     @State private var searchQuery = ""
@@ -75,7 +77,6 @@ struct CourseEditorView: View {
     @State private var isSearching = false
     @State private var searchError: String?
     @State private var mapViewRef: MKMapView?   // 맵 뷰 직접 참조 (검색 시 visible rect 조회용)
-    @State private var pendingSearch = false
 
     @AppStorage(MapStyleStorageKey.editor) private var mapStyleRaw: String = MapStyleOption.standard.rawValue
 
@@ -95,26 +96,29 @@ struct CourseEditorView: View {
         VStack(spacing: 0) {
             toolbar
             Divider()
-            HSplitView {
-                VSplitView {
-                    ZStack(alignment: .topTrailing) {
-                        CourseEditMapView(draft: draft, isCalculating: $isCalculating,
-                                          searchResults: $searchResults,
-                                          mapViewRef: $mapViewRef,
-                                          mapStyle: mapStyle.wrappedValue,
-                                          onSearchInVisibleRect: { rect in
-                            performSearch(in: rect)
-                        })
-                        MapStylePicker(selection: mapStyle)
-                            .padding(8)
+            NavigationSplitView {
+                CourseEditorCuesheetSidebar(draft: draft, selectedCueID: $selectedCueID)
+                    .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
+            } detail: {
+                detailPane
+                    .inspector(isPresented: .constant(true)) {
+                        Group {
+                            if let range = rangeSelection {
+                                CourseEditorRangeInspectorView(
+                                    draft: draft,
+                                    trackPoints: draft.allTrackPoints,
+                                    range: range,
+                                    onAddSegment: { addSegmentFromRange(range) }
+                                )
+                            } else {
+                                CourseEditorCueInspectorView(
+                                    draft: draft,
+                                    selectedCueID: selectedCueID
+                                )
+                            }
+                        }
+                        .inspectorColumnWidth(min: 260, ideal: 320, max: 460)
                     }
-                    .frame(minHeight: 200)
-                    elevationPane
-                        .frame(minHeight: 120)
-                }
-                .frame(minWidth: 400)
-                CueSheetPanel(draft: draft)
-                    .frame(minWidth: 220, idealWidth: 280, maxWidth: 360)
             }
             .overlay(alignment: .topLeading) {
                 if isCalculating {
@@ -124,6 +128,11 @@ struct CourseEditorView: View {
                         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
                         .padding(8)
                 }
+            }
+        }
+        .onChange(of: draft.cuePoints.map(\.id)) { _, ids in
+            if let sel = selectedCueID, !ids.contains(sel) {
+                selectedCueID = nil
             }
         }
         .confirmationDialog("변경 사항을 버리시겠습니까?", isPresented: $showDiscardConfirm, titleVisibility: .visible) {
@@ -137,6 +146,35 @@ struct CourseEditorView: View {
                 dismiss()
                 NSApp.keyWindow?.close()
             }
+        }
+    }
+
+    // MARK: - 가운데 컨텐츠 (지도 + 고도그래프)
+
+    @ViewBuilder
+    private var detailPane: some View {
+        VSplitView {
+            ZStack(alignment: .topTrailing) {
+                CourseEditMapView(
+                    draft: draft,
+                    isCalculating: $isCalculating,
+                    searchResults: $searchResults,
+                    mapViewRef: $mapViewRef,
+                    selectedCueID: selectedCueID,
+                    rangeSelection: rangeSelection,
+                    mapStyle: mapStyle.wrappedValue,
+                    onSelectCue: { selectedCueID = $0 },
+                    onDeselectFocus: { selectedCueID = nil },
+                    onSearchInVisibleRect: { rect in
+                        performSearch(in: rect)
+                    }
+                )
+                MapStylePicker(selection: mapStyle)
+                    .padding(8)
+            }
+            .frame(minHeight: 200)
+            elevationPane
+                .frame(minHeight: 120)
         }
     }
 
@@ -155,12 +193,22 @@ struct CourseEditorView: View {
             ElevationChartView(
                 trackPoints: pts,
                 markers: elevationMarkers(for: pts),
+                focusedDistanceKm: focusedDistanceKm(for: pts),
                 hoverInfo: $hoverInfo,
+                rangeSelection: $rangeSelection,
                 onAddCueAtHover: { km in
                     addCueFromElevation(distanceKm: km, trackPoints: pts)
-                }
+                },
+                onBackgroundClick: { selectedCueID = nil }
             )
         }
+    }
+
+    private func focusedDistanceKm(for pts: [TrackPoint]) -> Double? {
+        guard let id = selectedCueID,
+              let cue = draft.cuePoints.first(where: { $0.id == id }),
+              let idx = Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon) else { return nil }
+        return pts[idx].cumKm
     }
 
     private func addCueFromElevation(distanceKm: Double, trackPoints pts: [TrackPoint]) {
@@ -216,37 +264,93 @@ struct CourseEditorView: View {
         }
     }
 
+    // MARK: - 구간 추가 (드래그 → 시작/종료 큐시트)
+
+    private func addSegmentFromRange(_ range: ChartRangeSelection) {
+        let pts = draft.allTrackPoints
+        guard let stats = routeRangeStats(trackPoints: pts, range: range) else {
+            NSSound.beep(); return
+        }
+        guard let s = interpolateTrackPoint(in: pts, atDistanceKm: stats.startKm),
+              let e = interpolateTrackPoint(in: pts, atDistanceKm: stats.endKm) else {
+            NSSound.beep(); return
+        }
+
+        let avgGrade = stats.averageGradePercent ?? 0
+        let lengthKm = stats.lengthKm
+        let gclass = Classification.gradeClass(value: avgGrade)
+        let category = climbCategory(forAverageGrade: avgGrade, lengthKm: lengthKm)
+
+        // 시작 PointType — 오르막일 때만 카테고리, 아니면 Sprint
+        let startType = (gclass == .up)
+            ? Classification.startPointType(category)
+            : "Sprint"
+        // 종료 PointType — 사양: 'Segment End' 라벨. 시각적으로는 정상/계곡 핀이 자연스럽다.
+        let endType = (gclass == .down) ? "Valley" : "Summit"
+
+        // 시작 이름 = "↗ 1.20km, 5.3% " (RouteWorkspaceView.makeCourseFromRoute 패턴과 동일)
+        let distText = formatRouteDistance(lengthKm).replacingOccurrences(of: " ", with: "")
+        let gradeText = String(format: "%.1f%%", avgGrade)
+        let startName = "\(gclass.arrow)\(distText), \(gradeText) "
+
+        let endName = "Segment End"
+
+        var notesBits: [String] = ["Dist \(distText)", "Grade \(gradeText)"]
+        if let cat = category { notesBits.append("Cat \(cat)") }
+        notesBits.append("range-add")
+        let baseNotes = notesBits.joined(separator: " | ")
+
+        draft.appendCuePoint(CourseCuePoint(
+            lat: s.lat, lon: s.lon,
+            name: startName, pointType: startType,
+            notes: baseNotes,
+            distanceMeters: stats.startKm * 1000
+        ))
+        draft.appendCuePoint(CourseCuePoint(
+            lat: e.lat, lon: e.lon,
+            name: endName, pointType: endType,
+            notes: baseNotes,
+            distanceMeters: stats.endKm * 1000
+        ))
+
+        rangeSelection = nil
+    }
+
+    /// 평균 경사 + 길이 → Strava climb_category 근사 ("4"|"3"|"2"|"1"|"HC", 또는 nil → Sprint)
+    /// score = length(m) * grade(%). 1.5% 이하/내리막은 nil.
+    private func climbCategory(forAverageGrade grade: Double, lengthKm km: Double) -> String? {
+        guard grade > Classification.gradeFlatThreshold, km > 0 else { return nil }
+        let score = km * 1000 * grade
+        if score >= 80_000 { return "HC" }
+        if score >= 64_000 { return "1" }
+        if score >= 32_000 { return "2" }
+        if score >= 16_000 { return "3" }
+        if score >= 8_000  { return "4" }
+        return nil
+    }
+
     // MARK: - 카카오 검색
 
     /// 툴바 엔터/버튼 → 현재 맵 visible rect로 즉시 검색
     private func triggerSearch() {
-        print("[Search] triggerSearch called, query='\(searchQuery)', mapViewRef=\(mapViewRef != nil ? "있음" : "nil")")
         searchResults = []
         searchError = nil
         if let map = mapViewRef {
-            let rect = map.visibleMapRect
-            print("[Search] visibleMapRect=\(rect)")
-            performSearch(in: rect)
-        } else {
-            print("[Search] mapViewRef가 nil — 검색 불가")
+            performSearch(in: map.visibleMapRect)
         }
     }
 
     private func performSearch(in rect: MKMapRect) {
         let query = searchQuery.trimmingCharacters(in: .whitespaces)
-        print("[Search] performSearch query='\(query)'")
-        guard !query.isEmpty else { print("[Search] 쿼리 비어있음, 종료"); return }
+        guard !query.isEmpty else { return }
         isSearching = true
         searchError = nil
         Task { @MainActor in
             do {
-                print("[Search] API 호출 시작")
                 let results = try await KakaoLocalSearch.search(query: query, in: rect)
-                print("[Search] 결과 \(results.count)건: \(results.map(\.name))")
                 searchResults = results
                 if searchResults.isEmpty { searchError = "검색 결과 없음" }
             } catch {
-                print("[Search] 오류: \(error)")
                 searchError = error.localizedDescription
                 searchResults = []
             }
@@ -345,20 +449,30 @@ struct CourseEditorView: View {
     }
 }
 
-// MARK: - CueSheetPanel
+// MARK: - CourseEditorCuesheetSidebar
 
-private struct CueSheetPanel: View {
+/// 좌측 큐시트 사이드바. 거리 순으로 정렬, 인라인 편집, 항목 추가/삭제.
+private struct CourseEditorCuesheetSidebar: View {
     var draft: CourseEditorDraft
+    @Binding var selectedCueID: UUID?
 
     @State private var showAddSheet = false
     @State private var newName = ""
     @State private var newType = "Straight"
 
+    /// distanceMeters 기준 정렬. 동일 거리에서는 추가 순서를 보존.
+    private var sortedCues: [CourseCuePoint] {
+        draft.cuePoints.sorted { $0.distanceMeters < $1.distanceMeters }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Text("큐시트")
-                    .font(.headline)
+                    .font(.subheadline.bold())
+                Text("\(draft.cuePoints.count)개")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Spacer()
                 Button(action: { showAddSheet = true }) {
                     Image(systemName: "plus")
@@ -376,10 +490,11 @@ private struct CueSheetPanel: View {
                     Label("큐시트 없음", systemImage: "list.bullet")
                 } description: {
                     Text("경로 위를 우클릭하거나\n+ 버튼으로 추가하세요.")
+                        .font(.caption)
                 }
             } else {
-                List {
-                    ForEach(draft.cuePoints) { cue in
+                List(selection: $selectedCueID) {
+                    ForEach(sortedCues) { cue in
                         CuePointRow(cue: Binding(
                             get: {
                                 draft.cuePoints.first(where: { $0.id == cue.id }) ?? cue
@@ -390,6 +505,7 @@ private struct CueSheetPanel: View {
                                 }
                             }
                         ))
+                        .tag(cue.id)
                         .contextMenu {
                             Button(role: .destructive) {
                                 if let idx = draft.cuePoints.firstIndex(where: { $0.id == cue.id }) {
@@ -400,7 +516,14 @@ private struct CueSheetPanel: View {
                             }
                         }
                     }
-                    .onDelete { draft.removeCuePoints(at: $0) }
+                    .onDelete { offsets in
+                        // sortedCues 기준 offset → draft.cuePoints의 실제 idx 매핑
+                        let ids = offsets.map { sortedCues[$0].id }
+                        let realOffsets = IndexSet(ids.compactMap { id in
+                            draft.cuePoints.firstIndex(where: { $0.id == id })
+                        })
+                        draft.removeCuePoints(at: realOffsets)
+                    }
                 }
             }
         }
@@ -433,6 +556,7 @@ private struct CuePointRow: View {
         VStack(alignment: .leading, spacing: 2) {
             TextField("이름", text: $cue.name)
                 .font(.body)
+                .textFieldStyle(.plain)
             HStack {
                 Picker("", selection: $cue.pointType) {
                     ForEach(cuePointTypes, id: \.value) { Text($0.label).tag($0.value) }
@@ -480,6 +604,210 @@ private struct CuePointAddSheet: View {
     }
 }
 
+// MARK: - CourseEditorCueInspectorView
+
+/// 우측 인스펙터: 선택된 큐 상세 정보. 보기 화면 CourseCueInspectorView와 동일 정보 +
+/// "삭제" 버튼.
+private struct CourseEditorCueInspectorView: View {
+    var draft: CourseEditorDraft
+    var selectedCueID: UUID?
+
+    private var sortedCues: [CourseCuePoint] {
+        draft.cuePoints.sorted { $0.distanceMeters < $1.distanceMeters }
+    }
+
+    private var trackPoints: [TrackPoint] { draft.allTrackPoints }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(draft.title)
+                    .font(.headline)
+                    .lineLimit(1)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            if let cueID = selectedCueID,
+               let cue = draft.cuePoints.first(where: { $0.id == cueID }) {
+                ScrollView {
+                    cueDetail(cue: cue)
+                        .padding(16)
+                }
+            } else {
+                ContentUnavailableView {
+                    Label("큐를 선택하세요", systemImage: "mappin.and.ellipse")
+                } description: {
+                    Text("좌측 목록에서 큐 항목을 선택하면 상세 정보가 표시됩니다.")
+                        .font(.caption)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func cueDetail(cue: CourseCuePoint) -> some View {
+        let pts = trackPoints
+        let totalKm = pts.last?.cumKm ?? 0
+        let cueIdx = Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon)
+        let cueKm = cueIdx.map { pts[$0].cumKm } ?? (cue.distanceMeters / 1000)
+        let cueEle = cueIdx.flatMap { pts[$0].ele }
+
+        let cues = sortedCues
+        let pos = cues.firstIndex(where: { $0.id == cue.id })
+        let prev = (pos.flatMap { $0 > 0 ? cues[$0 - 1] : nil })
+        let next = (pos.flatMap { $0 + 1 < cues.count ? cues[$0 + 1] : nil })
+
+        VStack(alignment: .leading, spacing: 20) {
+            // 헤더 (이름 + 타입 + 삭제)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(cue.name.isEmpty ? cuePointLabel(for: cue.pointType) : cue.name)
+                        .font(.title3.weight(.semibold))
+                        .lineLimit(2)
+                    Text(cuePointLabel(for: cue.pointType))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button(role: .destructive) {
+                    if let idx = draft.cuePoints.firstIndex(where: { $0.id == cue.id }) {
+                        draft.removeCuePoints(at: IndexSet(integer: idx))
+                    }
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.red)
+                .help("이 큐 삭제")
+            }
+
+            section(title: "위치", icon: "location") {
+                infoRow("시작점으로부터", value: formatKm(cueKm))
+                infoRow("종료점까지", value: formatKm(max(0, totalKm - cueKm)))
+                infoRow("고도", value: formatEle(cueEle))
+            }
+
+            section(title: "이전 큐", icon: "arrow.up.to.line") {
+                if let prev {
+                    let prevName = prev.name.isEmpty ? cuePointLabel(for: prev.pointType) : prev.name
+                    infoRow("이름", value: prevName, valueColor: .primary)
+                    infoRow("거리 차이", value: formatKm(max(0, (cue.distanceMeters - prev.distanceMeters) / 1000)))
+                    infoRow("고도 차이", value: formatEleDelta(from: prev, to: cue, pts: pts))
+                } else {
+                    Text("이전 큐가 없습니다.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                }
+            }
+
+            section(title: "다음 큐", icon: "arrow.down.to.line") {
+                if let next {
+                    let nextName = next.name.isEmpty ? cuePointLabel(for: next.pointType) : next.name
+                    infoRow("이름", value: nextName, valueColor: .primary)
+                    infoRow("거리 차이", value: formatKm(max(0, (next.distanceMeters - cue.distanceMeters) / 1000)))
+                    infoRow("고도 차이", value: formatEleDelta(from: cue, to: next, pts: pts))
+                } else {
+                    Text("다음 큐가 없습니다.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                }
+            }
+
+            if !cue.notes.isEmpty {
+                section(title: "메모", icon: "note.text") {
+                    Text(cue.notes)
+                        .font(.callout)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func section<Content: View>(title: String, icon: String,
+                                        @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(title, systemImage: icon)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(nil)
+            VStack(spacing: 0) { content() }
+                .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    private func infoRow(_ label: String, value: String, valueColor: Color = .primary) -> some View {
+        HStack {
+            Text(label).foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+                .fontWeight(.medium)
+                .foregroundStyle(valueColor)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .font(.callout)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 12) }
+    }
+
+    private func formatKm(_ km: Double) -> String {
+        if km < 1 { return String(format: "%.0f m", km * 1000) }
+        return String(format: "%.2f km", km)
+    }
+
+    private func formatEle(_ ele: Double?) -> String {
+        guard let ele else { return "—" }
+        return String(format: "%.0f m", ele)
+    }
+
+    private func formatEleDelta(from a: CourseCuePoint, to b: CourseCuePoint, pts: [TrackPoint]) -> String {
+        guard let aIdx = Geo.nearestIndex(pts, lat: a.lat, lon: a.lon),
+              let bIdx = Geo.nearestIndex(pts, lat: b.lat, lon: b.lon),
+              let aEle = pts[aIdx].ele, let bEle = pts[bIdx].ele else { return "—" }
+        let diff = bEle - aEle
+        let sign = diff > 0 ? "+" : (diff < 0 ? "" : "")
+        return String(format: "%@%.0f m", sign, diff)
+    }
+}
+
+// MARK: - CourseEditorRangeInspectorView
+
+/// 우측 인스펙터 (드래그 구간 선택 시): 구간 통계 + "구간 추가" 버튼.
+private struct CourseEditorRangeInspectorView: View {
+    var draft: CourseEditorDraft
+    var trackPoints: [TrackPoint]
+    var range: ChartRangeSelection
+    var onAddSegment: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            RangeStatsInspectorView(trackPoints: trackPoints, range: range)
+            Divider()
+            Button {
+                onAddSegment()
+            } label: {
+                Label("구간 추가", systemImage: "flag.checkered")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(range.lengthKm <= 0 || range.isDragging)
+            .padding(12)
+        }
+    }
+}
+
 // MARK: - CourseEditMapView
 
 struct CourseEditMapView: NSViewRepresentable {
@@ -487,12 +815,18 @@ struct CourseEditMapView: NSViewRepresentable {
     @Binding var isCalculating: Bool
     @Binding var searchResults: [KakaoLocalResult]
     @Binding var mapViewRef: MKMapView?
+    var selectedCueID: UUID?
+    var rangeSelection: ChartRangeSelection?
     var mapStyle: MapStyleOption = .standard
+    var onSelectCue: (UUID) -> Void
+    var onDeselectFocus: () -> Void
     var onSearchInVisibleRect: (MKMapRect) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(draft: draft, isCalculatingBinding: $isCalculating,
                     searchResultsBinding: $searchResults,
+                    onSelectCue: onSelectCue,
+                    onDeselectFocus: onDeselectFocus,
                     onSearchInVisibleRect: onSearchInVisibleRect)
     }
 
@@ -525,10 +859,13 @@ struct CourseEditMapView: NSViewRepresentable {
             context.coordinator.appliedMapStyle = mapStyle
         }
         context.coordinator.draft = draft
+        context.coordinator.onSelectCue = onSelectCue
+        context.coordinator.onDeselectFocus = onDeselectFocus
         context.coordinator.onSearchInVisibleRect = onSearchInVisibleRect
         context.coordinator.refresh()
         context.coordinator.updateSearchAnnotations(map: map, results: searchResults)
-
+        context.coordinator.syncFocusedCue(in: map, focusedID: selectedCueID)
+        context.coordinator.syncRangeSelection(in: map, selection: rangeSelection)
     }
 
     // MARK: - Coordinator
@@ -537,6 +874,8 @@ struct CourseEditMapView: NSViewRepresentable {
         var draft: CourseEditorDraft
         var isCalculatingBinding: Binding<Bool>
         var searchResultsBinding: Binding<[KakaoLocalResult]>
+        var onSelectCue: (UUID) -> Void
+        var onDeselectFocus: () -> Void
         var onSearchInVisibleRect: (MKMapRect) -> Void
         var appliedMapStyle: MapStyleOption?
         weak var mapView: MKMapView?
@@ -545,13 +884,21 @@ struct CourseEditMapView: NSViewRepresentable {
         private var needsFitOnFirstLoad = true
         private var builtRouteSignature: String = ""
         private var builtSearchSignature: String = ""
+        private var lastFocusedCueID: UUID?
+        private var rangePolyline: RangeSelectionPolyline?
+        private var rangeEndpointAnnotations: [RangeEndpointAnnotation] = []
+        private var lastRangeSignature: String = ""
 
         init(draft: CourseEditorDraft, isCalculatingBinding: Binding<Bool>,
              searchResultsBinding: Binding<[KakaoLocalResult]>,
+             onSelectCue: @escaping (UUID) -> Void,
+             onDeselectFocus: @escaping () -> Void,
              onSearchInVisibleRect: @escaping (MKMapRect) -> Void) {
             self.draft = draft
             self.isCalculatingBinding = isCalculatingBinding
             self.searchResultsBinding = searchResultsBinding
+            self.onSelectCue = onSelectCue
+            self.onDeselectFocus = onDeselectFocus
             self.onSearchInVisibleRect = onSearchInVisibleRect
         }
 
@@ -559,7 +906,10 @@ struct CourseEditMapView: NSViewRepresentable {
 
         func refresh() {
             guard let map = mapView else { return }
-            let sig = draft.routePoints.map { "\($0.lat),\($0.lon)" }.joined(separator: "|")
+            // signature: routePoints + cuePoints (cue 변경 시도 핀 갱신)
+            let routeSig = draft.routePoints.map { "\($0.lat),\($0.lon)" }.joined(separator: "|")
+            let cueSig = draft.cuePoints.map { "\($0.id):\($0.lat),\($0.lon),\($0.pointType),\($0.name)" }.joined(separator: "|")
+            let sig = routeSig + "##" + cueSig
             guard sig != builtRouteSignature else { return }
             builtRouteSignature = sig
 
@@ -580,6 +930,11 @@ struct CourseEditMapView: NSViewRepresentable {
                 map.addAnnotation(CuePointAnnotation(cue: cue))
             }
 
+            // refresh로 cue annotation을 새로 만들었으니, 선택 동기화 트리거
+            lastFocusedCueID = nil
+            // range overlay는 syncRangeSelection이 별도로 다시 만든다.
+            lastRangeSignature = ""
+
             if needsFitOnFirstLoad && !draft.routePoints.isEmpty {
                 needsFitOnFirstLoad = false
                 fitMap(map: map)
@@ -598,6 +953,82 @@ struct CourseEditMapView: NSViewRepresentable {
             for r in results {
                 map.addAnnotation(SearchResultAnnotation(result: r))
             }
+        }
+
+        // MARK: 큐 포커스 동기화
+
+        func syncFocusedCue(in map: MKMapView, focusedID: UUID?) {
+            let cueAnns = map.annotations.compactMap { $0 as? CuePointAnnotation }
+            guard let id = focusedID,
+                  let annotation = cueAnns.first(where: { $0.cue.id == id }) else {
+                if let selected = map.selectedAnnotations.first as? CuePointAnnotation {
+                    map.deselectAnnotation(selected, animated: false)
+                }
+                lastFocusedCueID = nil
+                return
+            }
+            let alreadySelected = (map.selectedAnnotations.first as? CuePointAnnotation)?.cue.id == id
+            if lastFocusedCueID == id, alreadySelected { return }
+            lastFocusedCueID = id
+
+            // 화면 밖이거나 가장자리면 중심을 이동 (10% 인셋)
+            let mapPoint = MKMapPoint(annotation.coordinate)
+            let rect = map.visibleMapRect
+            let inset = rect.insetBy(dx: rect.size.width * 0.1, dy: rect.size.height * 0.1)
+            if !inset.contains(mapPoint) {
+                map.setCenter(annotation.coordinate, animated: true)
+            }
+            map.selectAnnotation(annotation, animated: true)
+        }
+
+        // MARK: 드래그 구간 동기화
+
+        func syncRangeSelection(in map: MKMapView, selection: ChartRangeSelection?) {
+            let sig: String = {
+                guard let s = selection, s.lengthKm > 0 else { return "" }
+                return String(format: "%.6f|%.6f|%d", s.lowerKm, s.upperKm, s.isDragging ? 1 : 0)
+            }()
+            guard sig != lastRangeSignature else { return }
+            lastRangeSignature = sig
+
+            if let line = rangePolyline { map.removeOverlay(line) }
+            rangePolyline = nil
+            if !rangeEndpointAnnotations.isEmpty {
+                map.removeAnnotations(rangeEndpointAnnotations)
+                rangeEndpointAnnotations = []
+            }
+
+            guard let selection, selection.lengthKm > 0 else { return }
+
+            let allPts = draftAllTrackPoints()
+            guard allPts.count >= 2 else { return }
+
+            let rangePts = trackPointsInRange(allPts, range: selection)
+            guard rangePts.count >= 2 else { return }
+            let coords = rangePts.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+            let line = RangeSelectionPolyline(coordinates: coords, count: coords.count)
+            map.addOverlay(line, level: .aboveRoads)
+            rangePolyline = line
+
+            let lo = selection.lowerKm
+            let hi = selection.upperKm
+            let startInfo = routeHoverInfo(trackPoints: allPts, nearestToDistanceKm: lo)
+            let endInfo = routeHoverInfo(trackPoints: allPts, nearestToDistanceKm: hi)
+            var anns: [RangeEndpointAnnotation] = []
+            if let s = startInfo {
+                anns.append(RangeEndpointAnnotation(
+                    kind: .start, lat: s.lat, lon: s.lon,
+                    distanceKm: lo, elevationMeters: s.elevationMeters
+                ))
+            }
+            if let e = endInfo {
+                anns.append(RangeEndpointAnnotation(
+                    kind: .end, lat: e.lat, lon: e.lon,
+                    distanceKm: hi, elevationMeters: e.elevationMeters
+                ))
+            }
+            map.addAnnotations(anns)
+            rangeEndpointAnnotations = anns
         }
 
         private func fitMap(map: MKMapView) {
@@ -632,10 +1063,30 @@ struct CourseEditMapView: NSViewRepresentable {
             let coord = map.convert(pt, toCoordinateFrom: map)
 
             let hitRadius: CGFloat = 20
+
+            // RoutePoint 위 클릭 → 무시 (드래그/MKMapView가 처리)
             for ann in map.annotations.compactMap({ $0 as? RoutePointAnnotation }) {
                 let annPt = map.convert(ann.coordinate, toPointTo: map)
                 if abs(annPt.x - pt.x) < hitRadius && abs(annPt.y - pt.y) < hitRadius { return }
             }
+
+            // CuePoint annotation 위 클릭 → 선택만 (RoutePoint 추가 안 함)
+            for ann in map.annotations.compactMap({ $0 as? CuePointAnnotation }) {
+                let annPt = map.convert(ann.coordinate, toPointTo: map)
+                if abs(annPt.x - pt.x) < hitRadius && abs(annPt.y - pt.y) < hitRadius {
+                    onSelectCue(ann.cue.id)
+                    return
+                }
+            }
+
+            // 검색 결과 핀 위 클릭도 무시 (MKMapView 콜아웃이 처리)
+            for ann in map.annotations.compactMap({ $0 as? SearchResultAnnotation }) {
+                let annPt = map.convert(ann.coordinate, toPointTo: map)
+                if abs(annPt.x - pt.x) < hitRadius && abs(annPt.y - pt.y) < hitRadius { return }
+            }
+
+            // 빈 영역 → 큐 포커스 해제 + RoutePoint 추가
+            onDeselectFocus()
 
             let newRP = CourseRoutePoint(lat: coord.latitude, lon: coord.longitude)
             let prevCount = draft.routePoints.count
@@ -856,6 +1307,22 @@ struct CourseEditMapView: NSViewRepresentable {
                 v.titleVisibility = .visible
                 return v
             }
+            if let range = annotation as? RangeEndpointAnnotation {
+                let identifier = range.kind == .start ? "rangeStart" : "rangeEnd"
+                let v = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
+                    ?? MKAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+                let label = range.kind == .start ? "구간 시작" : "구간 종료"
+                let labelText = "\(label) · \(formatRouteDistance(range.distanceKm)) · \(formatRouteElevation(range.elevationMeters))"
+                let image = Self.rangeEndpointImage(text: labelText)
+                v.annotation = annotation
+                v.image = image
+                v.centerOffset = CGPoint(x: 0, y: -image.size.height / 2)
+                v.clusteringIdentifier = nil
+                v.displayPriority = .required
+                v.canShowCallout = true
+                v.zPriority = .max
+                return v
+            }
             if annotation is SearchResultAnnotation {
                 let v = MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: "searchResult")
                 v.markerTintColor = .systemPink
@@ -900,7 +1367,22 @@ struct CourseEditMapView: NSViewRepresentable {
             }
         }
 
+        func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
+            guard let cue = view.annotation as? CuePointAnnotation else { return }
+            // 동일 cue를 syncFocusedCue가 다시 select하는 경우 콜백 발생을 피한다.
+            if lastFocusedCueID == cue.cue.id { return }
+            lastFocusedCueID = cue.cue.id
+            onSelectCue(cue.cue.id)
+        }
+
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            if let poly = overlay as? RangeSelectionPolyline {
+                let r = MKPolylineRenderer(polyline: poly)
+                r.strokeColor = NSColor.systemIndigo
+                r.lineWidth = 6
+                r.lineCap = .round; r.lineJoin = .round
+                return r
+            }
             if let poly = overlay as? SegmentPolyline {
                 let r = MKPolylineRenderer(polyline: poly)
                 r.strokeColor = NSColor.systemBlue
@@ -909,6 +1391,44 @@ struct CourseEditMapView: NSViewRepresentable {
                 return r
             }
             return MKOverlayRenderer(overlay: overlay)
+        }
+
+        // MARK: 구간 끝점 라벨 이미지 (RouteMapView와 동일 디자인)
+
+        static func rangeEndpointImage(text: String) -> NSImage {
+            let bg = NSColor.systemIndigo
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold),
+                .foregroundColor: NSColor.white,
+            ]
+            let textSize = (text as NSString).size(withAttributes: attrs)
+            let width = ceil(textSize.width) + 18
+            let size = NSSize(width: width, height: 30)
+            let image = NSImage(size: size)
+            image.lockFocus()
+            let midX = size.width / 2
+            let pointer = NSBezierPath()
+            pointer.move(to: NSPoint(x: midX, y: 0))
+            pointer.line(to: NSPoint(x: midX - 6, y: 7))
+            pointer.line(to: NSPoint(x: midX + 6, y: 7))
+            pointer.close()
+            bg.setFill()
+            pointer.fill()
+            let pillRect = NSRect(x: 1, y: 7, width: size.width - 2, height: 22)
+            let pill = NSBezierPath(roundedRect: pillRect, xRadius: 6, yRadius: 6)
+            bg.setFill()
+            pill.fill()
+            NSColor.white.withAlphaComponent(0.85).setStroke()
+            pill.lineWidth = 1
+            pill.stroke()
+            let tRect = NSRect(
+                x: (size.width - textSize.width) / 2,
+                y: pillRect.midY - textSize.height / 2,
+                width: textSize.width, height: textSize.height
+            )
+            (text as NSString).draw(in: tRect, withAttributes: attrs)
+            image.unlockFocus()
+            return image
         }
     }
 }
