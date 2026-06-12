@@ -57,16 +57,21 @@ struct CourseWorkspaceView: View {
     @ViewBuilder
     private func workspace(for course: CourseRecord) -> some View {
         let pts = course.allTrackPoints
-        contentPane(trackPoints: pts, course: course)
-            .inspector(isPresented: .constant(true)) {
-                CourseDetailView(course: course, selectedCueID: $selectedCueID)
-                    .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
-            }
-            .onChange(of: course.cuePoints.map(\.id)) { _, ids in
-                if let sel = selectedCueID, !ids.contains(sel) {
-                    selectedCueID = nil
+        NavigationSplitView {
+            CourseCuesheetSidebar(course: course, selectedCueID: $selectedCueID)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
+        } detail: {
+            contentPane(trackPoints: pts, course: course)
+                .inspector(isPresented: .constant(true)) {
+                    CourseCueInspectorView(course: course, selectedCueID: selectedCueID)
+                        .inspectorColumnWidth(min: 260, ideal: 320, max: 460)
                 }
+        }
+        .onChange(of: course.cuePoints.map(\.id)) { _, ids in
+            if let sel = selectedCueID, !ids.contains(sel) {
+                selectedCueID = nil
             }
+        }
     }
 
     @ViewBuilder
