@@ -334,14 +334,20 @@ struct SceneKitRouteView: NSViewRepresentable {
             cam.look(at: target)
         }
 
-        // .orbitTurntable 은 yaw/pitch 를 내부에 누적 보관하고, 두 손가락 회전
-        // 제스처는 별도로 roll 을 누적한다. 카메라 transform 만 갈아끼워서는 그
-        // 누적값이 다음 프레임에 다시 적용되어 좌우 회전과 roll 이 리셋되지 않는다.
-        // pointOfView 를 재할당해 yaw/pitch 누적을 재초기화하고, clearRoll 로 roll
-        // 누적도 비운다. 진행 중인 관성도 끊는다.
-        let resyncController = {
-            let controller = view.defaultCameraController
-            controller.stopInertia()
+        // .orbitTurntable 은 yaw/pitch 를, 두 손가락 회전 제스처는 roll 을
+        // 컨트롤러 내부에 누적한다. 카메라 transform 만 갈아끼우면 누적값이
+        // 다음 프레임에 다시 적용되어 회전이 리셋되지 않는다.
+        //
+        // 또한 SCNTransaction 으로 cam.transform 을 보간하는 동안 컨트롤러가
+        // cam 에 붙어있으면 자기 누적 yaw/pitch 를 매 프레임 cam 에 덮어써
+        // 시각적 점프나 끝부분의 추가 이동이 발생한다. 그래서 애니메이션
+        // 시작 전에 컨트롤러를 cam 에서 떼어내고 끝난 뒤 새 transform 을
+        // 기준으로 다시 붙여 누적값을 0 으로 재초기화한다.
+        let controller = view.defaultCameraController
+        controller.stopInertia()
+        controller.pointOfView = nil
+
+        let reattach = {
             controller.clearRoll()
             controller.target = target
             controller.pointOfView = cam
@@ -350,12 +356,12 @@ struct SceneKitRouteView: NSViewRepresentable {
         if animated {
             SCNTransaction.begin()
             SCNTransaction.animationDuration = 0.4
-            SCNTransaction.completionBlock = resyncController
+            SCNTransaction.completionBlock = reattach
             move()
             SCNTransaction.commit()
         } else {
             move()
-            resyncController()
+            reattach()
         }
     }
 
