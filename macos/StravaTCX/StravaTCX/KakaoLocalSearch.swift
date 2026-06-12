@@ -20,30 +20,25 @@ enum KakaoLocalSearch {
         Bundle.main.infoDictionary?["KakaoLocalAPIKey"] as? String ?? ""
     }
 
-    /// 키워드로 카카오 로컬 검색. rect는 화면에 보이는 MKMapRect (검색 중심/반경 계산에 사용).
+    /// 키워드로 카카오 로컬 검색. rect는 화면에 보이는 MKMapRect를 그대로 사용 — 카카오 API의 `rect`
+    /// 파라미터(좌하단·우상단)로 전달해 화면 사각형 안에서만 검색한다.
     static func search(query: String, in rect: MKMapRect) async throws -> [KakaoLocalResult] {
         guard !apiKey.isEmpty, apiKey != "YOUR_KAKAO_REST_API_KEY" else {
             throw SearchError.noAPIKey
         }
         guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
 
-        // rect 중심 좌표
-        let centerMapPt = MKMapPoint(x: rect.midX, y: rect.midY)
-        let center = centerMapPt.coordinate
-
-        // rect 대각선 절반 = 검색 반경 (최대 20000m)
-        let ne = MKMapPoint(x: rect.maxX, y: rect.minY).coordinate
+        // MKMapRect는 y축이 반전(minY=북, maxY=남)이므로
+        // 좌하단(SW) = (minX, maxY), 우상단(NE) = (maxX, minY)
         let sw = MKMapPoint(x: rect.minX, y: rect.maxY).coordinate
-        let radiusM = min(Geo.haversineKm(center.latitude, center.longitude,
-                                          ne.latitude, ne.longitude) * 1000, 20000)
+        let ne = MKMapPoint(x: rect.maxX, y: rect.minY).coordinate
+        let rectParam = "\(sw.longitude),\(sw.latitude),\(ne.longitude),\(ne.latitude)"
 
         var comps = URLComponents(string: "https://dapi.kakao.com/v2/local/search/keyword.json")!
         comps.queryItems = [
-            .init(name: "query",  value: query),
-            .init(name: "x",      value: "\(center.longitude)"),
-            .init(name: "y",      value: "\(center.latitude)"),
-            .init(name: "radius", value: "\(Int(radiusM))"),
-            .init(name: "size",   value: "15"),
+            .init(name: "query", value: query),
+            .init(name: "rect",  value: rectParam),
+            .init(name: "size",  value: "15"),
         ]
         let osVersion = ProcessInfo.processInfo.operatingSystemVersion
         let headers: [String: String] = [
