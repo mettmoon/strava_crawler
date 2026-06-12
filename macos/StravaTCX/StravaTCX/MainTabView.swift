@@ -3,7 +3,7 @@ import SwiftData
 import AppKit
 import StravaTCXKit
 
-private enum SidebarTab { case routes, segments, courses }
+private enum SidebarTab { case routes, courses }
 
 struct MainTabView: View {
     @Environment(\.openWindow) private var openWindow
@@ -26,21 +26,9 @@ struct MainTabView: View {
 
     // MARK: - computed
 
-    private var segments: [SegmentInfo] {
-        var seen = Set<String>()
-        var result: [SegmentInfo] = []
-        for route in routeVM.routes {
-            for seg in route.segments where seen.insert(seg.segmentID).inserted {
-                result.append(seg)
-            }
-        }
-        return result.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
-    }
-
     private var selectedTrackPoints: [TrackPoint] {
         switch selection {
         case .route:           return parsedCourse?.trackPoints ?? []
-        case .segment(let s):  return trackPoints(for: s)
         case .course(let c):   return c.allTrackPoints
         case nil:              return []
         }
@@ -187,22 +175,6 @@ struct MainTabView: View {
         }())
         .focusedSceneValue(\.createCourseAction, { createCourse() })
         .focusedSceneValue(\.addRouteAction, { addTapped() })
-        .focusedSceneValue(\.selectedSegment, {
-            guard case .segment(let s) = selection else { return nil }
-            return s
-        }())
-        .focusedSceneValue(\.segmentCommandHandler, {
-            guard case .segment(let s) = selection else { return nil }
-            return SegmentCommandHandler(
-                reload: {
-                    try? await routeVM.reloadSegment(segmentID: s.segmentID)
-                },
-                delete: {
-                    try? await routeVM.deleteSegment(segmentID: s.segmentID)
-                    selection = nil
-                }
-            )
-        }())
         .task { await routeVM.reconcile() }
         .task { await routeVM.load() }
         .sheet(isPresented: $showingMyRoutes) {
@@ -236,7 +208,6 @@ struct MainTabView: View {
         VStack(spacing: 0) {
             Picker("", selection: $sidebarTab) {
                 Text("경로").tag(SidebarTab.routes)
-                Text("구간").tag(SidebarTab.segments)
                 Text("코스").tag(SidebarTab.courses)
             }
             .pickerStyle(.segmented)
@@ -247,27 +218,20 @@ struct MainTabView: View {
 
             let isEmpty: Bool = {
                 switch sidebarTab {
-                case .routes:   return routeVM.routes.isEmpty
-                case .segments: return segments.isEmpty
-                case .courses:  return courses.isEmpty
+                case .routes:  return routeVM.routes.isEmpty
+                case .courses: return courses.isEmpty
                 }
             }()
             if isEmpty {
                 ContentUnavailableView {
                     Label(
-                        {
-                            switch sidebarTab {
-                            case .routes:   return "경로 없음"
-                            case .segments: return "구간 없음"
-                            case .courses:  return "코스 없음"
-                            }
-                        }(),
-                        systemImage: sidebarTab == .routes ? "bicycle" : sidebarTab == .segments ? "mountain.2" : "map"
+                        sidebarTab == .routes ? "경로 없음" : "코스 없음",
+                        systemImage: sidebarTab == .routes ? "bicycle" : "map"
                     )
                 } description: {
                     if sidebarTab == .routes {
                         Text("+ 버튼으로 내 경로에서 가져오세요.")
-                    } else if sidebarTab == .courses {
+                    } else {
                         Text("메뉴 > 코스 > 새 코스로 만들거나\n경로 메뉴에서 \"코스로 만들기\"를 사용하세요.")
                     }
                 }
@@ -278,11 +242,6 @@ struct MainTabView: View {
                         ForEach(routeVM.routes) { route in
                             RouteRow(route: route, progress: routeVM.progress(for: route.id))
                                 .tag(SidebarItem.route(route))
-                        }
-                    case .segments:
-                        ForEach(segments) { segment in
-                            SegmentRow(segment: segment)
-                                .tag(SidebarItem.segment(segment))
                         }
                     case .courses:
                         ForEach(courses) { course in
@@ -306,7 +265,7 @@ struct MainTabView: View {
             ContentUnavailableView {
                 Label("항목을 선택하세요", systemImage: "map")
             } description: {
-                Text("왼쪽 목록에서 경로나 구간을 선택하면 지도가 표시됩니다.")
+                Text("왼쪽 목록에서 경로나 코스를 선택하면 지도가 표시됩니다.")
             }
         } else {
             TabView {
@@ -345,17 +304,13 @@ struct MainTabView: View {
             }, onHighlight: { pts in
                 highlightPoints = pts
             })
-        case .segment(let segment):
-            SegmentDetailView(segment: segment, onHighlight: { pts in
-                highlightPoints = pts
-            })
         case .course(let course):
             CourseDetailView(course: course)
         case nil:
             ContentUnavailableView {
                 Label("선택 없음", systemImage: "sidebar.right")
             } description: {
-                Text("왼쪽에서 경로나 구간을 선택하세요.")
+                Text("왼쪽에서 경로나 코스를 선택하세요.")
             }
         }
     }

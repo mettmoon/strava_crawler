@@ -7,9 +7,11 @@ struct SegmentWorkspaceView: View {
     var segmentID: String?
     var container: AppContainer
 
+    @Environment(\.dismiss) private var dismiss
     @State private var segment: SegmentInfo?
     @State private var highlightPoints: [TrackPoint] = []
     @State private var hoverInfo: RouteHoverInfo?
+    @State private var showDeleteConfirm = false
 
     var body: some View {
         Group {
@@ -26,6 +28,31 @@ struct SegmentWorkspaceView: View {
         }
         .task(id: segmentID) {
             await load()
+        }
+        .focusedSceneValue(\.segmentCommandHandler, {
+            guard let id = segment?.segmentID else { return nil }
+            return SegmentCommandHandler(
+                reload: { await reloadSegment(id: id) },
+                delete: { await MainActor.run { showDeleteConfirm = true } }
+            )
+        }())
+        .confirmationDialog(
+            "이 구간을 삭제하시겠습니까?",
+            isPresented: $showDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("삭제", role: .destructive) {
+                guard let id = segment?.segmentID else { return }
+                Task {
+                    try? await container.deleteSegmentUseCase.execute(segmentID: id)
+                    await MainActor.run {
+                        dismiss()
+                        NSApp.keyWindow?.close()
+                    }
+                }
+            }
+        } message: {
+            Text("저장된 구간 데이터와 경로에서의 참조가 모두 제거됩니다.")
         }
     }
 
@@ -77,6 +104,11 @@ struct SegmentWorkspaceView: View {
 
     private func load() async {
         guard let id = segmentID else { segment = nil; return }
+        segment = try? await container.segmentRepository.fetch(id: id)
+    }
+
+    private func reloadSegment(id: String) async {
+        try? await container.reloadSegmentUseCase.execute(segmentID: id)
         segment = try? await container.segmentRepository.fetch(id: id)
     }
 }
