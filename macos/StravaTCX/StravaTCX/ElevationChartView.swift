@@ -10,6 +10,8 @@ struct ElevationChartView: View {
     /// 외부에서 강조해서 표시할 위치 (누적 거리, km). 큐시트 항목 선택 시 사용.
     var focusedDistanceKm: Double? = nil
     @Binding var hoverInfo: RouteHoverInfo?
+    /// 드래그로 선택한 구간(km). 드래그 중에도 갱신된다 (`isDragging == true`).
+    var rangeSelection: Binding<ChartRangeSelection?>? = nil
     /// 호버 위치에서 우클릭 → "웨이포인트 추가" 선택 시 호출. 인자: 누적 거리(km).
     var onAddCueAtHover: ((Double) -> Void)? = nil
     /// 차트 배경(아무 곳)을 클릭했을 때 호출. 큐 포커스 해제 등에 사용.
@@ -60,7 +62,8 @@ struct ElevationChartView: View {
                                       stripH: stripH, placements: placements,
                                       hiddenMarkerCount: hiddenMarkerCount,
                                       hoverInfo: hoverInfo,
-                                      focusedDistanceKm: focusedDistanceKm)
+                                      focusedDistanceKm: focusedDistanceKm,
+                                      rangeSelection: rangeSelection?.wrappedValue)
                         }
                         .frame(width: contentWidth, height: stripH + chartBodyHeight)
                         .overlay(alignment: .leading) {
@@ -75,7 +78,18 @@ struct ElevationChartView: View {
                                 hoverInfo = nil
                             }
                         }
+                        .gesture(
+                            DragGesture(minimumDistance: 4)
+                                .onChanged { value in
+                                    handleRangeDragChanged(value: value, contentWidth: contentWidth)
+                                }
+                                .onEnded { value in
+                                    handleRangeDragEnded(value: value, contentWidth: contentWidth)
+                                }
+                        )
                         .onTapGesture {
+                            // 빈 클릭 → 큐 포커스 + 드래그 선택 모두 해제
+                            rangeSelection?.wrappedValue = nil
                             onBackgroundClick?()
                         }
                         .background(
@@ -269,7 +283,8 @@ struct ElevationChartView: View {
                            stripH: CGFloat, placements: [Placement],
                            hiddenMarkerCount: Int,
                            hoverInfo: RouteHoverInfo?,
-                           focusedDistanceKm: Double?) {
+                           focusedDistanceKm: Double?,
+                           rangeSelection: ChartRangeSelection?) {
         guard let (minEle, maxEle) = eleRange, maxEle > minEle else { return }
         let eleSpan  = maxEle - minEle
         let bodyTop  = stripH
@@ -425,6 +440,90 @@ struct ElevationChartView: View {
                      anchor: .center)
         }
 
+        // ── 드래그 선택 구간 (큐시트 마커보다 아래) ────────────
+        if let rangeSelection, rangeSelection.lengthKm > 0 {
+            let lo = rangeSelection.lowerKm
+            let hi = rangeSelection.upperKm
+            let x1 = min(max(xPos(lo), 0), size.width)
+            let x2 = min(max(xPos(hi), 0), size.width)
+            let bandColor = Color.indigo
+
+            // 음영 밴드
+            let bandRect = CGRect(x: min(x1, x2), y: bodyTop,
+                                  width: abs(x2 - x1), height: bodyBot - bodyTop)
+            ctx.fill(Path(bandRect),
+                     with: .color(bandColor.opacity(rangeSelection.isDragging ? 0.18 : 0.13)))
+
+            // 양 끝 수직선
+            for x in [x1, x2] {
+                var line = Path()
+                line.move(to: CGPoint(x: x, y: bodyTop))
+                line.addLine(to: CGPoint(x: x, y: bodyBot))
+                ctx.stroke(line,
+                           with: .color(bandColor.opacity(0.85)),
+                           style: StrokeStyle(lineWidth: 1.5))
+            }
+
+            // 양 끝 점 + 레이블 (거리 / 고도)
+            let labelAttrs = AttributeContainer([
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold),
+                .foregroundColor: NSColor.white
+            ])
+
+            func endpointLabel(km: Double) -> String {
+                let info = routeHoverInfo(trackPoints: trackPoints, nearestToDistanceKm: km)
+                let dist = formatRouteDistance(km)
+                let ele = formatRouteElevation(info?.elevationMeters)
+                return "\(dist) · \(ele)"
+            }
+
+            for (km, x, isStart) in [(lo, x1, true), (hi, x2, false)] {
+                let info = routeHoverInfo(trackPoints: trackPoints, nearestToDistanceKm: km)
+                let py = info?.elevationMeters.map { yPos($0) } ?? (bodyTop + (bodyBot - bodyTop) / 2)
+                let dotR: CGFloat = 4.5
+                ctx.fill(Path(ellipseIn: CGRect(
+                    x: x - dotR, y: py - dotR,
+                    width: dotR * 2, height: dotR * 2
+                )), with: .color(bandColor))
+                ctx.stroke(Path(ellipseIn: CGRect(
+                    x: x - dotR, y: py - dotR,
+                    width: dotR * 2, height: dotR * 2
+                )), with: .color(.white), style: StrokeStyle(lineWidth: 1.5))
+
+                // 레이블 pill — 차트 상단(stripH 바로 아래)에 부착
+                let labelText = endpointLabel(km: km)
+                let labelW = max(56, CGFloat(labelText.count) * 6.5 + 10)
+                let labelH: CGFloat = 16
+                var labelX = isStart ? x - labelW - 4 : x + 4
+                if labelX < 2 { labelX = x + 4 }
+                if labelX + labelW > size.width - 2 { labelX = x - labelW - 4 }
+                labelX = min(max(labelX, 2), size.width - labelW - 2)
+                let labelY = bodyTop + 4
+                let labelRect = CGRect(x: labelX, y: labelY, width: labelW, height: labelH)
+                ctx.fill(Path(roundedRect: labelRect, cornerRadius: 3),
+                         with: .color(bandColor.opacity(0.92)))
+                ctx.draw(Text(AttributedString(labelText, attributes: labelAttrs)),
+                         at: CGPoint(x: labelRect.midX, y: labelRect.midY),
+                         anchor: .center)
+            }
+
+            // 중앙에 길이 레이블
+            let midX = (x1 + x2) / 2
+            let lengthText = "Δ \(formatRouteDistance(rangeSelection.lengthKm))"
+            let lengthW = max(60, CGFloat(lengthText.count) * 6.5 + 12)
+            let lengthH: CGFloat = 16
+            let lengthRect = CGRect(
+                x: min(max(midX - lengthW / 2, 2), size.width - lengthW - 2),
+                y: bodyBot - lengthH - 4,
+                width: lengthW, height: lengthH
+            )
+            ctx.fill(Path(roundedRect: lengthRect, cornerRadius: 3),
+                     with: .color(bandColor.opacity(0.92)))
+            ctx.draw(Text(AttributedString(lengthText, attributes: labelAttrs)),
+                     at: CGPoint(x: lengthRect.midX, y: lengthRect.midY),
+                     anchor: .center)
+        }
+
         // ── 큐시트 선택 마커 (호버보다 먼저 그려서, 호버가 위에 오도록) ─
         if let focusedDistanceKm,
            let focusedInfo = routeHoverInfo(trackPoints: trackPoints,
@@ -544,6 +643,45 @@ struct ElevationChartView: View {
             if d < bestDist { bestDist = d; best = i }
         }
         return best
+    }
+
+    // MARK: - 드래그 구간 선택
+
+    private func kmAtX(_ x: CGFloat, contentWidth: CGFloat) -> Double {
+        guard contentWidth > 0, totalKm > 0 else { return 0 }
+        let clampedX = min(max(x, 0), contentWidth)
+        return Double(clampedX / contentWidth) * totalKm
+    }
+
+    private func handleRangeDragChanged(value: DragGesture.Value, contentWidth: CGFloat) {
+        guard let binding = rangeSelection else { return }
+        let startKm = kmAtX(value.startLocation.x, contentWidth: contentWidth)
+        let endKm = kmAtX(value.location.x, contentWidth: contentWidth)
+        binding.wrappedValue = ChartRangeSelection(
+            startKm: startKm,
+            endKm: endKm,
+            isDragging: true
+        )
+        // 드래그 중 hover 마커도 함께 따라가도록
+        hoverInfo = routeHoverInfo(trackPoints: trackPoints, nearestToDistanceKm: endKm)
+    }
+
+    private func handleRangeDragEnded(value: DragGesture.Value, contentWidth: CGFloat) {
+        guard let binding = rangeSelection else { return }
+        let startKm = kmAtX(value.startLocation.x, contentWidth: contentWidth)
+        let endKm = kmAtX(value.location.x, contentWidth: contentWidth)
+        // 너무 짧은 드래그(거의 클릭)는 셀렉션 무시
+        let lengthKm = abs(endKm - startKm)
+        let minKm = max(totalKm * 0.001, 0.005)
+        if lengthKm < minKm {
+            binding.wrappedValue = nil
+            return
+        }
+        binding.wrappedValue = ChartRangeSelection(
+            startKm: startKm,
+            endKm: endKm,
+            isDragging: false
+        )
     }
 
     private func updateHover(location: CGPoint, contentWidth: CGFloat) {

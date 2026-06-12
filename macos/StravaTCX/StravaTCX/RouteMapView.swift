@@ -3,6 +3,25 @@ import MapKit
 import StravaTCXKit
 
 final class HighlightPolyline: MKPolyline {}
+final class RangeSelectionPolyline: MKPolyline {}
+
+final class RangeEndpointAnnotation: MKPointAnnotation {
+    enum Kind { case start, end }
+    let kind: Kind
+    let distanceKm: Double
+    let elevationMeters: Double?
+
+    init(kind: Kind, lat: Double, lon: Double, distanceKm: Double, elevationMeters: Double?) {
+        self.kind = kind
+        self.distanceKm = distanceKm
+        self.elevationMeters = elevationMeters
+        super.init()
+        coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        let label = "\(formatRouteDistance(distanceKm)) · \(formatRouteElevation(elevationMeters))"
+        title = kind == .start ? "구간 시작" : "구간 종료"
+        subtitle = label
+    }
+}
 
 final class CueAnnotation: MKPointAnnotation {
     let cue: CourseCuePoint
@@ -73,6 +92,8 @@ struct RouteMapView: View {
     /// 사용자가 지도의 cue 핀을 직접 탭했을 때 호출. 인스펙터/그래프 선택 동기화에 사용.
     var onSelectCue: ((UUID) -> Void)? = nil
     @Binding var hoverInfo: RouteHoverInfo?
+    /// 고도 그래프에서 드래그로 선택한 구간을 지도에도 강조 표시.
+    var rangeSelection: ChartRangeSelection? = nil
 
     @AppStorage(MapStyleStorageKey.main) private var mapStyleRaw: String = MapStyleOption.standard.rawValue
 
@@ -93,6 +114,7 @@ struct RouteMapView: View {
                 onDeselectFocus: onDeselectFocus,
                 onSelectCue: onSelectCue,
                 hoverInfo: $hoverInfo,
+                rangeSelection: rangeSelection,
                 mapStyle: mapStyle.wrappedValue
             )
             MapStylePicker(selection: mapStyle)
@@ -109,6 +131,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
     var onDeselectFocus: (() -> Void)? = nil
     var onSelectCue: ((UUID) -> Void)? = nil
     @Binding var hoverInfo: RouteHoverInfo?
+    var rangeSelection: ChartRangeSelection? = nil
     var mapStyle: MapStyleOption
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -161,6 +184,9 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             coordinator.endpointAnnotations = []
             coordinator.cueAnnotations = []
             coordinator.hoverAnnotation = nil
+            coordinator.rangePolyline = nil
+            coordinator.rangeEndpointAnnotations = []
+            coordinator.lastRangeSignature = ""
             coordinator.hideTooltip()
             if hoverInfo != nil {
                 let hoverBinding = $hoverInfo
@@ -197,6 +223,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         updateCuePoints(map: map, coordinator: coordinator)
         coordinator.syncFocusedCue(in: map, focusedID: focusedCueID)
         coordinator.syncHoverPresentation(in: map, info: hoverInfo)
+        coordinator.syncRangeSelection(in: map, selection: rangeSelection)
     }
 
     // MARK: - 하이라이트 overlay만 교체
@@ -243,6 +270,9 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         var onDeselectFocus: (() -> Void)?
         var onSelectCue: ((UUID) -> Void)?
         var lastFocusedCueID: UUID?
+        var rangePolyline: RangeSelectionPolyline?
+        var rangeEndpointAnnotations: [RangeEndpointAnnotation] = []
+        var lastRangeSignature: String = ""
 
         @objc func handleEmptyAreaClick(_ gesture: NSClickGestureRecognizer) {
             guard let map = gesture.view as? MKMapView, let superview = map.superview else { return }
@@ -311,6 +341,53 @@ private struct RouteMapRepresentable: NSViewRepresentable {
                 map.setCenter(annotation.coordinate, animated: true)
             }
             map.selectAnnotation(annotation, animated: true)
+        }
+
+        func syncRangeSelection(in map: MKMapView, selection: ChartRangeSelection?) {
+            let sig: String = {
+                guard let s = selection, s.lengthKm > 0 else { return "" }
+                return String(format: "%.6f|%.6f|%d", s.lowerKm, s.upperKm, s.isDragging ? 1 : 0)
+            }()
+            guard sig != lastRangeSignature else { return }
+            lastRangeSignature = sig
+
+            // 기존 overlay/annotation 제거
+            if let line = rangePolyline { map.removeOverlay(line) }
+            rangePolyline = nil
+            if !rangeEndpointAnnotations.isEmpty {
+                map.removeAnnotations(rangeEndpointAnnotations)
+                rangeEndpointAnnotations = []
+            }
+
+            guard let selection, selection.lengthKm > 0 else { return }
+
+            let rangePts = trackPointsInRange(trackPoints, range: selection)
+            guard rangePts.count >= 2 else { return }
+            let coords = rangePts.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+            let line = RangeSelectionPolyline(coordinates: coords, count: coords.count)
+            map.addOverlay(line, level: .aboveRoads)
+            rangePolyline = line
+
+            // 양 끝점 annotation
+            let lo = selection.lowerKm
+            let hi = selection.upperKm
+            let startInfo = routeHoverInfo(trackPoints: trackPoints, nearestToDistanceKm: lo)
+            let endInfo = routeHoverInfo(trackPoints: trackPoints, nearestToDistanceKm: hi)
+            var anns: [RangeEndpointAnnotation] = []
+            if let s = startInfo {
+                anns.append(RangeEndpointAnnotation(
+                    kind: .start, lat: s.lat, lon: s.lon,
+                    distanceKm: lo, elevationMeters: s.elevationMeters
+                ))
+            }
+            if let e = endInfo {
+                anns.append(RangeEndpointAnnotation(
+                    kind: .end, lat: e.lat, lon: e.lon,
+                    distanceKm: hi, elevationMeters: e.elevationMeters
+                ))
+            }
+            map.addAnnotations(anns)
+            rangeEndpointAnnotations = anns
         }
 
         func syncHoverPresentation(in map: MKMapView, info: RouteHoverInfo?) {
@@ -474,7 +551,10 @@ private struct RouteMapRepresentable: NSViewRepresentable {
                 return MKOverlayRenderer(overlay: overlay)
             }
             let renderer = MKPolylineRenderer(polyline: polyline)
-            if polyline is HighlightPolyline {
+            if polyline is RangeSelectionPolyline {
+                renderer.strokeColor = NSColor.systemIndigo
+                renderer.lineWidth = 6
+            } else if polyline is HighlightPolyline {
                 renderer.strokeColor = NSColor.systemCyan
                 renderer.lineWidth = 5
             } else {
@@ -497,6 +577,23 @@ private struct RouteMapRepresentable: NSViewRepresentable {
                 view.canShowCallout = false
                 view.zPriority = .max
                 return view
+            }
+
+            if let range = annotation as? RangeEndpointAnnotation {
+                let identifier = range.kind == .start ? "rangeStart" : "rangeEnd"
+                let v = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
+                    ?? MKAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+                let label = range.kind == .start ? "구간 시작" : "구간 종료"
+                let labelText = "\(label) · \(formatRouteDistance(range.distanceKm)) · \(formatRouteElevation(range.elevationMeters))"
+                let image = Self.rangeEndpointImage(text: labelText, kind: range.kind)
+                v.annotation = annotation
+                v.image = image
+                v.centerOffset = CGPoint(x: 0, y: -image.size.height / 2)
+                v.clusteringIdentifier = nil
+                v.displayPriority = .required
+                v.canShowCallout = true
+                v.zPriority = .max
+                return v
             }
 
             if let endpoint = annotation as? EndpointAnnotation {
@@ -548,6 +645,45 @@ private struct RouteMapRepresentable: NSViewRepresentable {
 
         private static let startEndpointImage = endpointLabelImage(text: "Start", color: .systemGreen)
         private static let endEndpointImage = endpointLabelImage(text: "End", color: .systemRed)
+
+        static func rangeEndpointImage(text: String, kind: RangeEndpointAnnotation.Kind) -> NSImage {
+            let bg = NSColor.systemIndigo
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold),
+                .foregroundColor: NSColor.white,
+            ]
+            let textSize = (text as NSString).size(withAttributes: attrs)
+            let width = ceil(textSize.width) + 18
+            let size = NSSize(width: width, height: 30)
+            let image = NSImage(size: size)
+            image.lockFocus()
+            let midX = size.width / 2
+            // 포인터
+            let pointer = NSBezierPath()
+            pointer.move(to: NSPoint(x: midX, y: 0))
+            pointer.line(to: NSPoint(x: midX - 6, y: 7))
+            pointer.line(to: NSPoint(x: midX + 6, y: 7))
+            pointer.close()
+            bg.setFill()
+            pointer.fill()
+            // pill
+            let pillRect = NSRect(x: 1, y: 7, width: size.width - 2, height: 22)
+            let pill = NSBezierPath(roundedRect: pillRect, xRadius: 6, yRadius: 6)
+            bg.setFill()
+            pill.fill()
+            NSColor.white.withAlphaComponent(0.85).setStroke()
+            pill.lineWidth = 1
+            pill.stroke()
+            // 텍스트
+            let tRect = NSRect(
+                x: (size.width - textSize.width) / 2,
+                y: pillRect.midY - textSize.height / 2,
+                width: textSize.width, height: textSize.height
+            )
+            (text as NSString).draw(in: tRect, withAttributes: attrs)
+            image.unlockFocus()
+            return image
+        }
 
         private static func endpointLabelImage(text: String, color: NSColor) -> NSImage {
             let attributes: [NSAttributedString.Key: Any] = [

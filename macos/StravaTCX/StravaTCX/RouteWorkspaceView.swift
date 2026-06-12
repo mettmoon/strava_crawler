@@ -19,6 +19,7 @@ struct RouteWorkspaceView: View {
     @State private var routeHoverInfo: RouteHoverInfo?
     @State private var showDeleteConfirm = false
     @State private var routePendingCourseCreation: Route?
+    @State private var rangeSelection: ChartRangeSelection?
 
     private var route: Route? {
         guard let id = routeID else { return nil }
@@ -69,11 +70,24 @@ struct RouteWorkspaceView: View {
     private func workspace(for route: Route) -> some View {
         contentPane
             .inspector(isPresented: .constant(true)) {
-                RouteDetailView(
-                    route: route,
-                    onCourseParsed: { parsedCourse = $0 },
-                    onHighlight: { highlightPoints = $0 }
-                )
+                ZStack {
+                    // RouteDetailView는 항상 mount 상태로 둬서 parsedCourse/highlight 콜백을 유지.
+                    RouteDetailView(
+                        route: route,
+                        onCourseParsed: { parsedCourse = $0 },
+                        onHighlight: { highlightPoints = $0 }
+                    )
+                    .opacity(rangeSelection == nil ? 1 : 0)
+                    .allowsHitTesting(rangeSelection == nil)
+
+                    if let range = rangeSelection {
+                        RangeStatsInspectorView(
+                            trackPoints: parsedCourse?.trackPoints ?? [],
+                            range: range
+                        )
+                        .background(.background)
+                    }
+                }
                 .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
             }
     }
@@ -95,13 +109,15 @@ struct RouteWorkspaceView: View {
                             trackPoints: pts,
                             highlightPoints: highlightPoints,
                             cuePoints: cuePoints(for: pts),
-                            hoverInfo: $routeHoverInfo
+                            hoverInfo: $routeHoverInfo,
+                            rangeSelection: rangeSelection
                         )
                         Divider()
                         ElevationChartView(
                             trackPoints: pts,
                             markers: markers(for: pts),
-                            hoverInfo: $routeHoverInfo
+                            hoverInfo: $routeHoverInfo,
+                            rangeSelection: $rangeSelection
                         )
                     }
                 }

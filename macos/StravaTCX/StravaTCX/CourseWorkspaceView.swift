@@ -20,6 +20,7 @@ struct CourseWorkspaceView: View {
     @State private var hoverInfo: RouteHoverInfo?
     @State private var selectedCueID: UUID?
     @State private var showDeleteConfirm = false
+    @State private var rangeSelection: ChartRangeSelection?
 
     private var course: CourseRecord? {
         guard let id = courseID else { return nil }
@@ -63,8 +64,14 @@ struct CourseWorkspaceView: View {
         } detail: {
             contentPane(trackPoints: pts, course: course)
                 .inspector(isPresented: .constant(true)) {
-                    CourseCueInspectorView(course: course, selectedCueID: selectedCueID)
-                        .inspectorColumnWidth(min: 260, ideal: 320, max: 460)
+                    Group {
+                        if let range = rangeSelection {
+                            RangeStatsInspectorView(trackPoints: pts, range: range)
+                        } else {
+                            CourseCueInspectorView(course: course, selectedCueID: selectedCueID)
+                        }
+                    }
+                    .inspectorColumnWidth(min: 260, ideal: 320, max: 460)
                 }
         }
         .onChange(of: course.cuePoints.map(\.id)) { _, ids in
@@ -94,7 +101,8 @@ struct CourseWorkspaceView: View {
                             focusedCueID: selectedCueID,
                             onDeselectFocus: { selectedCueID = nil },
                             onSelectCue: { selectedCueID = $0 },
-                            hoverInfo: $hoverInfo
+                            hoverInfo: $hoverInfo,
+                            rangeSelection: rangeSelection
                         )
                         Divider()
                         ElevationChartView(
@@ -102,6 +110,7 @@ struct CourseWorkspaceView: View {
                             markers: markers(for: pts, course: course),
                             focusedDistanceKm: focusKm,
                             hoverInfo: $hoverInfo,
+                            rangeSelection: $rangeSelection,
                             onBackgroundClick: { selectedCueID = nil }
                         )
                     }
