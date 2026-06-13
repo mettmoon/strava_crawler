@@ -32,7 +32,7 @@ struct WelcomeView: View {
             reloadRecentCourses()
         }
         .background(WelcomeWindowIdentifierSetter())
-        .alert("코스 문서를 열 수 없습니다", isPresented: Binding(
+        .alert("코스 파일을 열 수 없습니다", isPresented: Binding(
             get: { openError != nil },
             set: { if !$0 { openError = nil } }
         )) {
@@ -77,6 +77,12 @@ struct WelcomeView: View {
                 ) { newDocument { CourseDocument() } }
 
                 DispatchButton(
+                    title: "TCX/GPX 파일 불러오기",
+                    subtitle: "파일에서 코스 문서 만들기",
+                    systemImage: "square.and.arrow.down"
+                ) { importCourseFile() }
+
+                DispatchButton(
                     title: "코스 문서 열기",
                     subtitle: "CPN 파일 열기",
                     systemImage: "folder"
@@ -117,6 +123,26 @@ struct WelcomeView: View {
                     reloadRecentCourses()
                 }
             }
+        }
+    }
+
+    private func importCourseFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = CourseImportFileCoder.readableContentTypes
+        panel.prompt = "불러오기"
+        panel.message = "TCX 또는 GPX 코스 파일을 선택하세요"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let course = try CourseImportFileCoder.makeRecord(from: url)
+            let document = CourseDocument(course: course)
+            newDocument { document }
+        } catch {
+            openError = error.localizedDescription
         }
     }
 

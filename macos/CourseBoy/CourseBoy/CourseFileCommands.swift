@@ -8,8 +8,8 @@ struct CourseFileCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .importExport) {
-            Button("Import from TCX...") {
-                importTCX()
+            Button("Import from TCX/GPX...") {
+                importCourseFile()
             }
 
             Button("Export to TCX...") {
@@ -20,28 +20,23 @@ struct CourseFileCommands: Commands {
     }
 
     @MainActor
-    private func importTCX() {
+    private func importCourseFile() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.tcx]
+        panel.allowedContentTypes = CourseImportFileCoder.readableContentTypes
         panel.prompt = "Import"
-        panel.message = "Import a TCX course file"
+        panel.message = "Import a TCX or GPX course file"
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         do {
-            let data = try Data(contentsOf: url)
-            let title = url.deletingPathExtension().lastPathComponent
-            let course = try CourseTCXFileCoder.makeRecord(
-                from: data,
-                fallbackTitle: title,
-                sourceFilePath: url.path
-            )
-            newDocument { CourseDocument(course: course) }
+            let course = try CourseImportFileCoder.makeRecord(from: url)
+            let document = CourseDocument(course: course)
+            newDocument { document }
         } catch {
-            showError("TCX 파일을 불러올 수 없습니다.", detail: error.localizedDescription)
+            showError("TCX/GPX 파일을 불러올 수 없습니다.", detail: error.localizedDescription)
         }
     }
 
