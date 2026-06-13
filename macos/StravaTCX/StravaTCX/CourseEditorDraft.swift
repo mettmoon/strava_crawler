@@ -17,6 +17,7 @@ final class CourseEditorDraft {
     /// SwiftUI 버튼 disabled 상태를 위해 수동으로 관리하는 트리거.
     var undoCount: Int = 0  // undo/redo 호출 시 토글해 View를 재렌더링
 
+    private let initialSnapshot: Snapshot
     private var notificationObservers: [NSObjectProtocol] = []
 
     deinit {
@@ -28,6 +29,12 @@ final class CourseEditorDraft {
         trackSegments = course.trackSegments
         cuePoints = course.cuePoints.sorted { $0.distanceMeters < $1.distanceMeters }
         title = course.title
+        initialSnapshot = Snapshot(
+            title: course.title,
+            routePoints: course.routePoints,
+            trackSegments: course.trackSegments,
+            cuePoints: course.cuePoints.sorted { $0.distanceMeters < $1.distanceMeters }
+        )
 
         // UndoManager 변경 시 undoCount를 갱신해 SwiftUI View가 재렌더링되도록 한다.
         let center = NotificationCenter.default
@@ -76,9 +83,13 @@ final class CourseEditorDraft {
         !normalizedTitle.isEmpty
     }
 
+    var hasChanges: Bool {
+        takeSnapshot() != initialSnapshot
+    }
+
     // MARK: - Snapshot undo
 
-    private struct Snapshot {
+    private struct Snapshot: Equatable {
         let title: String
         let routePoints: [CourseRoutePoint]
         let trackSegments: [[TrackPointCodable]]

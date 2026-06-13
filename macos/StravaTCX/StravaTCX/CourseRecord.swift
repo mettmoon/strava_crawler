@@ -6,7 +6,7 @@ import StravaTCXKit
 
 /// 사용자가 맵 클릭으로 추가한 경유지 (RoutePoint).
 /// 인접 RoutePoint 간 OSRM으로 실제 경로를 계산해 trackSegments에 캐시한다.
-struct CourseRoutePoint: Codable, Identifiable, Sendable {
+struct CourseRoutePoint: Codable, Identifiable, Sendable, Equatable {
     var id: UUID = UUID()
     var lat: Double
     var lon: Double
@@ -15,7 +15,7 @@ struct CourseRoutePoint: Codable, Identifiable, Sendable {
 // MARK: - CourseCuePoint
 
 /// 큐시트 항목. 경로 위의 특정 지점에 이름/타입/메모를 달아놓는 포인트.
-struct CourseCuePoint: Codable, Identifiable, Sendable {
+struct CourseCuePoint: Codable, Identifiable, Sendable, Equatable {
     var id: UUID = UUID()
     var lat: Double
     var lon: Double
@@ -46,7 +46,7 @@ struct CourseCuePoint: Codable, Identifiable, Sendable {
 // MARK: - TrackPointCodable
 
 /// TrackPoint(Sendable, non-Codable)를 저장하기 위한 경량 Codable 래퍼.
-struct TrackPointCodable: Codable, Sendable {
+struct TrackPointCodable: Codable, Sendable, Equatable {
     var lat: Double
     var lon: Double
     var ele: Double?
