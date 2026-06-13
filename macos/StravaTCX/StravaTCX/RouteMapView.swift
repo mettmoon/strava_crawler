@@ -624,6 +624,22 @@ private struct RouteMapRepresentable: NSViewRepresentable {
                 return v
             }
 
+            if let cluster = annotation as? MKClusterAnnotation,
+               cluster.memberAnnotations.allSatisfy({ $0 is EndpointAnnotation }) {
+                let identifier = "routeStartEndPoint"
+                let v = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
+                    ?? MKAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+                let image = Self.startEndEndpointImage
+                v.annotation = annotation
+                v.image = image
+                v.centerOffset = CGPoint(x: 0, y: -image.size.height / 2)
+                v.clusteringIdentifier = nil
+                v.displayPriority = .required
+                v.canShowCallout = false
+                v.zPriority = .defaultSelected
+                return v
+            }
+
             if let endpoint = annotation as? EndpointAnnotation {
                 let identifier = endpoint.kind == .start ? "routeStartPoint" : "routeEndPoint"
                 let v = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
@@ -632,8 +648,8 @@ private struct RouteMapRepresentable: NSViewRepresentable {
                 v.annotation = annotation
                 v.image = image
                 v.centerOffset = CGPoint(x: 0, y: -image.size.height / 2)
-                v.clusteringIdentifier = nil
-                v.displayPriority = .required
+                v.clusteringIdentifier = Self.endpointClusteringIdentifier
+                v.displayPriority = .defaultHigh
                 v.canShowCallout = true
                 v.zPriority = .defaultSelected
                 return v
@@ -671,8 +687,10 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             return image
         }()
 
+        private static let endpointClusteringIdentifier = "routeEndpoint"
         private static let startEndpointImage = endpointLabelImage(text: "Start", color: .systemGreen)
         private static let endEndpointImage = endpointLabelImage(text: "End", color: .systemRed)
+        private static let startEndEndpointImage = endpointLabelImage(text: "Start/End", color: .systemBlue)
 
         static func rangeEndpointImage(text: String, kind: RangeEndpointAnnotation.Kind) -> NSImage {
             let bg = NSColor.systemIndigo
