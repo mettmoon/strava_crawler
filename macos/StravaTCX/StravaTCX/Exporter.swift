@@ -1,5 +1,10 @@
 import Foundation
 import AppKit
+import UniformTypeIdentifiers
+
+extension UTType {
+    static var tcx: UTType { UTType(filenameExtension: "tcx") ?? .xml }
+}
 
 /// 저장된 TCX 산출물을 사용자 선택 폴더에 파일로 내보낸다.
 enum Exporter {
@@ -30,6 +35,33 @@ enum Exporter {
     @MainActor
     @discardableResult
     static func saveSingle(filename: String, data: Data) -> Bool {
+        saveTCX(filename: filename, data: data)
+    }
+
+    @MainActor
+    @discardableResult
+    static func saveTCX(filename: String, data: Data) -> Bool {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.tcx]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = sanitizedFilename(filename) + ".tcx"
+        panel.prompt = "저장"
+        panel.message = "TCX 파일로 저장할 위치를 선택하세요"
+        guard panel.runModal() == .OK, let url = panel.url else { return false }
+
+        do {
+            try data.write(to: url)
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+            return true
+        } catch {
+            NSSound.beep()
+            return false
+        }
+    }
+
+    @MainActor
+    @discardableResult
+    static func saveSingleToFolder(filename: String, data: Data) -> Bool {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -47,5 +79,12 @@ enum Exporter {
             NSSound.beep()
             return false
         }
+    }
+
+    private static func sanitizedFilename(_ filename: String) -> String {
+        let trimmed = filename.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = trimmed.isEmpty ? "Course" : trimmed
+        let invalid = CharacterSet(charactersIn: "/:")
+        return base.components(separatedBy: invalid).joined(separator: "-")
     }
 }

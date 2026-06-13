@@ -12,15 +12,11 @@ struct CourseWorkspaceView: View {
     var container: AppContainer
 
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var context
-    @Environment(RouteListViewModel.self) private var routeVM
     @Query private var allCourses: [CourseRecord]
 
     @State private var highlightPoints: [TrackPoint] = []
     @State private var hoverInfo: RouteHoverInfo?
     @State private var selectedCueID: UUID?
-    @State private var showDeleteConfirm = false
     @State private var rangeSelection: ChartRangeSelection?
 
     private var course: CourseRecord? {
@@ -52,18 +48,7 @@ struct CourseWorkspaceView: View {
             }
         }
         .focusedSceneValue(\.courseCommandHandler, makeHandler())
-        .confirmationDialog(
-            course.map { "'\($0.title)'을(를) 삭제하시겠습니까?" } ?? "코스를 삭제하시겠습니까?",
-            isPresented: $showDeleteConfirm,
-            titleVisibility: .visible
-        ) {
-            Button("삭제", role: .destructive) {
-                guard let course else { return }
-                context.delete(course)
-                dismiss()
-                NSApp.keyWindow?.close()
-            }
-        }
+        .focusedSceneValue(\.courseFileCommandHandler, makeFileHandler())
     }
 
     @ViewBuilder
@@ -150,34 +135,24 @@ struct CourseWorkspaceView: View {
     private func makeHandler() -> CourseCommandHandler? {
         guard let course else { return nil }
         return CourseCommandHandler(
-            edit: { openWindow(id: "course-editor", value: course.id) },
-            exportTCX: { exportCourseTCX(course) },
-            delete: { showDeleteConfirm = true }
+            edit: { openWindow(id: "course-editor", value: course.id) }
         )
     }
 
-    private func exportCourseTCX(_ course: CourseRecord) {
-        let allPts = course.allTrackPoints
-        guard !allPts.isEmpty else { NSSound.beep(); return }
+    private func makeFileHandler() -> CourseFileCommandHandler? {
+        guard let course else { return nil }
+        return CourseFileCommandHandler(
+            saveTCX: { saveCourseTCX(course) },
+            canSaveTCX: !course.allTrackPoints.isEmpty
+        )
+    }
 
-        let cueSpecs = course.cuePoints.compactMap { cue -> TCXCourse.CuePointSpec? in
-            guard let ni = Geo.nearestIndex(allPts, lat: cue.lat, lon: cue.lon) else { return nil }
-            return TCXCourse.CuePointSpec(
-                idx: ni, time: allPts[ni].time,
-                lat: cue.lat, lon: cue.lon, ele: allPts[ni].ele,
-                name: cue.name, pointType: cue.pointType, notes: cue.notes
-            )
+    private func saveCourseTCX(_ course: CourseRecord) {
+        do {
+            let data = try CourseTCXFileCoder.makeTCXData(from: course)
+            Exporter.saveTCX(filename: course.title, data: data)
+        } catch {
+            NSSound.beep()
         }
-
-        guard let sourceID = course.sourceRouteID,
-              let sourceRoute = routeVM.routes.first(where: { $0.id == sourceID }),
-              let tcxCourse = try? TCXCourse(data: sourceRoute.tcxData) else {
-            NSSound.beep(); return
-        }
-
-        guard let result = try? tcxCourse.buildFromCourse(cuePoints: cueSpecs) else {
-            NSSound.beep(); return
-        }
-        Exporter.saveSingle(filename: "\(course.title)", data: result.data)
     }
 }

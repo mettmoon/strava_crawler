@@ -154,6 +154,36 @@ final class CuesheetIntegrationTests: XCTestCase {
         XCTAssertTrue(prefixes.contains("🏁"))
         XCTAssertTrue(prefixes.contains("↗") || prefixes.contains("→") || prefixes.contains("↘"))
     }
+
+    func testBuildCourseDataRoundTripsCoursePoints() throws {
+        let trackPoints = [
+            TrackPoint(lat: 37.0, lon: 127.0, ele: 12, time: "2026-06-13T00:00:00Z", cumKm: 0),
+            TrackPoint(lat: 37.1, lon: 127.1, ele: 42, time: "2026-06-13T00:10:00Z", cumKm: 14.2),
+        ]
+        let cues = [
+            TCXCourse.CuePointSpec(
+                idx: 1,
+                time: trackPoints[1].time,
+                lat: trackPoints[1].lat,
+                lon: trackPoints[1].lon,
+                ele: trackPoints[1].ele,
+                name: "Summit",
+                pointType: "Summit",
+                notes: "manual"
+            )
+        ]
+
+        let built = try TCXCourse.buildCourseData(title: "Manual Course", trackPoints: trackPoints, cuePoints: cues)
+        XCTAssertEqual(built.count, 1)
+
+        let parsed = try TCXCourse(data: built.data)
+        XCTAssertEqual(parsed.courseName, "Manual Course")
+        XCTAssertEqual(parsed.trackPoints.count, 2)
+        XCTAssertEqual(parsed.coursePoints.count, 1)
+        XCTAssertEqual(parsed.coursePoints[0].name, "Summit")
+        XCTAssertEqual(parsed.coursePoints[0].pointType, "Summit")
+        XCTAssertEqual(parsed.coursePoints[0].notes, "manual")
+    }
 }
 
 final class MyRoutesTests: XCTestCase {
