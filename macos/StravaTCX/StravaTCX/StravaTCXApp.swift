@@ -22,7 +22,6 @@ struct StravaTCXApp: App {
         .defaultSize(width: 720, height: 600)
         .windowResizability(.contentMinSize)
         .modelContainer(container.modelContainer)
-        .commands { SegmentCommands() }
         .commands { RouteCommands() }
         .commands { CourseCommands() }
 
