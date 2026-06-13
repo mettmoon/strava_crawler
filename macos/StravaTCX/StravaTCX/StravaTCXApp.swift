@@ -13,20 +13,6 @@ struct StravaTCXApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Welcome to StravaTCX", id: "welcome") {
-            WelcomeView()
-                .environment(routeListVM)
-        }
-        .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified)
-        .defaultSize(width: 940, height: 600)
-        .windowResizability(.contentMinSize)
-        .modelContainer(container.modelContainer)
-        .commands { CourseFileCommands() }
-        .commands { RouteCommands() }
-        .commands { CourseCommands() }
-        .commands { WelcomeWindowCommands() }
-
         DocumentGroup(newDocument: { CourseDocument() }) { configuration in
             CourseDocumentView(
                 document: configuration.document,
@@ -93,6 +79,21 @@ struct StravaTCXApp: App {
         .defaultSize(width: 960, height: 640)
         .windowResizability(.contentMinSize)
 
+        WindowGroup("Welcome to StravaTCX", id: "welcome") {
+            WelcomeView()
+                .environment(routeListVM)
+        }
+        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 940, height: 600)
+        .windowResizability(.contentMinSize)
+        .modelContainer(container.modelContainer)
+        .defaultLaunchBehavior(.presented)
+        .commands { CourseFileCommands() }
+        .commands { RouteCommands() }
+        .commands { CourseCommands() }
+        .commands { WelcomeWindowCommands() }
+
         Settings {
             SettingsView()
         }
@@ -107,6 +108,7 @@ private struct WelcomeWindowCommands: Commands {
             Button("Welcome to StravaTCX") {
                 openWindow(id: "welcome")
             }
+            .keyboardShortcut("1", modifiers: [.command, .shift])
         }
     }
 }

@@ -10,7 +10,6 @@ struct RouteCommands: Commands {
             Button("경로에서 코스 만들기…") {
                 openWindow(id: "route-library")
             }
-            .keyboardShortcut("1", modifiers: [.command, .shift])
 
             Divider()
 
