@@ -21,8 +21,8 @@ struct WelcomeView: View {
 
             VStack(spacing: 12) {
                 DispatchButton(
-                    title: "경로 불러오기",
-                    subtitle: "Strava에서 가져온 경로 열기",
+                    title: "경로에서 코스 만들기",
+                    subtitle: "Strava 경로를 골라 코스로 변환",
                     systemImage: "bicycle"
                 ) { openWindow(id: "route-library") }
 

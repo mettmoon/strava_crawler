@@ -1,8 +1,8 @@
 import SwiftUI
 import StravaTCXKit
 
-/// 모든 경로(라우트)를 보여주는 별도 윈도우.
-/// "+ 추가"로 Strava에서 가져오고, "불러오기"로 워크스페이스 윈도우를 연다.
+/// 코스로 변환할 경로(라우트)를 고르는 별도 윈도우.
+/// "+ 추가"로 Strava에서 가져오고, "코스 만들기"로 변환 워크스페이스 윈도우를 연다.
 struct RouteLibraryView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
@@ -49,7 +49,7 @@ struct RouteLibraryView: View {
             content
         }
         .frame(minWidth: 360, idealWidth: 440, minHeight: 420, idealHeight: 600)
-        .navigationTitle("경로 불러오기")
+        .navigationTitle("코스로 만들 경로")
         .task { await routeVM.reconcile() }
         .task { await routeVM.load() }
         .sheet(isPresented: $showingMyRoutes) {
@@ -109,7 +109,7 @@ private struct RouteLibraryRow: View {
         HStack(spacing: 12) {
             RouteRow(route: route, progress: progress)
             Spacer()
-            Button("불러오기", action: onLoad)
+            Button("코스 만들기", action: onLoad)
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .disabled(route.status != .ready)

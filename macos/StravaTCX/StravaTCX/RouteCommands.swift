@@ -7,7 +7,7 @@ struct RouteCommands: Commands {
 
     var body: some Commands {
         CommandMenu("경로") {
-            Button("경로 불러오기…") {
+            Button("경로에서 코스 만들기…") {
                 openWindow(id: "route-library")
             }
             .keyboardShortcut("1", modifiers: [.command, .shift])
@@ -30,7 +30,7 @@ struct RouteCommands: Commands {
 
             Divider()
 
-            Button("코스로 만들기") {
+            Button("코스 만들기") {
                 handler?.makeIntoCourse()
             }
             .disabled(handler == nil || handler?.canExport == false)

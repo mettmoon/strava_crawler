@@ -57,7 +57,7 @@ struct CourseLibraryView: View {
             ContentUnavailableView {
                 Label("코스 없음", systemImage: "map")
             } description: {
-                Text("+ 버튼으로 새 코스를 만들거나\n경로 워크스페이스에서 \"코스로 만들기\"를 사용하세요.")
+                Text("+ 버튼으로 새 코스를 만들거나\n경로에서 코스 만들기를 사용하세요.")
             }
         } else if filteredCourses.isEmpty {
             ContentUnavailableView.search(text: searchText)
