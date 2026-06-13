@@ -1671,6 +1671,22 @@ struct CourseEditMapView: NSViewRepresentable {
             rvItem.representedObject = coord
             menu.addItem(rvItem)
 
+            menu.addItem(.separator())
+
+            // 구글 맵에서 보기
+            let googleMapItem = NSMenuItem(title: "구글 맵에서 보기",
+                                           action: #selector(openGoogleMap(_:)), keyEquivalent: "")
+            googleMapItem.target = self
+            googleMapItem.representedObject = coord
+            menu.addItem(googleMapItem)
+
+            // 구글 맵에서 로드뷰 보기
+            let googleRoadviewItem = NSMenuItem(title: "구글 맵에서 로드뷰 보기",
+                                                action: #selector(openGoogleRoadview(_:)), keyEquivalent: "")
+            googleRoadviewItem.target = self
+            googleRoadviewItem.representedObject = coord
+            menu.addItem(googleRoadviewItem)
+
             NSMenu.popUpContextMenu(menu, with: NSApp.currentEvent ?? NSEvent(), for: map)
         }
 
@@ -1722,6 +1738,16 @@ struct CourseEditMapView: NSViewRepresentable {
         @objc private func openKakaoRoadview(_ sender: NSMenuItem) {
             guard let coord = sender.representedObject as? CLLocationCoordinate2D else { return }
             NSWorkspace.shared.open(KakaoLocalSearch.roadvewURL(lat: coord.latitude, lon: coord.longitude))
+        }
+
+        @objc private func openGoogleMap(_ sender: NSMenuItem) {
+            guard let coord = sender.representedObject as? CLLocationCoordinate2D else { return }
+            NSWorkspace.shared.open(GoogleMapsLink.webURL(lat: coord.latitude, lon: coord.longitude))
+        }
+
+        @objc private func openGoogleRoadview(_ sender: NSMenuItem) {
+            guard let coord = sender.representedObject as? CLLocationCoordinate2D else { return }
+            NSWorkspace.shared.open(GoogleMapsLink.roadviewURL(lat: coord.latitude, lon: coord.longitude))
         }
 
         @objc private func addCueFromMenu(_ sender: NSMenuItem) {

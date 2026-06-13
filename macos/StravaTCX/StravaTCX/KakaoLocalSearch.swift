@@ -97,3 +97,28 @@ enum KakaoLocalSearch {
         }
     }
 }
+
+// MARK: - GoogleMapsLink
+
+enum GoogleMapsLink {
+    /// 구글 맵 웹 URL (해당 좌표 검색/표시)
+    static func webURL(lat: Double, lon: Double) -> URL {
+        var comps = URLComponents(string: "https://www.google.com/maps/search/")!
+        comps.queryItems = [
+            .init(name: "api", value: "1"),
+            .init(name: "query", value: "\(lat),\(lon)"),
+        ]
+        return comps.url!
+    }
+
+    /// 구글 맵 로드뷰(Street View) URL
+    static func roadviewURL(lat: Double, lon: Double) -> URL {
+        var comps = URLComponents(string: "https://www.google.com/maps/@")!
+        comps.queryItems = [
+            .init(name: "api", value: "1"),
+            .init(name: "map_action", value: "pano"),
+            .init(name: "viewpoint", value: "\(lat),\(lon)"),
+        ]
+        return comps.url!
+    }
+}
