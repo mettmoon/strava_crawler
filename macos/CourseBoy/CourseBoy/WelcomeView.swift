@@ -45,9 +45,10 @@ struct WelcomeView: View {
     private var welcomeActions: some View {
         VStack(spacing: 32) {
             VStack(spacing: 8) {
-                Image(systemName: "bicycle.circle.fill")
-                    .font(.system(size: 64))
-                    .foregroundStyle(.tint)
+                Image(nsImage: NSApplication.shared.applicationIconImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 84, height: 84)
                 Text("CourseBoy")
                     .font(.largeTitle.bold())
                 Text("Strava 경로를 가져오고, 큐시트를 편집하고, 내보냅니다.")
