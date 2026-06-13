@@ -80,7 +80,7 @@ struct WelcomeView: View {
                     title: "코스 문서 열기",
                     subtitle: "CPN 파일 열기",
                     systemImage: "folder"
-                ) { NSDocumentController.shared.openDocument(nil) }
+                ) { openCourseDocument() }
             }
             .frame(maxWidth: 380)
 
@@ -95,6 +95,29 @@ struct WelcomeView: View {
             .filter { $0.pathExtension.lowercased() == "cpn" }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
             .map(RecentCourseFile.init(url:))
+    }
+
+    private func openCourseDocument() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = CourseDocument.readableContentTypes
+        panel.prompt = "열기"
+        panel.message = "CPN 코스 문서를 선택하세요"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        Task {
+            do {
+                try await openDocument(at: url)
+            } catch {
+                await MainActor.run {
+                    openError = error.localizedDescription
+                    reloadRecentCourses()
+                }
+            }
+        }
     }
 
     private func openRecentCourse(_ file: RecentCourseFile) {

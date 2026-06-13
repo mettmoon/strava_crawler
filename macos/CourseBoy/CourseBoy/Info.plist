@@ -14,6 +14,7 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>com.peter.courseboy.course-plan</string>
+				<string>com.peter.stravatcx.course-plan</string>
 			</array>
 		</dict>
 	</array>
@@ -30,6 +31,28 @@
 			<string>CourseBoy Course Plan</string>
 			<key>UTTypeIdentifier</key>
 			<string>com.peter.courseboy.course-plan</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>cpn</string>
+				</array>
+				<key>public.mime-type</key>
+				<string>application/vnd.courseboy.course+xml</string>
+			</dict>
+		</dict>
+	</array>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.xml</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Legacy CourseBoy Course Plan</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.peter.stravatcx.course-plan</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>
