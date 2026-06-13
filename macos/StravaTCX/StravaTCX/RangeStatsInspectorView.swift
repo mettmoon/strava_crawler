@@ -1,7 +1,7 @@
 import SwiftUI
 import StravaTCXKit
 
-/// 고도 그래프에서 드래그로 선택한 구간의 통계 정보를 표시한다.
+/// 고도 그래프 또는 큐시트에서 선택한 구간의 통계 정보를 표시한다.
 struct RangeStatsInspectorView: View {
     var trackPoints: [TrackPoint]
     var range: ChartRangeSelection
@@ -54,7 +54,7 @@ struct RangeStatsInspectorView: View {
     @ViewBuilder
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label("드래그 구간", systemImage: "selection.pin.in.out")
+            Label("선택 구간", systemImage: "selection.pin.in.out")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
             Text(range.isDragging ? "선택 중…" : "선택 완료")

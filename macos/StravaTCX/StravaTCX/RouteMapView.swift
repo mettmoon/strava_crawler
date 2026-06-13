@@ -92,7 +92,7 @@ struct RouteMapView: View {
     /// 사용자가 지도의 cue 핀을 직접 탭했을 때 호출. 인스펙터/그래프 선택 동기화에 사용.
     var onSelectCue: ((UUID) -> Void)? = nil
     @Binding var hoverInfo: RouteHoverInfo?
-    /// 고도 그래프에서 드래그로 선택한 구간을 지도에도 강조 표시.
+    /// 선택한 거리 구간을 지도에도 강조 표시.
     var rangeSelection: ChartRangeSelection? = nil
 
     @AppStorage(MapStyleStorageKey.main) private var mapStyleRaw: String = MapStyleOption.standard.rawValue

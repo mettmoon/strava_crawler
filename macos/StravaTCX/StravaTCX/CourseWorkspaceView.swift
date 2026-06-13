@@ -16,12 +16,16 @@ struct CourseWorkspaceView: View {
 
     @State private var highlightPoints: [TrackPoint] = []
     @State private var hoverInfo: RouteHoverInfo?
-    @State private var selectedCueID: UUID?
+    @State private var selectedCueIDs: Set<UUID> = []
     @State private var rangeSelection: ChartRangeSelection?
 
     private var course: CourseRecord? {
         guard let id = courseID else { return nil }
         return allCourses.first { $0.id == id }
+    }
+
+    private var selectedCueID: UUID? {
+        selectedCueIDs.count == 1 ? selectedCueIDs.first : nil
     }
 
     var body: some View {
@@ -55,7 +59,7 @@ struct CourseWorkspaceView: View {
     private func workspace(for course: CourseRecord) -> some View {
         let pts = course.allTrackPoints
         NavigationSplitView {
-            CourseCuesheetSidebar(course: course, selectedCueID: $selectedCueID)
+            CourseCuesheetSidebar(course: course, selectedCueIDs: $selectedCueIDs)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
         } detail: {
             contentPane(trackPoints: pts, course: course)
@@ -70,9 +74,16 @@ struct CourseWorkspaceView: View {
                     .inspectorColumnWidth(min: 260, ideal: 320, max: 460)
                 }
         }
+        .onChange(of: selectedCueIDs) { _, ids in
+            syncRangeSelectionFromCueSelection(ids, trackPoints: pts, course: course)
+        }
         .onChange(of: course.cuePoints.map(\.id)) { _, ids in
-            if let sel = selectedCueID, !ids.contains(sel) {
-                selectedCueID = nil
+            let validIDs = Set(ids)
+            let validSelection = selectedCueIDs.intersection(validIDs)
+            if selectedCueIDs != validSelection {
+                selectedCueIDs = validSelection
+            } else {
+                syncRangeSelectionFromCueSelection(validSelection, trackPoints: pts, course: course)
             }
         }
     }
@@ -93,8 +104,14 @@ struct CourseWorkspaceView: View {
                     highlightPoints: highlightPoints,
                     cuePoints: course.cuePoints,
                     focusedCueID: selectedCueID,
-                    onDeselectFocus: { selectedCueID = nil },
-                    onSelectCue: { selectedCueID = $0 },
+                    onDeselectFocus: {
+                        selectedCueIDs.removeAll()
+                        rangeSelection = nil
+                    },
+                    onSelectCue: {
+                        selectedCueIDs = [$0]
+                        rangeSelection = nil
+                    },
                     hoverInfo: $hoverInfo,
                     rangeSelection: rangeSelection
                 )
@@ -105,7 +122,7 @@ struct CourseWorkspaceView: View {
                     focusedDistanceKm: focusKm,
                     hoverInfo: $hoverInfo,
                     rangeSelection: $rangeSelection,
-                    onBackgroundClick: { selectedCueID = nil }
+                    onBackgroundClick: { selectedCueIDs.removeAll() }
                 )
             }
         }
@@ -154,5 +171,42 @@ struct CourseWorkspaceView: View {
         } catch {
             NSSound.beep()
         }
+    }
+
+    private func syncRangeSelectionFromCueSelection(
+        _ ids: Set<UUID>,
+        trackPoints pts: [TrackPoint],
+        course: CourseRecord
+    ) {
+        guard ids.count == 2 else {
+            if rangeSelection?.isDragging != true {
+                rangeSelection = nil
+            }
+            return
+        }
+
+        let selectedCues = course.cuePoints
+            .filter { ids.contains($0.id) }
+            .sorted { $0.distanceMeters < $1.distanceMeters }
+        guard selectedCues.count == 2 else {
+            rangeSelection = nil
+            return
+        }
+
+        let startKm = cueDistanceKm(selectedCues[0], trackPoints: pts)
+        let endKm = cueDistanceKm(selectedCues[1], trackPoints: pts)
+        guard abs(endKm - startKm) > 0 else {
+            rangeSelection = nil
+            return
+        }
+
+        rangeSelection = ChartRangeSelection(startKm: startKm, endKm: endKm, isDragging: false)
+    }
+
+    private func cueDistanceKm(_ cue: CourseCuePoint, trackPoints pts: [TrackPoint]) -> Double {
+        if let idx = Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon) {
+            return pts[idx].cumKm
+        }
+        return cue.distanceMeters / 1000
     }
 }

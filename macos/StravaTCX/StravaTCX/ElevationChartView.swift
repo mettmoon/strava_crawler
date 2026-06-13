@@ -10,7 +10,7 @@ struct ElevationChartView: View {
     /// 외부에서 강조해서 표시할 위치 (누적 거리, km). 큐시트 항목 선택 시 사용.
     var focusedDistanceKm: Double? = nil
     @Binding var hoverInfo: RouteHoverInfo?
-    /// 드래그로 선택한 구간(km). 드래그 중에도 갱신된다 (`isDragging == true`).
+    /// 선택한 구간(km). 차트 드래그 중에도 갱신된다 (`isDragging == true`).
     var rangeSelection: Binding<ChartRangeSelection?>? = nil
     /// 호버 위치에서 우클릭 → "웨이포인트 추가" 선택 시 호출. 인자: 누적 거리(km).
     var onAddCueAtHover: ((Double) -> Void)? = nil
