@@ -8,11 +8,11 @@ actor CachingSegmentRepository: SegmentRepository {
 
     init(remoteService: any StravaRemoteService) {
         self.remoteService = remoteService
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
         let dir = base.appendingPathComponent("StravaTCX/segments", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         self.storageDir = dir
-        Self.migrateLegacyCache(into: dir)
+        Self.migrateApplicationSupportSegments(into: dir)
     }
 
     func fetch(id: String) async throws -> SegmentInfo? {
@@ -73,14 +73,14 @@ actor CachingSegmentRepository: SegmentRepository {
         try? data.write(to: storageFile(for: segment.segmentID), options: .atomic)
     }
 
-    // MARK: - 레거시 마이그레이션
+    // MARK: - 마이그레이션
 
-    /// `~/Library/Caches/StravaTCX/segments/`에 있던 JSON 파일을
-    /// 새 위치(Application Support)로 1회 이전한다. 모두 옮긴 뒤 빈 디렉터리는 제거.
-    private static func migrateLegacyCache(into newDir: URL) {
+    /// `~/Library/Application Support/StravaTCX/segments/`에 있던 JSON 파일을
+    /// 캐시 위치로 1회 이전한다. 모두 옮긴 뒤 빈 디렉터리는 제거.
+    private static func migrateApplicationSupportSegments(into newDir: URL) {
         let fm = FileManager.default
-        guard let cachesBase = fm.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
-        let legacyDir = cachesBase.appendingPathComponent("StravaTCX/segments", isDirectory: true)
+        guard let appSupportBase = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
+        let legacyDir = appSupportBase.appendingPathComponent("StravaTCX/segments", isDirectory: true)
         guard fm.fileExists(atPath: legacyDir.path) else { return }
 
         let urls = (try? fm.contentsOfDirectory(at: legacyDir, includingPropertiesForKeys: nil)) ?? []
