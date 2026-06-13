@@ -6,8 +6,42 @@ import SwiftUI
 struct WelcomeView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.newDocument) private var newDocument
+    @Environment(\.openDocument) private var openDocument
+
+    @State private var recentCourses: [RecentCourseFile] = []
+    @State private var openError: String?
 
     var body: some View {
+        HStack(spacing: 0) {
+            welcomeActions
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if !recentCourses.isEmpty {
+                Divider()
+                RecentCoursesPanel(
+                    files: recentCourses,
+                    onOpen: openRecentCourse
+                )
+                .frame(width: 320)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("Strava TCX")
+        .onAppear(perform: reloadRecentCourses)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            reloadRecentCourses()
+        }
+        .alert("코스 문서를 열 수 없습니다", isPresented: Binding(
+            get: { openError != nil },
+            set: { if !$0 { openError = nil } }
+        )) {
+            Button("확인", role: .cancel) {}
+        } message: {
+            Text(openError ?? "")
+        }
+    }
+
+    private var welcomeActions: some View {
         VStack(spacing: 32) {
             VStack(spacing: 8) {
                 Image(systemName: "bicycle.circle.fill")
@@ -52,8 +86,90 @@ struct WelcomeView: View {
         }
         .padding(.top, 60)
         .padding(.horizontal, 40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("Strava TCX")
+    }
+
+    private func reloadRecentCourses() {
+        recentCourses = NSDocumentController.shared.recentDocumentURLs
+            .filter { $0.pathExtension.lowercased() == "cpn" }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+            .map(RecentCourseFile.init(url:))
+    }
+
+    private func openRecentCourse(_ file: RecentCourseFile) {
+        Task {
+            do {
+                try await openDocument(at: file.url)
+            } catch {
+                await MainActor.run {
+                    openError = error.localizedDescription
+                    reloadRecentCourses()
+                }
+            }
+        }
+    }
+}
+
+private struct RecentCourseFile: Identifiable, Hashable {
+    let url: URL
+
+    var id: URL { url }
+    var title: String { url.deletingPathExtension().lastPathComponent }
+    var parentPath: String { url.deletingLastPathComponent().path }
+}
+
+private struct RecentCoursesPanel: View {
+    let files: [RecentCourseFile]
+    let onOpen: (RecentCourseFile) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Recent")
+                .font(.headline)
+                .padding(.horizontal, 18)
+                .padding(.top, 24)
+                .padding(.bottom, 10)
+
+            List(files) { file in
+                Button {
+                    onOpen(file)
+                } label: {
+                    RecentCourseRow(file: file)
+                }
+                .buttonStyle(.plain)
+                .listRowInsets(EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 10))
+            }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+        }
+        .background(.background.secondary)
+    }
+}
+
+private struct RecentCourseRow: View {
+    let file: RecentCourseFile
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "doc.text")
+                .font(.title3)
+                .foregroundStyle(.tint)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(file.title)
+                    .font(.body)
+                    .lineLimit(1)
+                Text(file.parentPath)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
     }
 }
 

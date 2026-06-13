@@ -13,18 +13,19 @@ struct StravaTCXApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup("Welcome to StravaTCX", id: "welcome") {
             WelcomeView()
                 .environment(routeListVM)
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
-        .defaultSize(width: 720, height: 600)
+        .defaultSize(width: 940, height: 600)
         .windowResizability(.contentMinSize)
         .modelContainer(container.modelContainer)
         .commands { CourseFileCommands() }
         .commands { RouteCommands() }
         .commands { CourseCommands() }
+        .commands { WelcomeWindowCommands() }
 
         DocumentGroup(newDocument: { CourseDocument() }) { configuration in
             CourseDocumentView(
@@ -94,6 +95,18 @@ struct StravaTCXApp: App {
 
         Settings {
             SettingsView()
+        }
+    }
+}
+
+private struct WelcomeWindowCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(after: .windowArrangement) {
+            Button("Welcome to StravaTCX") {
+                openWindow(id: "welcome")
+            }
         }
     }
 }
