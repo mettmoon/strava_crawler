@@ -153,6 +153,8 @@ struct CourseEditorView: View {
                         .padding(8)
                 }
             }
+            Divider()
+            editorActionBar
         }
         .onChange(of: draft.cuePoints.map(\.id)) { _, ids in
             if let sel = selectedCueID, !ids.contains(sel) {
@@ -508,9 +510,14 @@ struct CourseEditorView: View {
             InspectorToggleButton(isPresented: $isInspectorPresented)
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
 
-            Divider().frame(height: 20)
-
+    private var editorActionBar: some View {
+        HStack(spacing: 10) {
+            Spacer()
             Button("취소") {
                 if draft.hasChanges {
                     showDiscardConfirm = true
@@ -533,7 +540,8 @@ struct CourseEditorView: View {
             .keyboardShortcut(.return, modifiers: .command)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
+        .background(.bar)
     }
 
     private var courseTitleField: some View {
