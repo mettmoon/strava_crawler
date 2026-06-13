@@ -95,9 +95,9 @@ func formatRouteDistance(_ km: Double) -> String {
     km < 1 ? String(format: "%.0f m", km * 1000) : String(format: "%.2f km", km)
 }
 
-// MARK: - 그래프 드래그 구간 선택
+// MARK: - 구간 선택
 
-/// 고도 그래프에서 드래그로 선택한 누적 거리 구간(km).
+/// 고도 그래프나 큐시트에서 선택한 누적 거리 구간(km).
 /// `startKm` ≤ `endKm` 으로 정규화해 사용한다.
 struct ChartRangeSelection: Equatable, Sendable {
     var startKm: Double

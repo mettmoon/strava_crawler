@@ -8,7 +8,7 @@ import StravaTCXKit
 /// 큐시트 항목을 거리 순서로 나열하고 선택을 바인딩한다.
 struct CourseCuesheetSidebar: View {
     @Bindable var course: CourseRecord
-    @Binding var selectedCueID: UUID?
+    @Binding var selectedCueIDs: Set<UUID>
 
     private var sortedCues: [CourseCuePoint] {
         course.cuePoints.sorted { $0.distanceMeters < $1.distanceMeters }
@@ -40,7 +40,7 @@ struct CourseCuesheetSidebar: View {
                         .font(.caption)
                 }
             } else {
-                List(selection: $selectedCueID) {
+                List(selection: $selectedCueIDs) {
                     ForEach(sortedCues) { cue in
                         let progress = cueElevationProgress(for: cue, trackPoints: pts, progress: elevationProgress)
                         HStack {
