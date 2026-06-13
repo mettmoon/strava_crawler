@@ -65,22 +65,32 @@ final class CourseEditorDraft {
         course.routePoints = routePoints
         course.trackSegments = trackSegments
         course.cuePoints = cuePoints
-        course.title = title
+        course.title = normalizedTitle
+    }
+
+    var normalizedTitle: String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var hasValidTitle: Bool {
+        !normalizedTitle.isEmpty
     }
 
     // MARK: - Snapshot undo
 
     private struct Snapshot {
+        let title: String
         let routePoints: [CourseRoutePoint]
         let trackSegments: [[TrackPointCodable]]
         let cuePoints: [CourseCuePoint]
     }
 
     private func takeSnapshot() -> Snapshot {
-        Snapshot(routePoints: routePoints, trackSegments: trackSegments, cuePoints: cuePoints)
+        Snapshot(title: title, routePoints: routePoints, trackSegments: trackSegments, cuePoints: cuePoints)
     }
 
     private func restore(_ s: Snapshot) {
+        title = s.title
         routePoints = s.routePoints
         trackSegments = s.trackSegments
         cuePoints = s.cuePoints
@@ -102,6 +112,15 @@ final class CourseEditorDraft {
             draft.undoManager.setActionName(actionName)
         }
         undoManager.setActionName(actionName)
+    }
+
+    // MARK: - 제목 변경
+
+    func updateTitle(_ newTitle: String) {
+        guard newTitle != title else { return }
+        let old = takeSnapshot()
+        title = newTitle
+        registerUndo(before: old, actionName: "코스 제목 변경")
     }
 
     // MARK: - RoutePoint 변경

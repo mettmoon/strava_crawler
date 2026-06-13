@@ -95,6 +95,13 @@ struct CourseEditorView: View {
         )
     }
 
+    private var titleBinding: Binding<String> {
+        Binding(
+            get: { draft.title },
+            set: { draft.updateTitle($0) }
+        )
+    }
+
     init(course: CourseRecord, onSave: (() -> Void)? = nil, onCancel: (() -> Void)? = nil) {
         self.course = course
         self.onSave = onSave
@@ -156,7 +163,7 @@ struct CourseEditorView: View {
         }
         .focusedSceneValue(\.courseFileCommandHandler, CourseFileCommandHandler(
             exportTCX: { saveDraftTCX() },
-            canExportTCX: !draft.allTrackPoints.isEmpty
+            canExportTCX: !draft.allTrackPoints.isEmpty && draft.hasValidTitle
         ))
         .confirmationDialog("변경 사항을 버리시겠습니까?", isPresented: $showDiscardConfirm, titleVisibility: .visible) {
             Button("변경 사항 버리기", role: .destructive) { closeConfirmed = true }
@@ -298,13 +305,19 @@ struct CourseEditorView: View {
     }
 
     private func saveDraftTCX() {
+        let title = draft.normalizedTitle
+        guard !title.isEmpty else {
+            NSSound.beep()
+            return
+        }
+
         do {
             let data = try CourseTCXFileCoder.makeTCXData(
-                title: draft.title,
+                title: title,
                 trackPoints: draft.allTrackPoints,
                 cuePoints: draft.cuePoints
             )
-            Exporter.saveTCX(filename: draft.title, data: data)
+            Exporter.saveTCX(filename: title, data: data)
         } catch {
             NSSound.beep()
         }
@@ -446,6 +459,10 @@ struct CourseEditorView: View {
 
             Divider().frame(height: 20)
 
+            courseTitleField
+
+            Divider().frame(height: 20)
+
             // 카카오 검색
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
@@ -505,10 +522,39 @@ struct CourseEditorView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
+            .disabled(!draft.hasValidTitle)
             .keyboardShortcut(.return, modifiers: .command)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    private var courseTitleField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "text.cursor")
+                .foregroundStyle(.secondary)
+
+            TextField("코스 제목", text: titleBinding)
+                .textFieldStyle(.plain)
+                .font(.headline)
+                .lineLimit(1)
+                .frame(width: 240)
+                .onSubmit {
+                    if draft.hasValidTitle {
+                        draft.updateTitle(draft.normalizedTitle)
+                    }
+                }
+
+            if !draft.hasValidTitle {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .help("코스 제목을 입력하세요")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 7))
+        .help(draft.hasValidTitle ? "코스 제목" : "코스 제목을 입력하세요")
     }
 
     private func closeEditor() {
