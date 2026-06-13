@@ -78,6 +78,7 @@ struct CourseEditorView: View {
     @State private var selectedCueID: UUID?
     @State private var editingCueID: UUID?
     @State private var rangeSelection: ChartRangeSelection?
+    @State private var isInspectorPresented = true
 
     // 카카오 검색
     @State private var searchQuery = ""
@@ -122,7 +123,7 @@ struct CourseEditorView: View {
                     .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
             } detail: {
                 detailPane
-                    .inspector(isPresented: .constant(true)) {
+                    .inspector(isPresented: $isInspectorPresented) {
                         Group {
                             if let range = rangeSelection {
                                 CourseEditorRangeInspectorView(
@@ -503,6 +504,12 @@ struct CourseEditorView: View {
             .help(searchError ?? "카카오 로컬 검색")
 
             Spacer()
+
+            InspectorToggleButton(isPresented: $isInspectorPresented)
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+
+            Divider().frame(height: 20)
 
             Button("취소") {
                 if draft.hasChanges {

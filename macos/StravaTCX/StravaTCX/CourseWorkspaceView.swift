@@ -15,6 +15,7 @@ struct CourseWorkspaceView: View {
     @State private var hoverInfo: RouteHoverInfo?
     @State private var selectedCueIDs: Set<UUID> = []
     @State private var rangeSelection: ChartRangeSelection?
+    @State private var isInspectorPresented = true
 
     private var selectedCueID: UUID? {
         selectedCueIDs.count == 1 ? selectedCueIDs.first : nil
@@ -39,6 +40,10 @@ struct CourseWorkspaceView: View {
                     .disabled(course.allTrackPoints.isEmpty)
                     .help("3D 경로 보기")
                 }
+
+                ToolbarItem(placement: .primaryAction) {
+                    InspectorToggleButton(isPresented: $isInspectorPresented)
+                }
             }
             .toolbar(removing: .sidebarToggle)
             .focusedSceneValue(\.courseCommandHandler, makeHandler())
@@ -53,7 +58,7 @@ struct CourseWorkspaceView: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
         } detail: {
             contentPane(trackPoints: pts, course: course)
-                .inspector(isPresented: .constant(true)) {
+                .inspector(isPresented: $isInspectorPresented) {
                     Group {
                         if let range = rangeSelection {
                             RangeStatsInspectorView(trackPoints: pts, range: range)
