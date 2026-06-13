@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import StravaTCXKit
 
@@ -26,11 +27,27 @@ struct CourseDocumentView: View {
                     onEdit: { isEditing = true },
                     onShow3D: { showing3D = true }
                 )
+                .onAppear {
+                    closeWelcomeWindows()
+                }
             }
         }
         .sheet(isPresented: $showing3D) {
             Course3DPreview(course: document.course)
         }
+    }
+
+    private func closeWelcomeWindows() {
+        closeWelcomeWindowsNow()
+        DispatchQueue.main.async {
+            closeWelcomeWindowsNow()
+        }
+    }
+
+    private func closeWelcomeWindowsNow() {
+        NSApp.windows
+            .filter { $0.identifier?.rawValue == "StravaTCXWelcomeWindow" }
+            .forEach { $0.close() }
     }
 }
 

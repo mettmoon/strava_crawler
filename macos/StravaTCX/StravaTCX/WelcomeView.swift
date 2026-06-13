@@ -31,6 +31,7 @@ struct WelcomeView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             reloadRecentCourses()
         }
+        .background(WelcomeWindowIdentifierSetter())
         .alert("코스 문서를 열 수 없습니다", isPresented: Binding(
             get: { openError != nil },
             set: { if !$0 { openError = nil } }
@@ -105,6 +106,29 @@ struct WelcomeView: View {
                     reloadRecentCourses()
                 }
             }
+        }
+    }
+}
+
+private struct WelcomeWindowIdentifierSetter: NSViewRepresentable {
+    func makeNSView(context: Context) -> WelcomeWindowIdentifierView {
+        WelcomeWindowIdentifierView()
+    }
+
+    func updateNSView(_ nsView: WelcomeWindowIdentifierView, context: Context) {
+        nsView.markWindow()
+    }
+}
+
+private final class WelcomeWindowIdentifierView: NSView {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        markWindow()
+    }
+
+    func markWindow() {
+        DispatchQueue.main.async { [weak self] in
+            self?.window?.identifier = NSUserInterfaceItemIdentifier("StravaTCXWelcomeWindow")
         }
     }
 }
