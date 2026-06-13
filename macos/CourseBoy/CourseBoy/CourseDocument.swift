@@ -5,12 +5,16 @@ import UniformTypeIdentifiers
 
 extension UTType {
     static let coursePlan = UTType(exportedAs: "com.peter.courseboy.course-plan", conformingTo: .xml)
+    static let legacyCoursePlan = UTType(importedAs: "com.peter.stravatcx.course-plan", conformingTo: .xml)
+    static var coursePlanFileExtension: UTType {
+        UTType(filenameExtension: "cpn", conformingTo: .xml) ?? .coursePlan
+    }
 }
 
 final class CourseDocument: ReferenceFileDocument, @unchecked Sendable {
     typealias Snapshot = Data
 
-    static var readableContentTypes: [UTType] { [.coursePlan] }
+    static var readableContentTypes: [UTType] { [.coursePlan, .legacyCoursePlan, .coursePlanFileExtension] }
     static var writableContentTypes: [UTType] { [.coursePlan] }
 
     @Published var course: CourseRecord {
