@@ -76,12 +76,12 @@ def nearest_idx(pts, lat, lon, start_idx=0):
     return best_i
 
 
-# Strava climb_category → TCX CoursePoint PointType
+# Strava climb_category → TCX CoursePoint PointType (Garmin TCX XSD values)
 CATEGORY_POINT_TYPE = {
-    "1": "First Category",
-    "2": "Second Category",
-    "3": "Third Category",
-    "4": "Fourth Category",
+    "1": "1st Category",
+    "2": "2nd Category",
+    "3": "3rd Category",
+    "4": "4th Category",
     "HC": "Hors Category",
 }
 

@@ -6,12 +6,12 @@ public enum Classification {
 
     // MARK: - climb_category
 
-    /// Strava climb_category → TCX CoursePoint PointType
+    /// Strava climb_category → TCX CoursePoint PointType (Garmin TCX XSD values)
     static let categoryPointType: [String: String] = [
-        "1": "First Category",
-        "2": "Second Category",
-        "3": "Third Category",
-        "4": "Fourth Category",
+        "1": "1st Category",
+        "2": "2nd Category",
+        "3": "3rd Category",
+        "4": "4th Category",
         "HC": "Hors Category",
     ]
 
