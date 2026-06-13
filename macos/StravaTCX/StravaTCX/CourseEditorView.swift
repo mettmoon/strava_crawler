@@ -896,6 +896,7 @@ struct CourseEditMapView: NSViewRepresentable {
         context.coordinator.updateSearchAnnotations(map: map, results: searchResults)
         context.coordinator.syncFocusedCue(in: map, focusedID: selectedCueID)
         context.coordinator.syncRangeSelection(in: map, selection: rangeSelection)
+        promoteRangeEndpointAnnotationViews(in: map)
     }
 
     // MARK: - Coordinator
@@ -1059,6 +1060,7 @@ struct CourseEditMapView: NSViewRepresentable {
             }
             map.addAnnotations(anns)
             rangeEndpointAnnotations = anns
+            promoteRangeEndpointAnnotationViews(in: map)
         }
 
         private func fitMap(map: MKMapView) {
@@ -1347,10 +1349,7 @@ struct CourseEditMapView: NSViewRepresentable {
                 v.annotation = annotation
                 v.image = image
                 v.centerOffset = CGPoint(x: 0, y: -image.size.height / 2)
-                v.clusteringIdentifier = nil
-                v.displayPriority = .required
-                v.canShowCallout = true
-                v.zPriority = .max
+                configureRangeEndpointAnnotationViewAsTopMost(v)
                 return v
             }
             if annotation is SearchResultAnnotation {
@@ -1403,6 +1402,12 @@ struct CourseEditMapView: NSViewRepresentable {
             if lastFocusedCueID == cue.cue.id { return }
             lastFocusedCueID = cue.cue.id
             onSelectCue(cue.cue.id)
+        }
+
+        func mapView(_ mapView: MKMapView, didAdd views: [MKAnnotationView]) {
+            if views.contains(where: { $0.annotation is RangeEndpointAnnotation }) || !rangeEndpointAnnotations.isEmpty {
+                promoteRangeEndpointAnnotationViews(in: mapView)
+            }
         }
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {

@@ -51,6 +51,29 @@ final class EndpointAnnotation: MKPointAnnotation {
 
 final class HoverAnnotation: MKPointAnnotation {}
 
+let rangeEndpointTopLayerZPosition: CGFloat = 1_000_000
+
+func configureRangeEndpointAnnotationViewAsTopMost(_ view: MKAnnotationView) {
+    view.clusteringIdentifier = nil
+    view.displayPriority = .required
+    view.canShowCallout = true
+    view.zPriority = .max
+    view.wantsLayer = true
+    view.layer?.zPosition = rangeEndpointTopLayerZPosition
+}
+
+func promoteRangeEndpointAnnotationViews(in map: MKMapView) {
+    let promote = {
+        for annotation in map.annotations where annotation is RangeEndpointAnnotation {
+            guard let view = map.view(for: annotation) else { continue }
+            configureRangeEndpointAnnotationViewAsTopMost(view)
+            view.superview?.addSubview(view, positioned: .above, relativeTo: nil)
+        }
+    }
+    promote()
+    DispatchQueue.main.async(execute: promote)
+}
+
 final class HoverMapView: MKMapView {
     var onRouteMouseMoved: ((HoverMapView, CGPoint) -> Void)?
     var onRouteMouseExited: ((HoverMapView) -> Void)?
@@ -224,6 +247,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         coordinator.syncFocusedCue(in: map, focusedID: focusedCueID)
         coordinator.syncHoverPresentation(in: map, info: hoverInfo)
         coordinator.syncRangeSelection(in: map, selection: rangeSelection)
+        promoteRangeEndpointAnnotationViews(in: map)
     }
 
     // MARK: - 하이라이트 overlay만 교체
@@ -388,6 +412,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             }
             map.addAnnotations(anns)
             rangeEndpointAnnotations = anns
+            promoteRangeEndpointAnnotationViews(in: map)
         }
 
         func syncHoverPresentation(in map: MKMapView, info: RouteHoverInfo?) {
@@ -546,6 +571,12 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             onSelectCue?(cue.cue.id)
         }
 
+        func mapView(_ mapView: MKMapView, didAdd views: [MKAnnotationView]) {
+            if views.contains(where: { $0.annotation is RangeEndpointAnnotation }) || !rangeEndpointAnnotations.isEmpty {
+                promoteRangeEndpointAnnotationViews(in: mapView)
+            }
+        }
+
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             guard let polyline = overlay as? MKPolyline else {
                 return MKOverlayRenderer(overlay: overlay)
@@ -589,10 +620,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
                 v.annotation = annotation
                 v.image = image
                 v.centerOffset = CGPoint(x: 0, y: -image.size.height / 2)
-                v.clusteringIdentifier = nil
-                v.displayPriority = .required
-                v.canShowCallout = true
-                v.zPriority = .max
+                configureRangeEndpointAnnotationViewAsTopMost(v)
                 return v
             }
 
