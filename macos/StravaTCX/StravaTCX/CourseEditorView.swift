@@ -677,6 +677,7 @@ private struct CourseEditorCueInspectorView: View {
         let cueIdx = Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon)
         let cueKm = cueIdx.map { pts[$0].cumKm } ?? (cue.distanceMeters / 1000)
         let cueEle = cueIdx.flatMap { pts[$0].ele }
+        let elevationProgress = RouteElevationProgress(trackPoints: pts).stats(at: cueIdx)
 
         let cues = sortedCues
         let pos = cues.firstIndex(where: { $0.id == cue.id })
@@ -711,6 +712,13 @@ private struct CourseEditorCueInspectorView: View {
                 infoRow("시작점으로부터", value: formatKm(cueKm))
                 infoRow("종료점까지", value: formatKm(max(0, totalKm - cueKm)))
                 infoRow("고도", value: formatEle(cueEle))
+            }
+
+            section(title: "누적 고도", icon: "mountain.2") {
+                infoRow("시작점부터 누적 상승", value: formatEle(elevationProgress?.ascentFromStart), valueColor: .red)
+                infoRow("시작점부터 누적 하강", value: formatEle(elevationProgress?.descentFromStart), valueColor: .blue)
+                infoRow("종료점까지 남은 상승", value: formatEle(elevationProgress?.ascentToEnd), valueColor: .red)
+                infoRow("종료점까지 남은 하강", value: formatEle(elevationProgress?.descentToEnd), valueColor: .blue)
             }
 
             section(title: "이전 큐", icon: "arrow.up.to.line") {
