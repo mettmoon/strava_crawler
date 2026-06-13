@@ -3,8 +3,8 @@ import SwiftData
 import AppKit
 import StravaTCXKit
 
-/// 별도 윈도우에서 단일 경로(라우트)를 보여주는 워크스페이스.
-/// 좌측 사이드바 없이, 가운데 지도 + 우측 RouteDetailView 인스펙터로 구성된다.
+/// 별도 윈도우에서 단일 경로(라우트)를 코스로 변환하기 전에 확인하는 임시 워크스페이스.
+/// 좌측 사이드바에서 포함할 구간을 고르고, 가운데 지도 + 우측 RouteDetailView 인스펙터로 확인한다.
 /// 3D 경로는 툴바의 버튼으로 별도 윈도우에서 띄운다.
 struct RouteWorkspaceView: View {
     var routeID: String?
@@ -20,8 +20,9 @@ struct RouteWorkspaceView: View {
     @State private var highlightPoints: [TrackPoint] = []
     @State private var routeHoverInfo: RouteHoverInfo?
     @State private var showDeleteConfirm = false
-    @State private var routePendingCourseCreation: Route?
     @State private var rangeSelection: ChartRangeSelection?
+    @State private var selectedSegmentRouteID: String?
+    @State private var selectedSegmentIDs: Set<String> = []
 
     private var route: Route? {
         guard let id = routeID else { return nil }
@@ -33,8 +34,17 @@ struct RouteWorkspaceView: View {
             if let route {
                 workspace(for: route)
                     .navigationTitle(route.title)
-                    .navigationSubtitle("경로")
+                    .navigationSubtitle("코스 만들기")
                     .toolbar {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button {
+                                makeCourseFromCurrentSelection(route: route)
+                            } label: {
+                                Label("코스 만들기", systemImage: "checkmark.circle")
+                            }
+                            .disabled(parsedCourse == nil)
+                        }
+
                         ToolbarItem(placement: .primaryAction) {
                             Button {
                                 openWindow(id: "route-3d", value: route.id)
@@ -70,38 +80,50 @@ struct RouteWorkspaceView: View {
         } message: {
             Text("TCX 데이터와 세그먼트 정보가 삭제됩니다.")
         }
-        .sheet(item: $routePendingCourseCreation) { route in
-            RouteSegmentSelectionSheet(route: route) { selectedSegments in
-                guard let course = parsedCourse else { NSSound.beep(); return }
-                makeCourseFromRoute(route: route, tcxCourse: course, selectedSegments: selectedSegments)
-            }
-        }
     }
 
     @ViewBuilder
     private func workspace(for route: Route) -> some View {
-        contentPane
-            .inspector(isPresented: .constant(true)) {
-                ZStack {
-                    // RouteDetailView는 항상 mount 상태로 둬서 parsedCourse/highlight 콜백을 유지.
-                    RouteDetailView(
-                        route: route,
-                        onCourseParsed: { parsedCourse = $0 },
-                        onHighlight: { highlightPoints = $0 }
-                    )
-                    .opacity(rangeSelection == nil ? 1 : 0)
-                    .allowsHitTesting(rangeSelection == nil)
-
-                    if let range = rangeSelection {
-                        RangeStatsInspectorView(
-                            trackPoints: parsedCourse?.trackPoints ?? [],
-                            range: range
-                        )
-                        .background(.background)
-                    }
+        NavigationSplitView {
+            RouteCourseBuilderSidebar(
+                route: route,
+                selectedSegmentIDs: $selectedSegmentIDs,
+                createDisabled: parsedCourse == nil,
+                onCreate: {
+                    makeCourseFromCurrentSelection(route: route)
                 }
-                .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
-            }
+            )
+            .navigationSplitViewColumnWidth(min: 250, ideal: 300, max: 380)
+        } detail: {
+            contentPane
+                .inspector(isPresented: .constant(true)) {
+                    ZStack {
+                        // RouteDetailView는 항상 mount 상태로 둬서 parsedCourse/highlight 콜백을 유지.
+                        RouteDetailView(
+                            route: route,
+                            onCourseParsed: { parsedCourse = $0 },
+                            onHighlight: { highlightPoints = $0 }
+                        )
+                        .opacity(rangeSelection == nil ? 1 : 0)
+                        .allowsHitTesting(rangeSelection == nil)
+
+                        if let range = rangeSelection {
+                            RangeStatsInspectorView(
+                                trackPoints: parsedCourse?.trackPoints ?? [],
+                                range: range
+                            )
+                            .background(.background)
+                        }
+                    }
+                    .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
+                }
+        }
+        .task(id: route.id) {
+            syncSegmentSelection(for: route)
+        }
+        .onChange(of: route.segments.map(\.segmentID)) { _, _ in
+            syncSegmentSelection(for: route)
+        }
     }
 
     @ViewBuilder
@@ -139,8 +161,8 @@ struct RouteWorkspaceView: View {
         guard let route, let course = parsedCourse else { return [] }
         return Cuesheet.makeEntries(
             trackPoints: course.trackPoints,
-            segments: route.segments,
-            minCategory: route.minCategory
+            segments: selectedSegments(for: route),
+            minCategory: nil
         ).entries.map { entry in
             CourseCuePoint(lat: entry.lat, lon: entry.lon,
                            name: entry.baseName, pointType: entry.pointType)
@@ -151,8 +173,8 @@ struct RouteWorkspaceView: View {
         guard let route, let course = parsedCourse, !pts.isEmpty else { return [] }
         return Cuesheet.makeEntries(
             trackPoints: course.trackPoints,
-            segments: route.segments,
-            minCategory: route.minCategory
+            segments: selectedSegments(for: route),
+            minCategory: nil
         ).entries.map { entry in
             ElevationMarker(
                 id: "\(entry.idx)-\(entry.isStart)",
@@ -188,14 +210,36 @@ struct RouteWorkspaceView: View {
                 showDeleteConfirm = true
             },
             makeIntoCourse: {
-                guard parsedCourse != nil else { NSSound.beep(); return }
-                routePendingCourseCreation = route
+                makeCourseFromCurrentSelection(route: route)
             },
             canExport: parsedCourse != nil
         )
     }
 
     // MARK: - Course 생성
+
+    private func syncSegmentSelection(for route: Route) {
+        let validIDs = Set(route.segments.map(\.segmentID))
+        if selectedSegmentRouteID != route.id {
+            selectedSegmentRouteID = route.id
+            selectedSegmentIDs = validIDs
+            return
+        }
+
+        selectedSegmentIDs = selectedSegmentIDs.intersection(validIDs)
+        if selectedSegmentIDs.isEmpty, !validIDs.isEmpty {
+            selectedSegmentIDs = validIDs
+        }
+    }
+
+    private func selectedSegments(for route: Route) -> [SegmentInfo] {
+        route.segments.filter { selectedSegmentIDs.contains($0.segmentID) }
+    }
+
+    private func makeCourseFromCurrentSelection(route: Route) {
+        guard let course = parsedCourse else { NSSound.beep(); return }
+        makeCourseFromRoute(route: route, tcxCourse: course, selectedSegments: selectedSegments(for: route))
+    }
 
     private func makeCourseFromRoute(route: Route, tcxCourse: TCXCourse, selectedSegments: [SegmentInfo]) {
         let pts = tcxCourse.trackPoints
@@ -236,6 +280,7 @@ struct RouteWorkspaceView: View {
         do {
             try context.save()
             openWindow(id: "course-workspace", value: newCourse.id)
+            dismiss()
         } catch {
             context.rollback()
             NSSound.beep()

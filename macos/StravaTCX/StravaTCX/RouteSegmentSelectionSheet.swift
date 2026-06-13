@@ -8,7 +8,6 @@ struct RouteSegmentSelectionSheet: View {
     let onCreate: ([SegmentInfo]) -> Void
 
     @State private var selectedSegmentIDs: Set<String>
-    @State private var selectedBatchKinds: Set<CourseSegmentBatchKind> = []
 
     init(route: Route, onCreate: @escaping ([SegmentInfo]) -> Void) {
         self.route = route
@@ -17,35 +16,71 @@ struct RouteSegmentSelectionSheet: View {
     }
 
     var body: some View {
+        RouteCourseBuilderSidebar(
+            route: route,
+            selectedSegmentIDs: $selectedSegmentIDs,
+            createButtonTitle: "만들기",
+            onCreate: {
+                onCreate(selectedSegments)
+                dismiss()
+            },
+            onCancel: { dismiss() }
+        )
+        .frame(minWidth: 680, idealWidth: 760, minHeight: 520, idealHeight: 620)
+    }
+
+    private var selectedSegments: [SegmentInfo] {
+        route.segments.filter { selectedSegmentIDs.contains($0.segmentID) }
+    }
+}
+
+struct RouteCourseBuilderSidebar: View {
+    let route: Route
+    @Binding var selectedSegmentIDs: Set<String>
+    var createButtonTitle = "코스 만들기"
+    var createDisabled = false
+    var onCreate: () -> Void
+    var onCancel: (() -> Void)?
+
+    @State private var selectedBatchKinds: Set<CourseSegmentBatchKind> = []
+
+    private let batchColumns = [
+        GridItem(.adaptive(minimum: 58), spacing: 8, alignment: .leading)
+    ]
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-                .padding(20)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
 
             Divider()
 
             batchControls
-                .padding(.horizontal, 20)
-                .padding(.vertical, 14)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
 
             Divider()
 
             segmentList
-                .frame(minHeight: 300)
 
             Divider()
 
             footer
-                .padding(20)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
         }
-        .frame(minWidth: 680, idealWidth: 760, minHeight: 520, idealHeight: 620)
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("포함할 구간")
+        VStack(alignment: .leading, spacing: 4) {
+            Text("코스 만들기")
                 .font(.title3.weight(.semibold))
+            Text("포함할 구간")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
             Text(route.title)
-                .font(.subheadline)
+                .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
         }
@@ -58,7 +93,7 @@ struct RouteSegmentSelectionSheet: View {
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .center, spacing: 14) {
+                LazyVGrid(columns: batchColumns, alignment: .leading, spacing: 6) {
                     ForEach(CourseSegmentBatchKind.allCases) { kind in
                         Toggle(kind.title, isOn: batchBinding(for: kind))
                             .toggleStyle(.checkbox)
@@ -66,8 +101,6 @@ struct RouteSegmentSelectionSheet: View {
                 }
 
                 HStack(alignment: .center, spacing: 8) {
-                    Spacer()
-
                     Button("전체 선택") {
                         selectAllSegments()
                     }
@@ -75,7 +108,9 @@ struct RouteSegmentSelectionSheet: View {
                     Button("전체 해제") {
                         deselectAllSegments()
                     }
+                }
 
+                HStack(alignment: .center, spacing: 8) {
                     Button("일괄 체크") {
                         applyBatch(selected: true)
                     }
@@ -115,29 +150,29 @@ struct RouteSegmentSelectionSheet: View {
     }
 
     private var footer: some View {
-        HStack {
+        VStack(alignment: .leading, spacing: 10) {
             Text("\(selectedSegmentIDs.count) / \(route.segments.count)개 선택")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Spacer()
+            HStack {
+                if let onCancel {
+                    Button("취소", role: .cancel) {
+                        onCancel()
+                    }
+                    .keyboardShortcut(.cancelAction)
+                }
 
-            Button("취소", role: .cancel) {
-                dismiss()
-            }
-            .keyboardShortcut(.cancelAction)
+                Spacer()
 
-            Button("만들기") {
-                onCreate(selectedSegments)
-                dismiss()
+                Button(createButtonTitle) {
+                    onCreate()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(createDisabled)
             }
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.defaultAction)
         }
-    }
-
-    private var selectedSegments: [SegmentInfo] {
-        route.segments.filter { selectedSegmentIDs.contains($0.segmentID) }
     }
 
     private func batchBinding(for kind: CourseSegmentBatchKind) -> Binding<Bool> {

@@ -25,7 +25,7 @@ struct StravaTCXApp: App {
         .commands { RouteCommands() }
         .commands { CourseCommands() }
 
-        WindowGroup("경로 목록", id: "route-library") {
+        WindowGroup("코스로 만들 경로", id: "route-library") {
             RouteLibraryView()
                 .environment(routeListVM)
         }
@@ -35,7 +35,7 @@ struct StravaTCXApp: App {
         .windowResizability(.contentMinSize)
         .modelContainer(container.modelContainer)
 
-        WindowGroup("경로 상세", id: "route-workspace", for: String.self) { $routeID in
+        WindowGroup("코스 만들기", id: "route-workspace", for: String.self) { $routeID in
             RouteWorkspaceView(routeID: routeID, container: container)
                 .environment(routeListVM)
         }
