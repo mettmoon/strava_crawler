@@ -183,6 +183,14 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         leftClick.delaysPrimaryMouseButtonEvents = false
         map.addGestureRecognizer(leftClick)
 
+        let rightClick = NSClickGestureRecognizer(
+            target: coordinator,
+            action: #selector(Coordinator.handleRightClick(_:))
+        )
+        rightClick.buttonMask = 2
+        rightClick.numberOfClicksRequired = 1
+        map.addGestureRecognizer(rightClick)
+
         return map
     }
 
@@ -298,6 +306,13 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         var rangeEndpointAnnotations: [RangeEndpointAnnotation] = []
         var lastRangeSignature: String = ""
 
+        @objc func handleRightClick(_ gesture: NSClickGestureRecognizer) {
+            guard let map = gesture.view as? MKMapView else { return }
+            let point = gesture.location(in: map)
+            let coord = map.convert(point, toCoordinateFrom: map)
+            showExternalMapMenu(coord: coord, in: map)
+        }
+
         @objc func handleEmptyAreaClick(_ gesture: NSClickGestureRecognizer) {
             guard let map = gesture.view as? MKMapView, let superview = map.superview else { return }
             let pointInMap = gesture.location(in: map)
@@ -310,6 +325,58 @@ private struct RouteMapRepresentable: NSViewRepresentable {
                 view = v.superview
             }
             onDeselectFocus?()
+        }
+
+        private func showExternalMapMenu(coord: CLLocationCoordinate2D, in map: MKMapView) {
+            let menu = NSMenu()
+
+            let kakaoMapItem = NSMenuItem(title: "카카오맵에서 보기",
+                                          action: #selector(openKakaoMap(_:)), keyEquivalent: "")
+            kakaoMapItem.target = self
+            kakaoMapItem.representedObject = coord
+            menu.addItem(kakaoMapItem)
+
+            let kakaoRoadviewItem = NSMenuItem(title: "카카오맵 로드뷰에서 보기",
+                                               action: #selector(openKakaoRoadview(_:)), keyEquivalent: "")
+            kakaoRoadviewItem.target = self
+            kakaoRoadviewItem.representedObject = coord
+            menu.addItem(kakaoRoadviewItem)
+
+            menu.addItem(.separator())
+
+            let googleMapItem = NSMenuItem(title: "구글 맵에서 보기",
+                                           action: #selector(openGoogleMap(_:)), keyEquivalent: "")
+            googleMapItem.target = self
+            googleMapItem.representedObject = coord
+            menu.addItem(googleMapItem)
+
+            let googleRoadviewItem = NSMenuItem(title: "구글 맵에서 로드뷰 보기",
+                                                action: #selector(openGoogleRoadview(_:)), keyEquivalent: "")
+            googleRoadviewItem.target = self
+            googleRoadviewItem.representedObject = coord
+            menu.addItem(googleRoadviewItem)
+
+            NSMenu.popUpContextMenu(menu, with: NSApp.currentEvent ?? NSEvent(), for: map)
+        }
+
+        @objc private func openKakaoMap(_ sender: NSMenuItem) {
+            guard let coord = sender.representedObject as? CLLocationCoordinate2D else { return }
+            NSWorkspace.shared.open(KakaoLocalSearch.webURL(lat: coord.latitude, lon: coord.longitude))
+        }
+
+        @objc private func openKakaoRoadview(_ sender: NSMenuItem) {
+            guard let coord = sender.representedObject as? CLLocationCoordinate2D else { return }
+            NSWorkspace.shared.open(KakaoLocalSearch.roadvewURL(lat: coord.latitude, lon: coord.longitude))
+        }
+
+        @objc private func openGoogleMap(_ sender: NSMenuItem) {
+            guard let coord = sender.representedObject as? CLLocationCoordinate2D else { return }
+            NSWorkspace.shared.open(GoogleMapsLink.webURL(lat: coord.latitude, lon: coord.longitude))
+        }
+
+        @objc private func openGoogleRoadview(_ sender: NSMenuItem) {
+            guard let coord = sender.representedObject as? CLLocationCoordinate2D else { return }
+            NSWorkspace.shared.open(GoogleMapsLink.roadviewURL(lat: coord.latitude, lon: coord.longitude))
         }
 
         private let hoverHitThreshold: CGFloat = 10
