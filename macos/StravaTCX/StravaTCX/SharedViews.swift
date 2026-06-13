@@ -21,6 +21,23 @@ func trackPoints(for segment: SegmentInfo) -> [TrackPoint] {
     }
 }
 
+// MARK: - Inspector Controls
+
+struct InspectorToggleButton: View {
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        Button {
+            isPresented.toggle()
+        } label: {
+            Label("인스펙터", systemImage: "sidebar.trailing")
+                .symbolVariant(isPresented ? .fill : .none)
+        }
+        .help(isPresented ? "우측 패널 숨기기" : "우측 패널 보기")
+        .keyboardShortcut("0", modifiers: [.command, .option])
+    }
+}
+
 // MARK: - 경로 hover 정보
 
 struct RouteHoverInfo: Equatable, Sendable {
