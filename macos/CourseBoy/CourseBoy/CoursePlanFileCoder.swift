@@ -8,11 +8,11 @@ enum CoursePlanFileError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingRoot:
-            return "CPN 파일의 루트 요소를 찾을 수 없습니다."
+            return "CSB 파일의 루트 요소를 찾을 수 없습니다."
         case .unsupportedVersion(let version):
-            return "지원하지 않는 CPN 형식입니다. version=\(version)"
+            return "지원하지 않는 CSB 형식입니다. version=\(version)"
         case .missingRequiredField(let field):
-            return "CPN 파일에 필수 값이 없습니다: \(field)"
+            return "CSB 파일에 필수 값이 없습니다: \(field)"
         }
     }
 }
