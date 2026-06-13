@@ -72,7 +72,7 @@ struct WelcomeView: View {
 
                 DispatchButton(
                     title: "새 코스 문서",
-                    subtitle: "CPN 문서로 코스 작성",
+                    subtitle: "CSB 문서로 코스 작성",
                     systemImage: "doc.badge.plus"
                 ) { newDocument { CourseDocument() } }
 
@@ -84,7 +84,7 @@ struct WelcomeView: View {
 
                 DispatchButton(
                     title: "코스 문서 열기",
-                    subtitle: "CPN 파일 열기",
+                    subtitle: "CSB 파일 열기",
                     systemImage: "folder"
                 ) { openCourseDocument() }
             }
@@ -98,7 +98,7 @@ struct WelcomeView: View {
 
     private func reloadRecentCourses() {
         recentCourses = NSDocumentController.shared.recentDocumentURLs
-            .filter { $0.pathExtension.lowercased() == "cpn" }
+            .filter { CourseDocument.readableFilenameExtensions.contains($0.pathExtension.lowercased()) }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
             .map(RecentCourseFile.init(url:))
     }
@@ -110,7 +110,7 @@ struct WelcomeView: View {
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = CourseDocument.readableContentTypes
         panel.prompt = "열기"
-        panel.message = "CPN 코스 문서를 선택하세요"
+        panel.message = "CSB 코스 문서를 선택하세요"
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
