@@ -13,11 +13,12 @@ enum CourseImportFileError: Error, LocalizedError {
 }
 
 extension UTType {
-    static var gpx: UTType { UTType(filenameExtension: "gpx", conformingTo: .xml) ?? .xml }
+    static var gpx: UTType { UTType(filenameExtension: "gpx") ?? .xml }
+    static var xmlGPX: UTType { UTType(filenameExtension: "gpx", conformingTo: .xml) ?? .gpx }
 }
 
 enum CourseImportFileCoder {
-    static var readableContentTypes: [UTType] { [.tcx, .gpx] }
+    static var readableContentTypes: [UTType] { [.tcx, .gpx, .xmlGPX] }
 
     static func makeRecord(from url: URL) throws -> CourseRecord {
         let data = try Data(contentsOf: url)
