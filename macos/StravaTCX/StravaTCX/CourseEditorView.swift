@@ -126,6 +126,7 @@ struct CourseEditorView: View {
                                 )
                             } else {
                                 CourseEditorCueInspectorView(
+                                    course: course,
                                     draft: draft,
                                     selectedCueID: selectedCueID,
                                     onEditCue: { editingCueID = $0 }
@@ -868,6 +869,7 @@ private struct CuePointEditSheet: View {
 /// 우측 인스펙터: 선택된 큐 상세 정보. 보기 화면 CourseCueInspectorView와 동일 정보 +
 /// "수정", "삭제" 버튼.
 private struct CourseEditorCueInspectorView: View {
+    var course: CourseRecord
     var draft: CourseEditorDraft
     var selectedCueID: UUID?
     var onEditCue: (UUID) -> Void
@@ -898,11 +900,66 @@ private struct CourseEditorCueInspectorView: View {
                         .padding(16)
                 }
             } else {
-                ContentUnavailableView {
-                    Label("큐를 선택하세요", systemImage: "mappin.and.ellipse")
-                } description: {
-                    Text("좌측 목록에서 큐 항목을 선택하면 상세 정보가 표시됩니다.")
-                        .font(.caption)
+                ScrollView {
+                    courseOverview()
+                        .padding(16)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func courseOverview() -> some View {
+        let pts = trackPoints
+        let cues = sortedCues
+        let totalKm = pts.last?.cumKm ?? 0
+        let elevation = courseElevationStats(pts)
+
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("코스 개요")
+                    .font(.title3.weight(.semibold))
+                Text("큐시트를 선택하지 않은 상태입니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            section(title: "기본 정보", icon: "doc.text") {
+                infoRow("생성일", value: formatDate(course.createdAt))
+                infoRow("파일 경로", value: displayText(course.sourceFilePath))
+                infoRow("출처 Route ID", value: displayText(course.sourceRouteID))
+            }
+
+            section(title: "주행 요약", icon: "speedometer") {
+                infoRow("총 거리", value: formatKm(totalKm))
+                infoRow("획득고도", value: formatEle(elevation.ascent), valueColor: .red)
+                infoRow("누적 하강", value: formatEle(elevation.descent), valueColor: .blue)
+                infoRow("상승 밀도", value: formatElevationDensity(elevation.ascent, totalKm: totalKm))
+            }
+
+            section(title: "고도 범위", icon: "mountain.2") {
+                infoRow("시작 고도", value: formatEle(pts.first?.ele))
+                infoRow("종료 고도", value: formatEle(pts.last?.ele))
+                infoRow("최저 고도", value: formatEle(elevation.min))
+                infoRow("최고 고도", value: formatEle(elevation.max))
+                infoRow("최고-최저", value: formatEle(elevation.span))
+            }
+
+            section(title: "경로 구성", icon: "point.3.connected.trianglepath.dotted") {
+                infoRow("경유지", value: formatCount(draft.routePoints.count))
+                infoRow("트랙 구간", value: formatCount(draft.trackSegments.count))
+                infoRow("트랙 포인트", value: formatCount(pts.count))
+                infoRow("고도 데이터", value: elevation.hasData ? "있음" : "없음")
+            }
+
+            section(title: "큐시트 요약", icon: "list.bullet.rectangle") {
+                infoRow("전체 큐", value: formatCount(cues.count))
+                infoRow("타입 구성", value: cueTypeSummary(cues))
+                if let first = cues.first {
+                    infoRow("첫 큐", value: cueSummary(first, trackPoints: pts))
+                }
+                if let last = cues.last {
+                    infoRow("마지막 큐", value: cueSummary(last, trackPoints: pts))
                 }
             }
         }
@@ -1046,6 +1103,90 @@ private struct CourseEditorCueInspectorView: View {
     private func formatEle(_ ele: Double?) -> String {
         guard let ele else { return "—" }
         return String(format: "%.0f m", ele)
+    }
+
+    private func formatCount(_ count: Int) -> String {
+        "\(count)개"
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        date.formatted(.dateTime.year().month().day().hour().minute())
+    }
+
+    private func formatElevationDensity(_ ascent: Double?, totalKm: Double) -> String {
+        guard let ascent, totalKm > 0 else { return "—" }
+        return String(format: "%.0f m/km", ascent / totalKm)
+    }
+
+    private func displayText(_ value: String?) -> String {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? "—" : trimmed
+    }
+
+    private func cueSummary(_ cue: CourseCuePoint, trackPoints pts: [TrackPoint]) -> String {
+        let km = cueDistanceKm(cue, trackPoints: pts)
+        return "\(formatKm(km)) · \(cueDisplayName(cue))"
+    }
+
+    private func cueDisplayName(_ cue: CourseCuePoint) -> String {
+        cue.name.isEmpty ? cuePointLabel(for: cue.pointType) : cue.name
+    }
+
+    private func cueDistanceKm(_ cue: CourseCuePoint, trackPoints pts: [TrackPoint]) -> Double {
+        if let idx = Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon) {
+            return pts[idx].cumKm
+        }
+        return cue.distanceMeters / 1000
+    }
+
+    private func cueTypeSummary(_ cues: [CourseCuePoint]) -> String {
+        guard !cues.isEmpty else { return "—" }
+        let counts = Dictionary(grouping: cues, by: { cuePointLabel(for: $0.pointType) })
+            .mapValues(\.count)
+        let sorted = counts.sorted {
+            if $0.value == $1.value { return $0.key < $1.key }
+            return $0.value > $1.value
+        }
+        let visible = sorted.prefix(3).map { "\($0.key) \($0.value)" }
+        let hiddenCount = max(0, sorted.count - visible.count)
+        if hiddenCount > 0 {
+            return (visible + ["외 \(hiddenCount)종"]).joined(separator: ", ")
+        }
+        return visible.joined(separator: ", ")
+    }
+
+    private func courseElevationStats(_ pts: [TrackPoint]) -> (
+        min: Double?,
+        max: Double?,
+        span: Double?,
+        ascent: Double?,
+        descent: Double?,
+        hasData: Bool
+    ) {
+        let elevations = pts.compactMap(\.ele)
+        let minEle = elevations.min()
+        let maxEle = elevations.max()
+        let span = minEle.flatMap { lo in maxEle.map { max(0, $0 - lo) } }
+
+        var ascent: Double = 0
+        var descent: Double = 0
+        var hasPair = false
+        guard pts.count > 1 else {
+            return (minEle, maxEle, span, nil, nil, !elevations.isEmpty)
+        }
+
+        for i in 1..<pts.count {
+            guard let prevEle = pts[i - 1].ele, let currEle = pts[i].ele else { continue }
+            hasPair = true
+            let diff = currEle - prevEle
+            if diff > 0 {
+                ascent += diff
+            } else {
+                descent += -diff
+            }
+        }
+
+        return (minEle, maxEle, span, hasPair ? ascent : nil, hasPair ? descent : nil, !elevations.isEmpty)
     }
 
     private func formatEleDelta(from a: CourseCuePoint, to b: CourseCuePoint, pts: [TrackPoint]) -> String {
