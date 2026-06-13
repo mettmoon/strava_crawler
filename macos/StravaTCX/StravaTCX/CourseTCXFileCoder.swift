@@ -2,12 +2,12 @@ import Foundation
 import StravaTCXKit
 
 enum CourseTCXFileCoder {
-    static func makeRecord(from data: Data, fallbackTitle: String) throws -> CourseRecord {
+    static func makeRecord(from data: Data, fallbackTitle: String, sourceFilePath: String? = nil) throws -> CourseRecord {
         let tcxCourse = try TCXCourse(data: data)
         let title = normalizedTitle(tcxCourse.courseName, fallback: fallbackTitle)
         let trackPoints = tcxCourse.trackPoints
 
-        let course = CourseRecord(title: title)
+        let course = CourseRecord(title: title, sourceFilePath: sourceFilePath)
         if let first = trackPoints.first, let last = trackPoints.last {
             course.routePoints = [
                 CourseRoutePoint(lat: first.lat, lon: first.lon),

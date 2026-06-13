@@ -81,9 +81,13 @@ final class CourseRecord {
     /// "코스로 만들기" 출처 RouteRecord.routeID. 직접 생성이면 nil.
     var sourceRouteID: String?
 
-    init(title: String, sourceRouteID: String? = nil) {
+    /// TCX 파일 열기로 생성된 경우 원본 파일 경로. 직접 생성/Strava 경로 기반이면 nil.
+    var sourceFilePath: String?
+
+    init(title: String, sourceRouteID: String? = nil, sourceFilePath: String? = nil) {
         self.title = title
         self.sourceRouteID = sourceRouteID
+        self.sourceFilePath = sourceFilePath
     }
 
     // MARK: - 편의 계산
