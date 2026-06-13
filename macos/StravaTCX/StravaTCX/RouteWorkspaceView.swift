@@ -232,5 +232,13 @@ struct RouteWorkspaceView: View {
         }
 
         context.insert(newCourse)
+
+        do {
+            try context.save()
+            openWindow(id: "course-workspace", value: newCourse.id)
+        } catch {
+            context.rollback()
+            NSSound.beep()
+        }
     }
 }
