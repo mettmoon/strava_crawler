@@ -6,6 +6,7 @@ extension FocusedValues {
     @Entry var segmentCommandHandler: SegmentCommandHandler? = nil
     @Entry var routeCommandHandler: RouteCommandHandler? = nil
     @Entry var courseCommandHandler: CourseCommandHandler? = nil
+    @Entry var courseFileCommandHandler: CourseFileCommandHandler? = nil
     @Entry var createCourseAction: (() -> Void)? = nil
     @Entry var addRouteAction: (() -> Void)? = nil
 }
@@ -27,6 +28,9 @@ struct RouteCommandHandler {
 
 struct CourseCommandHandler {
     var edit: () -> Void
-    var exportTCX: () -> Void
-    var delete: () -> Void
+}
+
+struct CourseFileCommandHandler {
+    var saveTCX: () -> Void
+    var canSaveTCX: Bool
 }

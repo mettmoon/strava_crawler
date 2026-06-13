@@ -135,6 +135,10 @@ struct CourseEditorView: View {
                 selectedCueID = nil
             }
         }
+        .focusedSceneValue(\.courseFileCommandHandler, CourseFileCommandHandler(
+            saveTCX: { saveDraftTCX() },
+            canSaveTCX: !draft.allTrackPoints.isEmpty
+        ))
         .confirmationDialog("변경 사항을 버리시겠습니까?", isPresented: $showDiscardConfirm, titleVisibility: .visible) {
             Button("변경 사항 버리기", role: .destructive) { closeConfirmed = true }
             Button("계속 편집", role: .cancel) {}
@@ -249,6 +253,19 @@ struct CourseEditorView: View {
             distanceMeters: snap.cumKm * 1000
         )
         draft.appendCuePoint(cue)
+    }
+
+    private func saveDraftTCX() {
+        do {
+            let data = try CourseTCXFileCoder.makeTCXData(
+                title: draft.title,
+                trackPoints: draft.allTrackPoints,
+                cuePoints: draft.cuePoints
+            )
+            Exporter.saveTCX(filename: draft.title, data: data)
+        } catch {
+            NSSound.beep()
+        }
     }
 
     private func elevationMarkers(for pts: [TrackPoint]) -> [ElevationMarker] {

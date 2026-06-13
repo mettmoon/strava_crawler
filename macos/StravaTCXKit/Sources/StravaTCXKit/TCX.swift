@@ -50,9 +50,31 @@ public enum TCXError: Error, LocalizedError {
 
 /// 라우트 TCX 한 개를 다루는 객체. 트랙포인트 파싱 + CoursePoint 삽입/직렬화.
 public final class TCXCourse {
+    public struct ParsedCoursePoint: Sendable {
+        public var time: String?
+        public var lat: Double
+        public var lon: Double
+        public var ele: Double?
+        public var name: String
+        public var pointType: String
+        public var notes: String?
+
+        public init(time: String? = nil, lat: Double, lon: Double, ele: Double? = nil,
+                    name: String, pointType: String, notes: String? = nil) {
+            self.time = time
+            self.lat = lat
+            self.lon = lon
+            self.ele = ele
+            self.name = name
+            self.pointType = pointType
+            self.notes = notes
+        }
+    }
+
     public let originalData: Data
     public let trackPoints: [TrackPoint]
     public let courseName: String?
+    public let coursePoints: [ParsedCoursePoint]
 
     public init(data: Data) throws {
         self.originalData = data
@@ -64,6 +86,7 @@ public final class TCXCourse {
         let pts = TCXCourse.parseTrackpoints(in: course)
         if pts.isEmpty { throw TCXError.noTrackpoints }
         self.trackPoints = pts
+        self.coursePoints = TCXCourse.parseCoursePoints(in: course)
     }
 
     /// CoursePoint 를 삽입한 새 TCX 데이터 생성 (원본을 다시 파싱하므로 원본 불변).
@@ -130,7 +153,7 @@ public final class TCXCourse {
             child.detach()
         }
 
-        var newCps = cuePoints.sorted { $0.idx < $1.idx }.map { c in
+        let newCps = cuePoints.sorted { $0.idx < $1.idx }.map { c in
             (idx: c.idx, element: Self.makeCoursePointElement(
                 name: c.name, time: c.time, lat: c.lat, lon: c.lon, ele: c.ele,
                 pointType: c.pointType, notes: c.notes.isEmpty ? nil : c.notes,
@@ -146,6 +169,60 @@ public final class TCXCourse {
         }
 
         return (doc.xmlData(options: []), newCps.count)
+    }
+
+    public static func buildCourseData(
+        title: String,
+        trackPoints: [TrackPoint],
+        cuePoints: [CuePointSpec]
+    ) throws -> (data: Data, count: Int) {
+        guard !trackPoints.isEmpty else { throw TCXError.noTrackpoints }
+
+        let root = nsElement("TrainingCenterDatabase")
+        root.addNamespace(XMLNode.namespace(withName: "xsi", stringValue: "http://www.w3.org/2001/XMLSchema-instance") as! XMLNode)
+        root.addAttribute(XMLNode.attribute(
+            withName: "xsi:schemaLocation",
+            stringValue: "\(tcxNamespace) http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd"
+        ) as! XMLNode)
+
+        let courses = nsElement("Courses")
+        let course = nsElement("Course")
+        course.addChild(nsElement("Name", title.isEmpty ? "Course" : title))
+
+        let track = nsElement("Track")
+        for point in trackPoints {
+            let tp = nsElement("Trackpoint")
+            if let time = point.time, !time.isEmpty {
+                tp.addChild(nsElement("Time", time))
+            }
+            let pos = nsElement("Position")
+            pos.addChild(nsElement("LatitudeDegrees", String(format: "%.7f", point.lat)))
+            pos.addChild(nsElement("LongitudeDegrees", String(format: "%.7f", point.lon)))
+            tp.addChild(pos)
+            if let ele = point.ele {
+                tp.addChild(nsElement("AltitudeMeters", String(format: "%.2f", ele)))
+            }
+            tp.addChild(nsElement("DistanceMeters", String(format: "%.2f", point.cumKm * 1000)))
+            track.addChild(tp)
+        }
+        course.addChild(track)
+
+        let sortedCues = cuePoints.sorted { $0.idx < $1.idx }
+        for cue in sortedCues {
+            course.addChild(makeCoursePointElement(
+                name: cue.name, time: cue.time, lat: cue.lat, lon: cue.lon, ele: cue.ele,
+                pointType: cue.pointType, notes: cue.notes.isEmpty ? nil : cue.notes,
+                allowEmptyName: true
+            ))
+        }
+
+        courses.addChild(course)
+        root.addChild(courses)
+
+        let doc = XMLDocument(rootElement: root)
+        doc.characterEncoding = "UTF-8"
+        doc.version = "1.0"
+        return (doc.xmlData(options: []), sortedCues.count)
     }
 
     // MARK: - CoursePoint 생성
@@ -237,6 +314,53 @@ public final class TCXCourse {
             prev = (lat, lon)
         }
         return pts
+    }
+
+    static func parseCoursePoints(in course: XMLElement) -> [ParsedCoursePoint] {
+        var points: [ParsedCoursePoint] = []
+        for cp in allElements(in: course, localName: "CoursePoint") {
+            var name = ""
+            var time: String?
+            var lat: Double?
+            var lon: Double?
+            var ele: Double?
+            var pointType = "Generic"
+            var notes: String?
+
+            for child in (cp.children ?? []).compactMap({ $0 as? XMLElement }) {
+                switch child.localName {
+                case "Name":
+                    name = child.stringValue ?? ""
+                case "Time":
+                    time = child.stringValue
+                case "Position":
+                    for c in (child.children ?? []).compactMap({ $0 as? XMLElement }) {
+                        if c.localName == "LatitudeDegrees" { lat = c.stringValue.flatMap(Double.init) }
+                        else if c.localName == "LongitudeDegrees" { lon = c.stringValue.flatMap(Double.init) }
+                    }
+                case "AltitudeMeters":
+                    ele = child.stringValue.flatMap(Double.init)
+                case "PointType":
+                    pointType = child.stringValue ?? "Generic"
+                case "Notes":
+                    notes = child.stringValue
+                default:
+                    break
+                }
+            }
+
+            guard let lat, let lon else { continue }
+            points.append(ParsedCoursePoint(
+                time: time,
+                lat: lat,
+                lon: lon,
+                ele: ele,
+                name: name,
+                pointType: pointType,
+                notes: notes
+            ))
+        }
+        return points
     }
 
     static func firstElement(in node: XMLElement?, localName: String) -> XMLElement? {
