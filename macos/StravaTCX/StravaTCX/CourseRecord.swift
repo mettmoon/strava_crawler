@@ -1,5 +1,5 @@
 import Foundation
-import SwiftData
+import Combine
 import StravaTCXKit
 
 // MARK: - CourseRoutePoint
@@ -52,6 +52,13 @@ struct TrackPointCodable: Codable, Sendable {
     var ele: Double?
     var cumKm: Double
 
+    init(lat: Double, lon: Double, ele: Double?, cumKm: Double) {
+        self.lat = lat
+        self.lon = lon
+        self.ele = ele
+        self.cumKm = cumKm
+    }
+
     init(_ tp: TrackPoint) {
         lat = tp.lat; lon = tp.lon; ele = tp.ele; cumKm = tp.cumKm
     }
@@ -62,27 +69,26 @@ struct TrackPointCodable: Codable, Sendable {
 // MARK: - CourseRecord
 
 /// 사용자가 직접 만들거나 RouteRecord에서 파생한 코스.
-@Model
-final class CourseRecord {
-    var id: UUID = UUID()
-    var title: String = ""
-    var createdAt: Date = Date()
+final class CourseRecord: ObservableObject, Identifiable {
+    @Published var id: UUID = UUID()
+    @Published var title: String = ""
+    @Published var createdAt: Date = Date()
 
     /// 경유지 목록. 순서가 경로의 순서.
-    var routePoints: [CourseRoutePoint] = []
+    @Published var routePoints: [CourseRoutePoint] = []
 
     /// routePoints[i] → routePoints[i+1] 구간의 OSRM 계산 결과.
     /// trackSegments.count == max(0, routePoints.count - 1)
-    var trackSegments: [[TrackPointCodable]] = []
+    @Published var trackSegments: [[TrackPointCodable]] = []
 
     /// 큐시트 항목 목록.
-    var cuePoints: [CourseCuePoint] = []
+    @Published var cuePoints: [CourseCuePoint] = []
 
     /// "코스로 만들기" 출처 RouteRecord.routeID. 직접 생성이면 nil.
-    var sourceRouteID: String?
+    @Published var sourceRouteID: String?
 
     /// TCX 파일 열기로 생성된 경우 원본 파일 경로. 직접 생성/Strava 경로 기반이면 nil.
-    var sourceFilePath: String?
+    @Published var sourceFilePath: String?
 
     init(title: String, sourceRouteID: String? = nil, sourceFilePath: String? = nil) {
         self.title = title

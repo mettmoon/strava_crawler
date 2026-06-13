@@ -1,59 +1,48 @@
 import SwiftUI
-import SwiftData
 import AppKit
 import StravaTCXKit
 
 /// 별도 윈도우에서 단일 코스를 보여주는 워크스페이스 (보기 전용).
 /// 좌측 사이드바 없이, 가운데 지도 + 우측 CourseDetailView 인스펙터로 구성된다.
-/// 3D 경로는 툴바의 버튼으로 별도 윈도우에서 띄운다.
-/// 편집은 기존 `course-editor` 윈도우에서 한다.
+/// 3D 경로와 편집 화면은 문서 뷰가 전달한 액션으로 전환한다.
 struct CourseWorkspaceView: View {
-    var courseID: UUID?
+    @ObservedObject var course: CourseRecord
     var container: AppContainer
-
-    @Environment(\.openWindow) private var openWindow
-    @Query private var allCourses: [CourseRecord]
+    var onEdit: () -> Void
+    var onShow3D: () -> Void
 
     @State private var highlightPoints: [TrackPoint] = []
     @State private var hoverInfo: RouteHoverInfo?
     @State private var selectedCueIDs: Set<UUID> = []
     @State private var rangeSelection: ChartRangeSelection?
 
-    private var course: CourseRecord? {
-        guard let id = courseID else { return nil }
-        return allCourses.first { $0.id == id }
-    }
-
     private var selectedCueID: UUID? {
         selectedCueIDs.count == 1 ? selectedCueIDs.first : nil
     }
 
     var body: some View {
-        Group {
-            if let course {
-                workspace(for: course)
-                    .navigationTitle(course.title)
-                    .navigationSubtitle("코스")
-                    .toolbar {
-                        ToolbarItem(placement: .primaryAction) {
-                            Button {
-                                openWindow(id: "course-3d", value: course.id)
-                            } label: {
-                                Label("3D 경로", systemImage: "view.3d")
-                            }
-                            .help("3D 경로를 별도 창에서 열기")
-                        }
+        workspace(for: course)
+            .navigationTitle(course.title)
+            .navigationSubtitle("코스")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: onEdit) {
+                        Label("편집", systemImage: "pencil")
                     }
-                    .toolbar(removing: .sidebarToggle)
-            } else if courseID == nil {
-                ContentUnavailableView("코스를 찾을 수 없음", systemImage: "map")
-            } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .help("코스 편집")
+                }
+
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: onShow3D) {
+                        Label("3D 경로", systemImage: "view.3d")
+                    }
+                    .disabled(course.allTrackPoints.isEmpty)
+                    .help("3D 경로 보기")
+                }
             }
-        }
-        .focusedSceneValue(\.courseCommandHandler, makeHandler())
-        .focusedSceneValue(\.courseFileCommandHandler, makeFileHandler())
+            .toolbar(removing: .sidebarToggle)
+            .focusedSceneValue(\.courseCommandHandler, makeHandler())
+            .focusedSceneValue(\.courseFileCommandHandler, makeFileHandler())
     }
 
     @ViewBuilder
@@ -151,17 +140,15 @@ struct CourseWorkspaceView: View {
     // MARK: - Command Handler
 
     private func makeHandler() -> CourseCommandHandler? {
-        guard let course else { return nil }
         return CourseCommandHandler(
-            edit: { openWindow(id: "course-editor", value: course.id) }
+            edit: onEdit
         )
     }
 
     private func makeFileHandler() -> CourseFileCommandHandler? {
-        guard let course else { return nil }
         return CourseFileCommandHandler(
-            saveTCX: { saveCourseTCX(course) },
-            canSaveTCX: !course.allTrackPoints.isEmpty
+            exportTCX: { saveCourseTCX(course) },
+            canExportTCX: !course.allTrackPoints.isEmpty
         )
     }
 

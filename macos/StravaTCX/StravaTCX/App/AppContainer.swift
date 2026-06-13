@@ -13,7 +13,6 @@ final class AppContainer {
     let remoteService: LiveStravaRemoteService
     let segmentRepository: CachingSegmentRepository
     let routeRepository: SwiftDataRouteRepository
-    let courseRepository: SwiftDataCourseRepository
 
     // MARK: - Use Cases
 
@@ -24,14 +23,13 @@ final class AppContainer {
     let deleteSegmentUseCase: DeleteSegmentUseCase
     let buildCuesheetUseCase: BuildCuesheetUseCase
     let exportTCXUseCase: ExportTCXUseCase
-    let makeCourseFromRouteUseCase: MakeCourseFromRouteUseCase
     let computeRouteSegmentUseCase: ComputeRouteSegmentUseCase
     let reconcileImportsUseCase: ReconcileImportsUseCase
 
     // MARK: - Init
 
     init() throws {
-        modelContainer = try ModelContainer(for: RouteRecord.self, CourseRecord.self)
+        modelContainer = try ModelContainer(for: RouteRecord.self)
 
         let credProvider: @Sendable () -> Credentials = {
             Credentials(cookie: AppSettings.cookie, csrfToken: AppSettings.csrfToken)
@@ -41,7 +39,6 @@ final class AppContainer {
         remoteService = LiveStravaRemoteService()
         segmentRepository = CachingSegmentRepository(remoteService: remoteService)
         routeRepository = SwiftDataRouteRepository(container: modelContainer)
-        courseRepository = SwiftDataCourseRepository(container: modelContainer)
 
         importRouteUseCase = ImportRouteUseCase(
             routeRepository: routeRepository,
@@ -70,10 +67,6 @@ final class AppContainer {
         deleteSegmentUseCase = DeleteSegmentUseCase(routeRepository: routeRepository, segmentRepository: segmentRepository)
         buildCuesheetUseCase = BuildCuesheetUseCase(routeRepository: routeRepository)
         exportTCXUseCase = ExportTCXUseCase(routeRepository: routeRepository)
-        makeCourseFromRouteUseCase = MakeCourseFromRouteUseCase(
-            routeRepository: routeRepository,
-            courseRepository: courseRepository
-        )
         computeRouteSegmentUseCase = ComputeRouteSegmentUseCase()
         reconcileImportsUseCase = ReconcileImportsUseCase(routeRepository: routeRepository)
     }
@@ -86,14 +79,6 @@ final class AppContainer {
             retryImportUseCase: retryImportUseCase,
             reconcileUseCase: reconcileImportsUseCase,
             routeRepository: routeRepository
-        )
-    }
-
-    func makeCourseEditorViewModel(for courseID: UUID) -> CourseEditorViewModel {
-        CourseEditorViewModel(
-            courseID: courseID,
-            courseRepository: courseRepository,
-            computeSegmentUseCase: computeRouteSegmentUseCase
         )
     }
 

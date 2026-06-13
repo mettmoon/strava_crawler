@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftData
 import StravaTCXKit
 
 // MARK: - CourseCuesheetSidebar
@@ -7,7 +6,7 @@ import StravaTCXKit
 /// 코스 워크스페이스 좌측 사이드바.
 /// 큐시트 항목을 거리 순서로 나열하고 선택을 바인딩한다.
 struct CourseCuesheetSidebar: View {
-    @Bindable var course: CourseRecord
+    var course: CourseRecord
     @Binding var selectedCueIDs: Set<UUID>
 
     private var sortedCues: [CourseCuePoint] {
@@ -407,28 +406,5 @@ struct CourseCueInspectorView: View {
         let diff = bEle - aEle
         let sign = diff > 0 ? "+" : (diff < 0 ? "" : "")
         return String(format: "%@%.0f m", sign, diff)
-    }
-}
-
-// MARK: - CourseEditorWindowView
-
-/// 별도 윈도우에서 코스를 편집한다. UUID로 SwiftData에서 코스를 조회한다.
-struct CourseEditorWindowView: View {
-    var courseID: UUID?
-    @Query private var allCourses: [CourseRecord]
-
-    private var course: CourseRecord? {
-        guard let id = courseID else { return nil }
-        return allCourses.first { $0.id == id }
-    }
-
-    var body: some View {
-        if let course {
-            CourseEditorView(course: course)
-                .navigationTitle(course.title)
-                .navigationSubtitle("코스 편집")
-        } else {
-            ContentUnavailableView("코스를 찾을 수 없음", systemImage: "map")
-        }
     }
 }

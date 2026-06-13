@@ -65,7 +65,9 @@ func cuePointGlyph(for value: String) -> CuePointGlyph {
 /// 코스 편집 화면.
 /// draft(로컬 복사본)에서 작업하다가 "저장"으로 CourseRecord에 커밋, "취소"로 폐기.
 struct CourseEditorView: View {
-    var course: CourseRecord
+    @ObservedObject var course: CourseRecord
+    var onSave: (() -> Void)?
+    var onCancel: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     @State private var draft: CourseEditorDraft
@@ -93,8 +95,10 @@ struct CourseEditorView: View {
         )
     }
 
-    init(course: CourseRecord) {
+    init(course: CourseRecord, onSave: (() -> Void)? = nil, onCancel: (() -> Void)? = nil) {
         self.course = course
+        self.onSave = onSave
+        self.onCancel = onCancel
         _draft = State(initialValue: CourseEditorDraft(from: course))
     }
 
@@ -150,8 +154,8 @@ struct CourseEditorView: View {
             }
         }
         .focusedSceneValue(\.courseFileCommandHandler, CourseFileCommandHandler(
-            saveTCX: { saveDraftTCX() },
-            canSaveTCX: !draft.allTrackPoints.isEmpty
+            exportTCX: { saveDraftTCX() },
+            canExportTCX: !draft.allTrackPoints.isEmpty
         ))
         .confirmationDialog("변경 사항을 버리시겠습니까?", isPresented: $showDiscardConfirm, titleVisibility: .visible) {
             Button("변경 사항 버리기", role: .destructive) { closeConfirmed = true }
@@ -161,8 +165,7 @@ struct CourseEditorView: View {
         }
         .onChange(of: closeConfirmed) { _, confirmed in
             if confirmed {
-                dismiss()
-                NSApp.keyWindow?.close()
+                closeEditor()
             }
         }
         .sheet(isPresented: Binding(
@@ -487,20 +490,33 @@ struct CourseEditorView: View {
                 if draft.undoManager.canUndo {
                     showDiscardConfirm = true
                 } else {
-                    dismiss()
+                    closeEditor()
                 }
             }
             .keyboardShortcut(.escape, modifiers: [])
 
             Button("저장") {
                 draft.commit(to: course)
-                dismiss()
+                if let onSave {
+                    onSave()
+                } else {
+                    dismiss()
+                }
             }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.return, modifiers: .command)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    private func closeEditor() {
+        if let onCancel {
+            onCancel()
+        } else {
+            dismiss()
+            NSApp.keyWindow?.close()
+        }
     }
 }
 
