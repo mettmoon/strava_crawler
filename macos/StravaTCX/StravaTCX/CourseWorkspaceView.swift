@@ -44,6 +44,7 @@ struct CourseWorkspaceView: View {
                             .help("3D 경로를 별도 창에서 열기")
                         }
                     }
+                    .toolbar(removing: .sidebarToggle)
             } else if courseID == nil {
                 ContentUnavailableView("코스를 찾을 수 없음", systemImage: "map")
             } else {
