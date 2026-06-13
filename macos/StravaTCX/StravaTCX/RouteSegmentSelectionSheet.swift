@@ -57,23 +57,35 @@ struct RouteSegmentSelectionSheet: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            HStack(alignment: .center, spacing: 14) {
-                ForEach(CourseSegmentBatchKind.allCases) { kind in
-                    Toggle(kind.title, isOn: batchBinding(for: kind))
-                        .toggleStyle(.checkbox)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .center, spacing: 14) {
+                    ForEach(CourseSegmentBatchKind.allCases) { kind in
+                        Toggle(kind.title, isOn: batchBinding(for: kind))
+                            .toggleStyle(.checkbox)
+                    }
                 }
 
-                Spacer(minLength: 12)
+                HStack(alignment: .center, spacing: 8) {
+                    Spacer()
 
-                Button("일괄 체크") {
-                    applyBatch(selected: true)
-                }
-                .disabled(selectedBatchKinds.isEmpty)
+                    Button("전체 선택") {
+                        selectAllSegments()
+                    }
 
-                Button("일괄 해제") {
-                    applyBatch(selected: false)
+                    Button("전체 해제") {
+                        deselectAllSegments()
+                    }
+
+                    Button("일괄 체크") {
+                        applyBatch(selected: true)
+                    }
+                    .disabled(selectedBatchKinds.isEmpty)
+
+                    Button("일괄 해제") {
+                        applyBatch(selected: false)
+                    }
+                    .disabled(selectedBatchKinds.isEmpty)
                 }
-                .disabled(selectedBatchKinds.isEmpty)
             }
         }
     }
@@ -149,6 +161,14 @@ struct RouteSegmentSelectionSheet: View {
         }
     }
 
+    private func selectAllSegments() {
+        selectedSegmentIDs = Set(route.segments.map(\.segmentID))
+    }
+
+    private func deselectAllSegments() {
+        selectedSegmentIDs.removeAll()
+    }
+
     private func applyBatch(selected: Bool) {
         let ids = route.segments
             .filter { segment in
@@ -172,6 +192,7 @@ private enum CourseSegmentBatchKind: String, CaseIterable, Identifiable, Hashabl
     case category2
     case category3
     case category4
+    case up
     case flat
     case down
 
@@ -184,6 +205,7 @@ private enum CourseSegmentBatchKind: String, CaseIterable, Identifiable, Hashabl
         case .category2: return "2"
         case .category3: return "3"
         case .category4: return "4"
+        case .up: return "오르막"
         case .flat: return "평지"
         case .down: return "내리막"
         }
@@ -202,6 +224,8 @@ private enum CourseSegmentBatchKind: String, CaseIterable, Identifiable, Hashabl
             return category == "3"
         case .category4:
             return category == "4"
+        case .up:
+            return category == nil && Classification.gradeClass(segment.avgGrade) == .up
         case .flat:
             return category == nil && Classification.gradeClass(segment.avgGrade) == .flat
         case .down:
