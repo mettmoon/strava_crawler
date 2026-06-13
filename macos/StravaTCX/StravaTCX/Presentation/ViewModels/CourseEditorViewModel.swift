@@ -62,16 +62,17 @@ final class CourseEditorViewModel {
 
     func save() async throws {
         guard let draft else { return }
-        let record = CourseMapper.toRecord(Course(
+        let existing = try await courseRepository.fetch(id: courseID)
+        let course = Course(
             id: courseID,
             title: draft.title,
-            createdAt: Date(),
+            createdAt: existing?.createdAt ?? Date(),
             routePoints: draft.routePoints,
             trackSegments: draft.trackSegments,
-            cuePoints: draft.cuePoints
-        ))
-        draft.commit(to: record)
-        let course = CourseMapper.toDomain(record)
+            cuePoints: draft.cuePoints,
+            sourceRouteID: existing?.sourceRouteID,
+            sourceFilePath: existing?.sourceFilePath
+        )
         try await courseRepository.save(course)
     }
 }

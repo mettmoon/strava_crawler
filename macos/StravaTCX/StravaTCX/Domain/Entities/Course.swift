@@ -8,5 +8,6 @@ struct Course: Sendable, Identifiable {
     var routePoints: [CourseRoutePoint]
     var trackSegments: [[TrackPointCodable]]
     var cuePoints: [CourseCuePoint]
-    var sourceRouteID: String?
+    var sourceRouteID: String? = nil
+    var sourceFilePath: String? = nil
 }

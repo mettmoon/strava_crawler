@@ -66,7 +66,11 @@ struct CourseFileCommands: Commands {
         do {
             let data = try Data(contentsOf: url)
             let title = url.deletingPathExtension().lastPathComponent
-            let course = try CourseTCXFileCoder.makeRecord(from: data, fallbackTitle: title)
+            let course = try CourseTCXFileCoder.makeRecord(
+                from: data,
+                fallbackTitle: title,
+                sourceFilePath: url.path
+            )
             let context = container.modelContainer.mainContext
             context.insert(course)
             try context.save()

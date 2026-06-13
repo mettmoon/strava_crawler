@@ -9,7 +9,8 @@ enum CourseMapper {
             routePoints: record.routePoints,
             trackSegments: record.trackSegments,
             cuePoints: record.cuePoints,
-            sourceRouteID: record.sourceRouteID
+            sourceRouteID: record.sourceRouteID,
+            sourceFilePath: record.sourceFilePath
         )
     }
 
@@ -19,10 +20,15 @@ enum CourseMapper {
         record.trackSegments = course.trackSegments
         record.cuePoints = course.cuePoints
         record.sourceRouteID = course.sourceRouteID
+        record.sourceFilePath = course.sourceFilePath
     }
 
     static func toRecord(_ course: Course) -> CourseRecord {
-        let record = CourseRecord(title: course.title, sourceRouteID: course.sourceRouteID)
+        let record = CourseRecord(
+            title: course.title,
+            sourceRouteID: course.sourceRouteID,
+            sourceFilePath: course.sourceFilePath
+        )
         record.id = course.id
         record.createdAt = course.createdAt
         record.routePoints = course.routePoints
