@@ -1,0 +1,76 @@
+{
+  "fill" : {
+    "automatic-gradient" : "display-p3:0.89416,0.39514,0.17159,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "image-name" : "minimal_bicycle_clean_white.svg",
+          "name" : "minimal_bicycle_clean_white",
+          "position" : {
+            "scale" : 1.5,
+            "translation-in-points" : [
+              0,
+              -62.66378459999987
+            ]
+          }
+        },
+        {
+          "blend-mode" : "normal",
+          "fill" : "none",
+          "glass" : true,
+          "hidden" : true,
+          "image-name" : "course-boy-bike-only.svg",
+          "name" : "course-boy-bike-only",
+          "opacity" : 1,
+          "position" : {
+            "scale" : 0.5,
+            "translation-in-points" : [
+              -11.5859375,
+              -143
+            ]
+          }
+        },
+        {
+          "blend-mode" : "normal",
+          "hidden" : true,
+          "image-name" : "course-boy-route-point.svg",
+          "name" : "course-boy-route-point",
+          "position" : {
+            "scale" : 1.5,
+            "translation-in-points" : [
+              561.4140625,
+              -205
+            ]
+          }
+        },
+        {
+          "image-name" : "course-boy-route-pin-pure.svg",
+          "name" : "course-boy-route-pin-pure",
+          "position" : {
+            "scale" : 4,
+            "translation-in-points" : [
+              0,
+              147.7109375
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}
