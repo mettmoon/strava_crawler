@@ -505,7 +505,7 @@ struct CourseEditorView: View {
             Spacer()
 
             Button("취소") {
-                if draft.undoManager.canUndo {
+                if draft.hasChanges {
                     showDiscardConfirm = true
                 } else {
                     closeEditor()
