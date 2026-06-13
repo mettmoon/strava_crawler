@@ -22,9 +22,21 @@ struct StravaTCXApp: App {
         .defaultSize(width: 720, height: 600)
         .windowResizability(.contentMinSize)
         .modelContainer(container.modelContainer)
-        .commands { CourseFileCommands(container: container) }
+        .commands { CourseFileCommands() }
         .commands { RouteCommands() }
         .commands { CourseCommands() }
+
+        DocumentGroup(newDocument: { CourseDocument() }) { configuration in
+            CourseDocumentView(
+                document: configuration.document,
+                container: container,
+                fileURL: configuration.fileURL
+            )
+        }
+        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 1100, height: 680)
+        .windowResizability(.contentMinSize)
 
         WindowGroup("코스로 만들 경로", id: "route-library") {
             RouteLibraryView()
@@ -62,34 +74,6 @@ struct StravaTCXApp: App {
         .defaultSize(width: 1100, height: 680)
         .windowResizability(.contentMinSize)
 
-        WindowGroup("코스 목록", id: "course-library") {
-            CourseLibraryView()
-        }
-        .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified)
-        .defaultSize(width: 460, height: 640)
-        .windowResizability(.contentMinSize)
-        .modelContainer(container.modelContainer)
-
-        WindowGroup("코스 상세", id: "course-workspace", for: UUID.self) { $courseID in
-            CourseWorkspaceView(courseID: courseID, container: container)
-                .environment(routeListVM)
-        }
-        .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified)
-        .defaultSize(width: 1100, height: 680)
-        .windowResizability(.contentMinSize)
-        .modelContainer(container.modelContainer)
-
-        WindowGroup("코스 편집", id: "course-editor", for: UUID.self) { $courseID in
-            CourseEditorWindowView(courseID: courseID)
-        }
-        .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified)
-        .defaultSize(width: 1400, height: 860)
-        .windowResizability(.contentMinSize)
-        .modelContainer(container.modelContainer)
-
         WindowGroup("경로 3D", id: "route-3d", for: String.self) { $routeID in
             Route3DWindowView(routeID: routeID, container: container)
                 .environment(routeListVM)
@@ -107,15 +91,6 @@ struct StravaTCXApp: App {
         .windowToolbarStyle(.unified)
         .defaultSize(width: 960, height: 640)
         .windowResizability(.contentMinSize)
-
-        WindowGroup("코스 3D", id: "course-3d", for: UUID.self) { $courseID in
-            Course3DWindowView(courseID: courseID, container: container)
-        }
-        .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified)
-        .defaultSize(width: 960, height: 640)
-        .windowResizability(.contentMinSize)
-        .modelContainer(container.modelContainer)
 
         Settings {
             SettingsView()

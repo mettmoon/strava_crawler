@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftData
 import StravaTCXKit
 
 /// 별도 윈도우에서 단일 경로(라우트)의 3D 뷰만 표시.
@@ -64,43 +63,6 @@ struct Route3DWindowView: View {
         } catch {
             loadError = error.localizedDescription
             trackPoints = []
-        }
-    }
-}
-
-/// 별도 윈도우에서 단일 코스의 3D 뷰만 표시.
-struct Course3DWindowView: View {
-    var courseID: UUID?
-    var container: AppContainer
-
-    @Query private var allCourses: [CourseRecord]
-
-    private var course: CourseRecord? {
-        guard let id = courseID else { return nil }
-        return allCourses.first { $0.id == id }
-    }
-
-    var body: some View {
-        Group {
-            if let course {
-                let pts = course.allTrackPoints
-                if pts.isEmpty {
-                    ContentUnavailableView {
-                        Label("경로 데이터 없음", systemImage: "mountain.2")
-                    } description: {
-                        Text("이 코스에는 아직 경로 데이터가 없습니다.")
-                    }
-                } else {
-                    Route3DView(trackPoints: pts)
-                        .navigationTitle(course.title)
-                        .navigationSubtitle("3D 경로")
-                }
-            } else if courseID == nil {
-                ContentUnavailableView("코스를 찾을 수 없음", systemImage: "map")
-            } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
         }
     }
 }

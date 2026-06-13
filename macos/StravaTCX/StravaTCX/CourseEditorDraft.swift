@@ -2,7 +2,7 @@ import Foundation
 import StravaTCXKit
 
 /// 코스 편집 세션의 로컬 작업 복사본.
-/// SwiftData 모델을 직접 건드리지 않고, 저장 시에만 CourseRecord에 커밋한다.
+/// 문서 모델을 직접 건드리지 않고, 저장 시에만 CourseRecord에 커밋한다.
 /// 모든 변경은 snapshot 기반 undo/redo를 지원한다.
 @Observable
 final class CourseEditorDraft {
@@ -60,7 +60,7 @@ final class CourseEditorDraft {
         return result
     }
 
-    /// 현재 draft 상태를 SwiftData 모델에 반영한다.
+    /// 현재 draft 상태를 문서 모델에 반영한다.
     func commit(to course: CourseRecord) {
         course.routePoints = routePoints
         course.trackSegments = trackSegments

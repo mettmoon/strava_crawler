@@ -1,9 +1,11 @@
+import AppKit
 import SwiftUI
 
 /// 메인 윈도우 — 환영 디스패치 화면.
 /// 좌측 사이드바 없이, 사용자가 어디로 갈지 선택하는 진입점.
 struct WelcomeView: View {
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.newDocument) private var newDocument
 
     var body: some View {
         VStack(spacing: 32) {
@@ -33,10 +35,16 @@ struct WelcomeView: View {
                 ) { openWindow(id: "segment-library") }
 
                 DispatchButton(
-                    title: "코스 불러오기",
-                    subtitle: "코스 보기 또는 편집",
-                    systemImage: "map"
-                ) { openWindow(id: "course-library") }
+                    title: "새 코스 문서",
+                    subtitle: "CPN 문서로 코스 작성",
+                    systemImage: "doc.badge.plus"
+                ) { newDocument { CourseDocument() } }
+
+                DispatchButton(
+                    title: "코스 문서 열기",
+                    subtitle: "CPN 파일 열기",
+                    systemImage: "folder"
+                ) { NSDocumentController.shared.openDocument(nil) }
             }
             .frame(maxWidth: 380)
 

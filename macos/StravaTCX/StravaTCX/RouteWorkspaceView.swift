@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftData
 import AppKit
 import StravaTCXKit
 
@@ -12,9 +11,8 @@ struct RouteWorkspaceView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.modelContext) private var context
+    @Environment(\.newDocument) private var newDocument
     @Environment(RouteListViewModel.self) private var routeVM
-    @Query(sort: \CourseRecord.createdAt, order: .reverse) private var courses: [CourseRecord]
 
     @State private var parsedCourse: TCXCourse?
     @State private var highlightPoints: [TrackPoint] = []
@@ -275,15 +273,7 @@ struct RouteWorkspaceView: View {
             )
         }
 
-        context.insert(newCourse)
-
-        do {
-            try context.save()
-            openWindow(id: "course-workspace", value: newCourse.id)
-            dismiss()
-        } catch {
-            context.rollback()
-            NSSound.beep()
-        }
+        newDocument { CourseDocument(course: newCourse) }
+        dismiss()
     }
 }

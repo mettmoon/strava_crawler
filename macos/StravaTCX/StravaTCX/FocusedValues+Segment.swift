@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftData
 import StravaTCXKit
 
 extension FocusedValues {
@@ -31,6 +30,6 @@ struct CourseCommandHandler {
 }
 
 struct CourseFileCommandHandler {
-    var saveTCX: () -> Void
-    var canSaveTCX: Bool
+    var exportTCX: () -> Void
+    var canExportTCX: Bool
 }
