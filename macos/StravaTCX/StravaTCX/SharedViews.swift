@@ -124,6 +124,66 @@ struct RouteRangeStats: Equatable {
     var averageGradePercent: Double?
 }
 
+struct RouteElevationProgressStats: Equatable {
+    var ascentFromStart: Double
+    var descentFromStart: Double
+    var ascentToEnd: Double
+    var descentToEnd: Double
+}
+
+/// 트랙 전체의 상승/하강 누적값을 한 번 계산해 임의 지점의 시작/잔여 고도를 빠르게 조회한다.
+struct RouteElevationProgress: Equatable {
+    private var cumulativeAscent: [Double]
+    private var cumulativeDescent: [Double]
+    private var elevationPairCounts: [Int]
+
+    init(trackPoints pts: [TrackPoint]) {
+        guard !pts.isEmpty else {
+            cumulativeAscent = []
+            cumulativeDescent = []
+            elevationPairCounts = []
+            return
+        }
+
+        cumulativeAscent = Array(repeating: 0, count: pts.count)
+        cumulativeDescent = Array(repeating: 0, count: pts.count)
+        elevationPairCounts = Array(repeating: 0, count: pts.count)
+
+        guard pts.count > 1 else { return }
+        for i in 1..<pts.count {
+            cumulativeAscent[i] = cumulativeAscent[i - 1]
+            cumulativeDescent[i] = cumulativeDescent[i - 1]
+            elevationPairCounts[i] = elevationPairCounts[i - 1]
+
+            guard let prevEle = pts[i - 1].ele, let currEle = pts[i].ele else { continue }
+            elevationPairCounts[i] += 1
+            let diff = currEle - prevEle
+            if diff > 0 {
+                cumulativeAscent[i] += diff
+            } else {
+                cumulativeDescent[i] += -diff
+            }
+        }
+    }
+
+    var hasElevationData: Bool {
+        (elevationPairCounts.last ?? 0) > 0
+    }
+
+    func stats(at index: Int?) -> RouteElevationProgressStats? {
+        guard hasElevationData, let index, !cumulativeAscent.isEmpty else { return nil }
+        let i = min(max(index, 0), cumulativeAscent.count - 1)
+        let totalAscent = cumulativeAscent.last ?? 0
+        let totalDescent = cumulativeDescent.last ?? 0
+        return RouteElevationProgressStats(
+            ascentFromStart: cumulativeAscent[i],
+            descentFromStart: cumulativeDescent[i],
+            ascentToEnd: max(0, totalAscent - cumulativeAscent[i]),
+            descentToEnd: max(0, totalDescent - cumulativeDescent[i])
+        )
+    }
+}
+
 func routeRangeStats(trackPoints pts: [TrackPoint], range: ChartRangeSelection) -> RouteRangeStats? {
     guard pts.count >= 2 else { return nil }
     let lo = range.lowerKm

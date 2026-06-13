@@ -15,6 +15,9 @@ struct CourseCuesheetSidebar: View {
     }
 
     var body: some View {
+        let pts = course.allTrackPoints
+        let elevationProgress = RouteElevationProgress(trackPoints: pts)
+
         VStack(spacing: 0) {
             HStack {
                 Text("큐시트")
@@ -39,15 +42,29 @@ struct CourseCuesheetSidebar: View {
             } else {
                 List(selection: $selectedCueID) {
                     ForEach(sortedCues) { cue in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(cue.name.isEmpty ? cuePointLabel(for: cue.pointType) : cue.name)
-                                .font(.body)
-                                .lineLimit(1)
-                            HStack {
-                                Text(cuePointLabel(for: cue.pointType))
+                        let progress = cueElevationProgress(for: cue, trackPoints: pts, progress: elevationProgress)
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(cue.name.isEmpty ? cuePointLabel(for: cue.pointType) : cue.name)
+                                    .font(.body)
+                                    .lineLimit(1)
+                                HStack {
+                                    Text(cuePointLabel(for: cue.pointType))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer()
+                            VStack {
+                                if let progress {
+                                    HStack(spacing: 2) {
+                                        Image(systemName: "arrow.up.right")
+                                        Text("\(formatAccumulatedElevation(progress.ascentFromStart))")
+                                    }
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                Spacer()
+                                    .lineLimit(1)
+                                }
                                 if cue.distanceMeters > 0 {
                                     Text(String(format: "%.1f km", cue.distanceMeters / 1000))
                                         .font(.caption)
@@ -61,6 +78,18 @@ struct CourseCuesheetSidebar: View {
                 }
             }
         }
+    }
+
+    private func cueElevationProgress(
+        for cue: CourseCuePoint,
+        trackPoints pts: [TrackPoint],
+        progress: RouteElevationProgress
+    ) -> RouteElevationProgressStats? {
+        progress.stats(at: Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon))
+    }
+
+    private func formatAccumulatedElevation(_ meters: Double) -> String {
+        String(format: "%.0f m", meters)
     }
 }
 
@@ -118,6 +147,7 @@ struct CourseCueInspectorView: View {
         let cueIdx = Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon)
         let cueKm = cueIdx.map { pts[$0].cumKm } ?? (cue.distanceMeters / 1000)
         let cueEle = cueIdx.flatMap { pts[$0].ele }
+        let elevationProgress = RouteElevationProgress(trackPoints: pts).stats(at: cueIdx)
 
         let cues = sortedCues
         let pos = cues.firstIndex(where: { $0.id == cue.id })
@@ -140,6 +170,13 @@ struct CourseCueInspectorView: View {
                 infoRow("시작점으로부터", value: formatKm(cueKm))
                 infoRow("종료점까지", value: formatKm(max(0, totalKm - cueKm)))
                 infoRow("고도", value: formatEle(cueEle))
+            }
+
+            section(title: "누적 고도", icon: "mountain.2") {
+                infoRow("시작점부터 누적 상승", value: formatEle(elevationProgress?.ascentFromStart), valueColor: .red)
+                infoRow("시작점부터 누적 하강", value: formatEle(elevationProgress?.descentFromStart), valueColor: .blue)
+                infoRow("종료점까지 남은 상승", value: formatEle(elevationProgress?.ascentToEnd), valueColor: .red)
+                infoRow("종료점까지 남은 하강", value: formatEle(elevationProgress?.descentToEnd), valueColor: .blue)
             }
 
             // 이전 큐
