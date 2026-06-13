@@ -74,6 +74,7 @@ struct CourseEditorView: View {
     @State private var closeConfirmed = false
     @State private var hoverInfo: RouteHoverInfo?
     @State private var selectedCueID: UUID?
+    @State private var editingCueID: UUID?
     @State private var rangeSelection: ChartRangeSelection?
 
     // 카카오 검색
@@ -102,7 +103,11 @@ struct CourseEditorView: View {
             toolbar
             Divider()
             NavigationSplitView {
-                CourseEditorCuesheetSidebar(draft: draft, selectedCueID: $selectedCueID)
+                CourseEditorCuesheetSidebar(
+                    draft: draft,
+                    selectedCueID: $selectedCueID,
+                    onEditCue: { editingCueID = $0 }
+                )
                     .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
             } detail: {
                 detailPane
@@ -118,7 +123,8 @@ struct CourseEditorView: View {
                             } else {
                                 CourseEditorCueInspectorView(
                                     draft: draft,
-                                    selectedCueID: selectedCueID
+                                    selectedCueID: selectedCueID,
+                                    onEditCue: { editingCueID = $0 }
                                 )
                             }
                         }
@@ -139,6 +145,9 @@ struct CourseEditorView: View {
             if let sel = selectedCueID, !ids.contains(sel) {
                 selectedCueID = nil
             }
+            if let editing = editingCueID, !ids.contains(editing) {
+                editingCueID = nil
+            }
         }
         .focusedSceneValue(\.courseFileCommandHandler, CourseFileCommandHandler(
             saveTCX: { saveDraftTCX() },
@@ -154,6 +163,30 @@ struct CourseEditorView: View {
             if confirmed {
                 dismiss()
                 NSApp.keyWindow?.close()
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { editingCueID != nil },
+            set: { if !$0 { editingCueID = nil } }
+        )) {
+            if let cueID = editingCueID,
+               let cue = draft.cuePoints.first(where: { $0.id == cueID }) {
+                CuePointEditSheet(
+                    cue: cue,
+                    trackPoints: draft.allTrackPoints,
+                    onSave: { updated in
+                        draft.updateCuePoint(updated)
+                        selectedCueID = updated.id
+                        rangeSelection = nil
+                        editingCueID = nil
+                    },
+                    onCancel: {
+                        editingCueID = nil
+                    }
+                )
+            } else {
+                ContentUnavailableView("큐시트 항목을 찾을 수 없음", systemImage: "mappin")
+                    .frame(width: 360, height: 220)
             }
         }
     }
@@ -473,10 +506,11 @@ struct CourseEditorView: View {
 
 // MARK: - CourseEditorCuesheetSidebar
 
-/// 좌측 큐시트 사이드바. 거리 순으로 정렬, 인라인 편집, 항목 추가/삭제.
+/// 좌측 큐시트 사이드바. 거리 순으로 정렬하고, 상세 수정은 별도 시트에서 처리한다.
 private struct CourseEditorCuesheetSidebar: View {
     var draft: CourseEditorDraft
     @Binding var selectedCueID: UUID?
+    var onEditCue: (UUID) -> Void
 
     @State private var showAddSheet = false
     @State private var newName = ""
@@ -488,6 +522,9 @@ private struct CourseEditorCuesheetSidebar: View {
     }
 
     var body: some View {
+        let pts = draft.allTrackPoints
+        let elevationProgress = RouteElevationProgress(trackPoints: pts)
+
         VStack(spacing: 0) {
             HStack {
                 Text("큐시트")
@@ -517,22 +554,21 @@ private struct CourseEditorCuesheetSidebar: View {
             } else {
                 List(selection: $selectedCueID) {
                     ForEach(sortedCues) { cue in
-                        CuePointRow(cue: Binding(
-                            get: {
-                                draft.cuePoints.first(where: { $0.id == cue.id }) ?? cue
-                            },
-                            set: { newValue in
-                                if let idx = draft.cuePoints.firstIndex(where: { $0.id == cue.id }) {
-                                    draft.cuePoints[idx] = newValue
-                                }
-                            }
-                        ))
+                        CourseEditorCuePointListRow(
+                            cue: cue,
+                            progress: cueElevationProgress(for: cue, trackPoints: pts, progress: elevationProgress),
+                            onEdit: { onEditCue(cue.id) },
+                            onDelete: { deleteCue(cue.id) }
+                        )
                         .tag(cue.id)
                         .contextMenu {
+                            Button {
+                                onEditCue(cue.id)
+                            } label: {
+                                Label("수정", systemImage: "pencil")
+                            }
                             Button(role: .destructive) {
-                                if let idx = draft.cuePoints.firstIndex(where: { $0.id == cue.id }) {
-                                    draft.removeCuePoints(at: IndexSet(integer: idx))
-                                }
+                                deleteCue(cue.id)
                             } label: {
                                 Label("삭제", systemImage: "trash")
                             }
@@ -567,33 +603,83 @@ private struct CourseEditorCuesheetSidebar: View {
             )
         }
     }
+
+    private func deleteCue(_ id: UUID) {
+        guard let idx = draft.cuePoints.firstIndex(where: { $0.id == id }) else { return }
+        draft.removeCuePoints(at: IndexSet(integer: idx))
+    }
+
+    private func cueElevationProgress(
+        for cue: CourseCuePoint,
+        trackPoints pts: [TrackPoint],
+        progress: RouteElevationProgress
+    ) -> RouteElevationProgressStats? {
+        progress.stats(at: Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon))
+    }
 }
 
-// MARK: - CuePointRow
+// MARK: - CourseEditorCuePointListRow
 
-private struct CuePointRow: View {
-    @Binding var cue: CourseCuePoint
+private struct CourseEditorCuePointListRow: View {
+    var cue: CourseCuePoint
+    var progress: RouteElevationProgressStats?
+    var onEdit: () -> Void
+    var onDelete: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            TextField("이름", text: $cue.name)
-                .font(.body)
-                .textFieldStyle(.plain)
-            HStack {
-                Picker("", selection: $cue.pointType) {
-                    ForEach(cuePointPickerTypes(for: cue.pointType), id: \.value) { Text($0.label).tag($0.value) }
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(cue.name.isEmpty ? cuePointLabel(for: cue.pointType) : cue.name)
+                    .font(.body)
+                    .lineLimit(1)
+                Text(cuePointLabel(for: cue.pointType))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            VStack(alignment: .trailing, spacing: 2) {
+                if let progress {
+                    HStack(spacing: 2) {
+                        Image(systemName: "arrow.up.right")
+                        Text(formatAccumulatedElevation(progress.ascentFromStart))
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 }
-                .labelsHidden()
-                .frame(maxWidth: 140)
-                Spacer()
                 if cue.distanceMeters > 0 {
                     Text(String(format: "%.1f km", cue.distanceMeters / 1000))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
+
+            Menu {
+                Button(action: onEdit) {
+                    Label("수정", systemImage: "pencil")
+                }
+                Divider()
+                Button(role: .destructive, action: onDelete) {
+                    Label("삭제", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 22, height: 22)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 24, height: 24)
+            .help("큐시트 항목 메뉴")
         }
         .padding(.vertical, 2)
+    }
+
+    private func formatAccumulatedElevation(_ meters: Double) -> String {
+        String(format: "%.0f m", meters)
     }
 }
 
@@ -626,13 +712,149 @@ private struct CuePointAddSheet: View {
     }
 }
 
+// MARK: - CuePointEditSheet
+
+private struct CuePointEditSheet: View {
+    var cue: CourseCuePoint
+    var trackPoints: [TrackPoint]
+    var onSave: (CourseCuePoint) -> Void
+    var onCancel: () -> Void
+
+    @State private var name: String
+    @State private var pointType: String
+    @State private var notes: String
+    @State private var distanceKm: Double
+
+    private var maximumDistanceKm: Double? {
+        guard let total = trackPoints.last?.cumKm, total > 0 else { return nil }
+        return total
+    }
+
+    init(
+        cue: CourseCuePoint,
+        trackPoints: [TrackPoint],
+        onSave: @escaping (CourseCuePoint) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.cue = cue
+        self.trackPoints = trackPoints
+        self.onSave = onSave
+        self.onCancel = onCancel
+        _name = State(initialValue: cue.name)
+        _pointType = State(initialValue: cue.pointType)
+        _notes = State(initialValue: cue.notes)
+        let initialDistanceKm: Double = {
+            guard cue.lat != 0 || cue.lon != 0,
+                  let idx = Geo.nearestIndex(trackPoints, lat: cue.lat, lon: cue.lon) else {
+                return cue.distanceMeters / 1000
+            }
+            return trackPoints[idx].cumKm
+        }()
+        _distanceKm = State(initialValue: initialDistanceKm)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("큐시트 항목 수정")
+                .font(.headline)
+
+            Form {
+                Section {
+                    TextField("제목", text: $name)
+                    Picker("타입", selection: $pointType) {
+                        ForEach(cuePointPickerTypes(for: pointType), id: \.value) { type in
+                            Text(type.label).tag(type.value)
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("메모")
+                            .foregroundStyle(.secondary)
+                        TextEditor(text: $notes)
+                            .font(.body)
+                            .frame(minHeight: 84)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .strokeBorder(.separator, lineWidth: 0.5)
+                            )
+                    }
+                }
+
+                Section {
+                    HStack {
+                        TextField(
+                            "시작지점으로부터 거리",
+                            value: $distanceKm,
+                            format: .number.precision(.fractionLength(3))
+                        )
+                        Text("km")
+                            .foregroundStyle(.secondary)
+                    }
+                    if let maximumDistanceKm {
+                        Slider(
+                            value: Binding(
+                                get: { min(max(distanceKm, 0), maximumDistanceKm) },
+                                set: { distanceKm = $0 }
+                            ),
+                            in: 0...maximumDistanceKm
+                        )
+                        HStack {
+                            Text("0 m")
+                            Spacer()
+                            Text(formatRouteDistance(maximumDistanceKm))
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("위치")
+                }
+            }
+            .formStyle(.grouped)
+
+            HStack {
+                Button("취소", action: onCancel)
+                Spacer()
+                Button("저장") {
+                    onSave(makeUpdatedCue())
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20)
+        .frame(width: 430)
+        .frame(minHeight: 460)
+    }
+
+    private func makeUpdatedCue() -> CourseCuePoint {
+        let clampedKm = clampedDistanceKm()
+        var updated = cue
+        updated.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.pointType = pointType
+        updated.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.distanceMeters = clampedKm * 1000
+
+        if let point = interpolateTrackPoint(in: trackPoints, atDistanceKm: clampedKm) {
+            updated.lat = point.lat
+            updated.lon = point.lon
+        }
+        return updated
+    }
+
+    private func clampedDistanceKm() -> Double {
+        let km = distanceKm.isFinite ? distanceKm : cue.distanceMeters / 1000
+        guard let maximumDistanceKm else { return max(0, km) }
+        return min(max(0, km), maximumDistanceKm)
+    }
+}
+
 // MARK: - CourseEditorCueInspectorView
 
 /// 우측 인스펙터: 선택된 큐 상세 정보. 보기 화면 CourseCueInspectorView와 동일 정보 +
-/// "삭제" 버튼.
+/// "수정", "삭제" 버튼.
 private struct CourseEditorCueInspectorView: View {
     var draft: CourseEditorDraft
     var selectedCueID: UUID?
+    var onEditCue: (UUID) -> Void
 
     private var sortedCues: [CourseCuePoint] {
         draft.cuePoints.sorted { $0.distanceMeters < $1.distanceMeters }
@@ -685,7 +907,7 @@ private struct CourseEditorCueInspectorView: View {
         let next = (pos.flatMap { $0 + 1 < cues.count ? cues[$0 + 1] : nil })
 
         VStack(alignment: .leading, spacing: 20) {
-            // 헤더 (이름 + 타입 + 삭제)
+            // 헤더 (이름 + 타입 + 수정/삭제)
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(cue.name.isEmpty ? cuePointLabel(for: cue.pointType) : cue.name)
@@ -696,16 +918,25 @@ private struct CourseEditorCueInspectorView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button(role: .destructive) {
-                    if let idx = draft.cuePoints.firstIndex(where: { $0.id == cue.id }) {
-                        draft.removeCuePoints(at: IndexSet(integer: idx))
+                HStack(spacing: 8) {
+                    Button {
+                        onEditCue(cue.id)
+                    } label: {
+                        Label("수정", systemImage: "pencil")
                     }
-                } label: {
-                    Image(systemName: "trash")
+                    .controlSize(.small)
+
+                    Button(role: .destructive) {
+                        if let idx = draft.cuePoints.firstIndex(where: { $0.id == cue.id }) {
+                            draft.removeCuePoints(at: IndexSet(integer: idx))
+                        }
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.red)
+                    .help("이 큐 삭제")
                 }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.red)
-                .help("이 큐 삭제")
             }
 
             section(title: "위치", icon: "location") {

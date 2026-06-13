@@ -165,4 +165,12 @@ final class CourseEditorDraft {
         cuePoints.remove(atOffsets: offsets)
         registerUndo(before: old, actionName: "큐시트 삭제")
     }
+
+    func updateCuePoint(_ cue: CourseCuePoint) {
+        guard let idx = cuePoints.firstIndex(where: { $0.id == cue.id }) else { return }
+        let old = takeSnapshot()
+        cuePoints[idx] = cue
+        cuePoints.sort { $0.distanceMeters < $1.distanceMeters }
+        registerUndo(before: old, actionName: "큐시트 수정")
+    }
 }
