@@ -14,8 +14,8 @@ final class ClassificationTests: XCTestCase {
     }
 
     func testStartPointTypeAndRank() {
-        XCTAssertEqual(Classification.startPointType("Category2"), "Second Category")
-        XCTAssertEqual(Classification.startPointType("4"), "Fourth Category")
+        XCTAssertEqual(Classification.startPointType("Category2"), "2nd Category")
+        XCTAssertEqual(Classification.startPointType("4"), "4th Category")
         XCTAssertEqual(Classification.startPointType(nil), "Sprint")
         XCTAssertEqual(Classification.categoryRank("Category2"), 3)
         XCTAssertEqual(Classification.categoryRank("HC"), 5)

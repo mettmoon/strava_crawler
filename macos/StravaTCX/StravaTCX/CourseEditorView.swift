@@ -16,16 +16,21 @@ let cuePointTypes: [(value: String, label: String)] = [
     ("Right",          "우회전"),
     ("Straight",       "직진"),
     ("First Aid",      "응급 의료"),
-    ("Fourth Category", "4등급 오르막"),
-    ("Third Category",  "3등급 오르막"),
-    ("Second Category", "2등급 오르막"),
-    ("First Category",  "1등급 오르막"),
+    ("4th Category",   "4등급 오르막"),
+    ("3rd Category",   "3등급 오르막"),
+    ("2nd Category",   "2등급 오르막"),
+    ("1st Category",   "1등급 오르막"),
     ("Hors Category",  "HC급 오르막"),
     ("Sprint",         "스프린트 구간"),
 ]
 
 func cuePointLabel(for value: String) -> String {
-    cuePointTypes.first { $0.value == value }?.label ?? value
+    cuePointTypes.first { $0.value == value }?.label ?? "알수없음(\(value))"
+}
+
+private func cuePointPickerTypes(for value: String) -> [(value: String, label: String)] {
+    guard !cuePointTypes.contains(where: { $0.value == value }) else { return cuePointTypes }
+    return cuePointTypes + [(value, cuePointLabel(for: value))]
 }
 
 struct CuePointGlyph {
@@ -45,10 +50,10 @@ func cuePointGlyph(for value: String) -> CuePointGlyph {
     case "Right":           return .init(symbol: "arrow.turn.up.right",          color: .systemPurple)
     case "Straight":        return .init(symbol: "arrow.up",                     color: .systemGray)
     case "First Aid":       return .init(symbol: "cross.fill",                   color: .systemRed)
-    case "First Category":  return .init(text: "1",  color: .systemYellow)
-    case "Second Category": return .init(text: "2",  color: .systemYellow)
-    case "Third Category":  return .init(text: "3",  color: .systemYellow)
-    case "Fourth Category": return .init(text: "4",  color: .systemYellow)
+    case "1st Category":   return .init(text: "1",  color: .systemYellow)
+    case "2nd Category":   return .init(text: "2",  color: .systemYellow)
+    case "3rd Category":   return .init(text: "3",  color: .systemYellow)
+    case "4th Category":   return .init(text: "4",  color: .systemYellow)
     case "Hors Category":   return .init(text: "HC", color: .systemRed)
     case "Sprint":          return .init(symbol: "bolt.fill",                    color: .systemYellow)
     default:                return .init(symbol: "mappin",                       color: .systemOrange)
@@ -275,7 +280,7 @@ struct CourseEditorView: View {
             return ElevationMarker(
                 id: cue.id.uuidString,
                 cumKm: pts[idx].cumKm,
-                label: cue.name.isEmpty ? cue.pointType : cue.name,
+                label: cue.name.isEmpty ? cuePointLabel(for: cue.pointType) : cue.name,
                 color: .cyan
             )
         }
@@ -576,7 +581,7 @@ private struct CuePointRow: View {
                 .textFieldStyle(.plain)
             HStack {
                 Picker("", selection: $cue.pointType) {
-                    ForEach(cuePointTypes, id: \.value) { Text($0.label).tag($0.value) }
+                    ForEach(cuePointPickerTypes(for: cue.pointType), id: \.value) { Text($0.label).tag($0.value) }
                 }
                 .labelsHidden()
                 .frame(maxWidth: 140)
@@ -1498,7 +1503,7 @@ final class CuePointAnnotation: MKPointAnnotation {
         self.cue = cue
         super.init()
         coordinate = CLLocationCoordinate2D(latitude: cue.lat, longitude: cue.lon)
-        title = cue.name.isEmpty ? cue.pointType : cue.name
+        title = cue.name.isEmpty ? cuePointLabel(for: cue.pointType) : cue.name
     }
 }
 

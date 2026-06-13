@@ -29,7 +29,7 @@ final class CueAnnotation: MKPointAnnotation {
         self.cue = cue
         super.init()
         coordinate = CLLocationCoordinate2D(latitude: cue.lat, longitude: cue.lon)
-        title = cue.name.isEmpty ? cue.pointType : cue.name
+        title = cue.name.isEmpty ? cuePointLabel(for: cue.pointType) : cue.name
     }
 }
 

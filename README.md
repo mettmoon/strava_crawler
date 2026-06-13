@@ -44,10 +44,10 @@ python3 add_cuesheet_to_tcx.py --tcx route_<id>.tcx [--cache route_<id>_segments
 | 위치 | 조건 | PointType |
 | --- | --- | --- |
 | 시작 | `climb_category = HC` | `Hors Category` |
-| 시작 | `climb_category = 1` | `First Category` |
-| 시작 | `climb_category = 2` | `Second Category` |
-| 시작 | `climb_category = 3` | `Third Category` |
-| 시작 | `climb_category = 4` | `Fourth Category` |
+| 시작 | `climb_category = 1` | `1st Category` |
+| 시작 | `climb_category = 2` | `2nd Category` |
+| 시작 | `climb_category = 3` | `3rd Category` |
+| 시작 | `climb_category = 4` | `4th Category` |
 | 시작 | 그 외 (없음/0)  | `Sprint` |
 | 종료 | 항상 | `Summit` |
 
