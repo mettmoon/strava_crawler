@@ -88,11 +88,19 @@ struct CourseEditorView: View {
     @State private var mapViewRef: MKMapView?   // 맵 뷰 직접 참조 (검색 시 visible rect 조회용)
 
     @AppStorage(MapStyleStorageKey.editor) private var mapStyleRaw: String = MapStyleOption.standard.rawValue
+    @AppStorage(RouteProfileStorageKey.editor) private var routeProfileRaw: String = OSRMRouteProfile.defaultProfile.rawValue
 
     private var mapStyle: Binding<MapStyleOption> {
         Binding(
             get: { MapStyleOption(rawValue: mapStyleRaw) ?? .standard },
             set: { mapStyleRaw = $0.rawValue }
+        )
+    }
+
+    private var routeProfile: Binding<OSRMRouteProfile> {
+        Binding(
+            get: { OSRMRouteProfile(rawValue: routeProfileRaw) ?? .defaultProfile },
+            set: { routeProfileRaw = $0.rawValue }
         )
     }
 
@@ -219,6 +227,7 @@ struct CourseEditorView: View {
                     selectedCueID: selectedCueID,
                     rangeSelection: rangeSelection,
                     mapStyle: mapStyle.wrappedValue,
+                    routingProfile: routeProfile.wrappedValue,
                     onSelectCue: { selectedCueID = $0 },
                     onDeselectFocus: { selectedCueID = nil },
                     onSearchInVisibleRect: { rect in
@@ -466,6 +475,10 @@ struct CourseEditorView: View {
 
             Divider().frame(height: 20)
 
+            RouteProfilePicker(selection: routeProfile)
+
+            Divider().frame(height: 20)
+
             // 카카오 검색
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
@@ -579,6 +592,23 @@ struct CourseEditorView: View {
             dismiss()
             NSApp.keyWindow?.close()
         }
+    }
+}
+
+private struct RouteProfilePicker: View {
+    @Binding var selection: OSRMRouteProfile
+
+    var body: some View {
+        Picker("라우팅 프로필", selection: $selection) {
+            ForEach(OSRMRouteProfile.allCases) { profile in
+                Label(profile.label, systemImage: profile.symbol)
+                    .tag(profile)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+        .help("경로 계산 프로필")
     }
 }
 
@@ -1297,6 +1327,7 @@ struct CourseEditMapView: NSViewRepresentable {
     var selectedCueID: UUID?
     var rangeSelection: ChartRangeSelection?
     var mapStyle: MapStyleOption = .standard
+    var routingProfile: OSRMRouteProfile = .defaultProfile
     var onSelectCue: (UUID) -> Void
     var onDeselectFocus: () -> Void
     var onSearchInVisibleRect: (MKMapRect) -> Void
@@ -1304,6 +1335,7 @@ struct CourseEditMapView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(draft: draft, isCalculatingBinding: $isCalculating,
                     searchResultsBinding: $searchResults,
+                    routingProfile: routingProfile,
                     onSelectCue: onSelectCue,
                     onDeselectFocus: onDeselectFocus,
                     onSearchInVisibleRect: onSearchInVisibleRect)
@@ -1341,6 +1373,7 @@ struct CourseEditMapView: NSViewRepresentable {
         context.coordinator.onSelectCue = onSelectCue
         context.coordinator.onDeselectFocus = onDeselectFocus
         context.coordinator.onSearchInVisibleRect = onSearchInVisibleRect
+        context.coordinator.routingProfile = routingProfile
         context.coordinator.refresh()
         context.coordinator.updateSearchAnnotations(map: map, results: searchResults)
         context.coordinator.syncFocusedCue(in: map, focusedID: selectedCueID)
@@ -1357,6 +1390,7 @@ struct CourseEditMapView: NSViewRepresentable {
         var onSelectCue: (UUID) -> Void
         var onDeselectFocus: () -> Void
         var onSearchInVisibleRect: (MKMapRect) -> Void
+        var routingProfile: OSRMRouteProfile
         var appliedMapStyle: MapStyleOption?
         weak var mapView: MKMapView?
 
@@ -1371,12 +1405,14 @@ struct CourseEditMapView: NSViewRepresentable {
 
         init(draft: CourseEditorDraft, isCalculatingBinding: Binding<Bool>,
              searchResultsBinding: Binding<[KakaoLocalResult]>,
+             routingProfile: OSRMRouteProfile,
              onSelectCue: @escaping (UUID) -> Void,
              onDeselectFocus: @escaping () -> Void,
              onSearchInVisibleRect: @escaping (MKMapRect) -> Void) {
             self.draft = draft
             self.isCalculatingBinding = isCalculatingBinding
             self.searchResultsBinding = searchResultsBinding
+            self.routingProfile = routingProfile
             self.onSelectCue = onSelectCue
             self.onDeselectFocus = onDeselectFocus
             self.onSearchInVisibleRect = onSearchInVisibleRect
@@ -1579,9 +1615,10 @@ struct CourseEditMapView: NSViewRepresentable {
             }
 
             let prev = draft.routePoints[prevCount - 1]
+            let profile = routingProfile
             isCalculatingBinding.wrappedValue = true
             Task { @MainActor in
-                let seg = await OSRMRouter.shared.route(from: prev, to: newRP)
+                let seg = await OSRMRouter.shared.route(from: prev, to: newRP, profile: profile)
                 draft.appendRoutePoint(newRP, segment: seg)
                 isCalculatingBinding.wrappedValue = false
                 builtRouteSignature = ""; refresh()
@@ -1717,10 +1754,11 @@ struct CourseEditMapView: NSViewRepresentable {
             if idx > 0 && idx < draft.routePoints.count {
                 let prev = draft.routePoints[idx - 1]
                 let next = draft.routePoints[idx]
+                let profile = routingProfile
                 isCalculatingBinding.wrappedValue = true
                 Task { @MainActor in
                     var segs = draft.trackSegments
-                    let seg = await OSRMRouter.shared.route(from: prev, to: next)
+                    let seg = await OSRMRouter.shared.route(from: prev, to: next, profile: profile)
                     let insertAt = idx - 1
                     if insertAt < segs.count { segs.insert(seg, at: insertAt) }
                     else { segs.append(seg) }
@@ -1855,14 +1893,23 @@ struct CourseEditMapView: NSViewRepresentable {
                 }
 
                 let newRP = CourseRoutePoint(lat: newCoord.latitude, lon: newCoord.longitude)
+                let profile = routingProfile
                 isCalculatingBinding.wrappedValue = true
                 Task { @MainActor in
                     var segs = draft.trackSegments
                     if idx > 0 && idx - 1 < segs.count {
-                        segs[idx - 1] = await OSRMRouter.shared.route(from: draft.routePoints[idx-1], to: newRP)
+                        segs[idx - 1] = await OSRMRouter.shared.route(
+                            from: draft.routePoints[idx-1],
+                            to: newRP,
+                            profile: profile
+                        )
                     }
                     if idx < draft.routePoints.count - 1 && idx < segs.count {
-                        segs[idx] = await OSRMRouter.shared.route(from: newRP, to: draft.routePoints[idx+1])
+                        segs[idx] = await OSRMRouter.shared.route(
+                            from: newRP,
+                            to: draft.routePoints[idx+1],
+                            profile: profile
+                        )
                     }
                     draft.moveRoutePoint(at: idx, to: newRP, updatedSegments: segs)
                     isCalculatingBinding.wrappedValue = false
