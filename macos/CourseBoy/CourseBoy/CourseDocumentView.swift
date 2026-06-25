@@ -9,6 +9,7 @@ struct CourseDocumentView: View {
 
     @State private var isEditing = false
     @State private var showing3D = false
+    @State private var registeredRecentFileURL: URL?
 
     var body: some View {
         Group {
@@ -27,14 +28,28 @@ struct CourseDocumentView: View {
                     onEdit: { isEditing = true },
                     onShow3D: { showing3D = true }
                 )
-                .onAppear {
-                    closeWelcomeWindows()
-                }
             }
+        }
+        .onAppear {
+            closeWelcomeWindows()
+            registerRecentCourseIfNeeded()
+        }
+        .onChange(of: fileURL) { _, _ in
+            registerRecentCourseIfNeeded()
         }
         .sheet(isPresented: $showing3D) {
             Course3DPreview(course: document.course)
         }
+    }
+
+    private func registerRecentCourseIfNeeded() {
+        guard let fileURL,
+              let normalizedURL = CourseDocument.normalizedReadableFileURL(fileURL),
+              normalizedURL != registeredRecentFileURL
+        else { return }
+
+        NSDocumentController.shared.noteNewRecentDocumentURL(normalizedURL)
+        registeredRecentFileURL = normalizedURL
     }
 
     private func closeWelcomeWindows() {

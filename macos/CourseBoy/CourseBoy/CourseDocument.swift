@@ -20,6 +20,20 @@ final class CourseDocument: ReferenceFileDocument, @unchecked Sendable {
     }
     static var writableContentTypes: [UTType] { [.coursePlan] }
 
+    static func normalizedReadableFileURL(_ url: URL) -> URL? {
+        let fileURL: URL
+        if (url as NSURL).isFileReferenceURL(), let resolvedURL = (url as NSURL).filePathURL {
+            fileURL = resolvedURL
+        } else {
+            fileURL = url
+        }
+
+        guard fileURL.isFileURL else { return nil }
+        guard readableFilenameExtensions.contains(fileURL.pathExtension.lowercased()) else { return nil }
+
+        return fileURL.standardizedFileURL
+    }
+
     @Published var course: CourseRecord {
         didSet { observeCourse() }
     }
