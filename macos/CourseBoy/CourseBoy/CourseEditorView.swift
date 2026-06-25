@@ -323,15 +323,22 @@ struct CourseEditorView: View {
             return
         }
 
-        do {
-            let data = try CourseTCXFileCoder.makeTCXData(
+        Exporter.saveTCX(filename: title) { options in
+            let cues = applyExportOptions(options, to: draft.cuePoints)
+            return try? CourseTCXFileCoder.makeTCXData(
                 title: title,
                 trackPoints: draft.allTrackPoints,
-                cuePoints: draft.cuePoints
+                cuePoints: cues
             )
-            Exporter.saveTCX(filename: title, data: data)
-        } catch {
-            NSSound.beep()
+        }
+    }
+
+    private func applyExportOptions(_ options: TCXExportOptions, to cuePoints: [CourseCuePoint]) -> [CourseCuePoint] {
+        guard options.useNameAsNotes else { return cuePoints }
+        return cuePoints.map { cue in
+            var copy = cue
+            copy.notes = cue.name
+            return copy
         }
     }
 

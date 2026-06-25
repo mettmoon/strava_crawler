@@ -158,11 +158,22 @@ struct CourseWorkspaceView: View {
     }
 
     private func saveCourseTCX(_ course: CourseRecord) {
-        do {
-            let data = try CourseTCXFileCoder.makeTCXData(from: course)
-            Exporter.saveTCX(filename: course.title, data: data)
-        } catch {
-            NSSound.beep()
+        Exporter.saveTCX(filename: course.title) { options in
+            let cues = applyExportOptions(options, to: course.cuePoints)
+            return try? CourseTCXFileCoder.makeTCXData(
+                title: course.title,
+                trackPoints: course.allTrackPoints,
+                cuePoints: cues
+            )
+        }
+    }
+
+    private func applyExportOptions(_ options: TCXExportOptions, to cuePoints: [CourseCuePoint]) -> [CourseCuePoint] {
+        guard options.useNameAsNotes else { return cuePoints }
+        return cuePoints.map { cue in
+            var copy = cue
+            copy.notes = cue.name
+            return copy
         }
     }
 
