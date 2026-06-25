@@ -97,9 +97,10 @@ struct WelcomeView: View {
     }
 
     private func reloadRecentCourses() {
+        var seenURLs = Set<URL>()
         recentCourses = NSDocumentController.shared.recentDocumentURLs
-            .filter { CourseDocument.readableFilenameExtensions.contains($0.pathExtension.lowercased()) }
-            .filter { FileManager.default.fileExists(atPath: $0.path) }
+            .compactMap(CourseDocument.normalizedReadableFileURL)
+            .filter { seenURLs.insert($0).inserted }
             .map(RecentCourseFile.init(url:))
     }
 
