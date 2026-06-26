@@ -215,7 +215,7 @@ struct SceneKitRouteView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> SCNView {
-        let view = KeyResponderSCNView()
+        let view = KeyResponderSCNView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
         view.allowsCameraControl = true
         view.autoenablesDefaultLighting = false
         view.antialiasingMode = .multisampling4X

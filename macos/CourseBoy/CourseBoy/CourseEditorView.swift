@@ -1349,7 +1349,7 @@ struct CourseEditMapView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> MKMapView {
-        let map = MKMapView()
+        let map = MKMapView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
         map.delegate = context.coordinator
         map.showsCompass = true
         map.showsScale = true
