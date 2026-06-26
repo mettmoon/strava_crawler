@@ -27,10 +27,10 @@ struct ElevationProfileView: View {
     }
 
     private func drawProfile(context: GraphicsContext, size: CGSize) {
-        let leftPad: CGFloat = 44
-        let rightPad: CGFloat = 12
-        let topPad: CGFloat = 14
-        let bottomPad: CGFloat = 28
+        let leftPad: CGFloat = 56
+        let rightPad: CGFloat = 18
+        let topPad: CGFloat = 18
+        let bottomPad: CGFloat = 38
         let chartRect = CGRect(
             x: leftPad,
             y: topPad,
@@ -45,37 +45,38 @@ struct ElevationProfileView: View {
 
         let totalKm = max(trackPoints.last?.cumKm ?? 0, 0.001)
 
-        func xPosition(_ km: Double) -> CGFloat {
-            chartRect.minX + CGFloat(km / totalKm) * chartRect.width
+        func xPosition(_ ele: Double) -> CGFloat {
+            let ratio = CGFloat((ele - minEle) / (maxEle - minEle))
+            return chartRect.minX + ratio * chartRect.width
         }
 
-        func yPosition(_ ele: Double) -> CGFloat {
-            let ratio = CGFloat((ele - minEle) / (maxEle - minEle))
-            return chartRect.maxY - ratio * chartRect.height
+        func yPosition(_ km: Double) -> CGFloat {
+            chartRect.minY + CGFloat(km / totalKm) * chartRect.height
         }
 
         drawGrid(context: context, chartRect: chartRect, totalKm: totalKm, minEle: minEle, maxEle: maxEle)
 
         let points = elevationPoints.compactMap { point -> CGPoint? in
             guard let ele = point.ele else { return nil }
-            return CGPoint(x: xPosition(point.cumKm), y: yPosition(ele))
+            return CGPoint(x: xPosition(ele), y: yPosition(point.cumKm))
         }
         guard let firstPoint = points.first, let lastPoint = points.last else { return }
 
         var fill = Path()
-        fill.move(to: CGPoint(x: firstPoint.x, y: chartRect.maxY))
+        fill.move(to: CGPoint(x: chartRect.minX, y: firstPoint.y))
+        fill.addLine(to: firstPoint)
         for point in points {
             fill.addLine(to: point)
         }
-        fill.addLine(to: CGPoint(x: lastPoint.x, y: chartRect.maxY))
+        fill.addLine(to: CGPoint(x: chartRect.minX, y: lastPoint.y))
         fill.closeSubpath()
 
         context.fill(
             fill,
             with: .linearGradient(
                 Gradient(colors: [Color.orange.opacity(0.42), Color.orange.opacity(0.10)]),
-                startPoint: CGPoint(x: 0, y: chartRect.minY),
-                endPoint: CGPoint(x: 0, y: chartRect.maxY)
+                startPoint: CGPoint(x: chartRect.maxX, y: 0),
+                endPoint: CGPoint(x: chartRect.minX, y: 0)
             )
         )
 
@@ -89,10 +90,10 @@ struct ElevationProfileView: View {
         for cue in cuePoints {
             let selected = cue.id == selectedCueID
             let glyph = cuePointGlyph(for: cue.pointType)
-            let x = xPosition(cue.distanceKm)
+            let y = yPosition(cue.distanceKm)
             var marker = Path()
-            marker.move(to: CGPoint(x: x, y: chartRect.minY))
-            marker.addLine(to: CGPoint(x: x, y: chartRect.maxY))
+            marker.move(to: CGPoint(x: chartRect.minX, y: y))
+            marker.addLine(to: CGPoint(x: chartRect.maxX, y: y))
             context.stroke(
                 marker,
                 with: .color(selected ? glyph.color : glyph.color.opacity(0.45)),
@@ -103,21 +104,21 @@ struct ElevationProfileView: View {
                 let label = cue.displayName
                 context.draw(
                     Text(label).font(.caption2.weight(.semibold)).foregroundStyle(glyph.color),
-                    at: CGPoint(x: min(max(x, chartRect.minX + 4), chartRect.maxX - 4), y: chartRect.minY + 2),
-                    anchor: x < chartRect.midX ? .topLeading : .topTrailing
+                    at: CGPoint(x: chartRect.maxX - 4, y: min(max(y - 2, chartRect.minY + 4), chartRect.maxY - 4)),
+                    anchor: .bottomTrailing
                 )
             }
         }
 
         context.draw(
-            Text(formatRouteElevation(maxEle)).font(.caption2).foregroundStyle(.secondary),
-            at: CGPoint(x: 8, y: chartRect.minY),
+            Text(formatRouteElevation(minEle)).font(.caption2).foregroundStyle(.secondary),
+            at: CGPoint(x: chartRect.minX, y: chartRect.maxY + 18),
             anchor: .topLeading
         )
         context.draw(
-            Text(formatRouteElevation(minEle)).font(.caption2).foregroundStyle(.secondary),
-            at: CGPoint(x: 8, y: chartRect.maxY),
-            anchor: .bottomLeading
+            Text(formatRouteElevation(maxEle)).font(.caption2).foregroundStyle(.secondary),
+            at: CGPoint(x: chartRect.maxX, y: chartRect.maxY + 18),
+            anchor: .topTrailing
         )
     }
 
@@ -131,36 +132,48 @@ struct ElevationProfileView: View {
         let border = Path(roundedRect: chartRect, cornerRadius: 4)
         context.stroke(border, with: .color(.secondary.opacity(0.18)), lineWidth: 1)
 
-        let horizontalLines = 3
-        for index in 1..<horizontalLines {
-            let y = chartRect.minY + chartRect.height * CGFloat(index) / CGFloat(horizontalLines)
+        let elevationLines = 3
+        for index in 1..<elevationLines {
+            let x = chartRect.minX + chartRect.width * CGFloat(index) / CGFloat(elevationLines)
             var path = Path()
-            path.move(to: CGPoint(x: chartRect.minX, y: y))
-            path.addLine(to: CGPoint(x: chartRect.maxX, y: y))
+            path.move(to: CGPoint(x: x, y: chartRect.minY))
+            path.addLine(to: CGPoint(x: x, y: chartRect.maxY))
             context.stroke(path, with: .color(.secondary.opacity(0.14)), lineWidth: 0.5)
         }
 
-        let tickInterval = distanceTickInterval(totalKm: totalKm, width: chartRect.width)
+        let tickInterval = distanceTickInterval(totalKm: totalKm, length: chartRect.height)
         var km = 0.0
         while km <= totalKm + tickInterval * 0.1 {
-            let x = chartRect.minX + CGFloat(km / totalKm) * chartRect.width
+            let y = chartRect.minY + CGFloat(km / totalKm) * chartRect.height
+            var line = Path()
+            line.move(to: CGPoint(x: chartRect.minX, y: y))
+            line.addLine(to: CGPoint(x: chartRect.maxX, y: y))
+            context.stroke(line, with: .color(.secondary.opacity(0.10)), lineWidth: 0.5)
+
             var tick = Path()
-            tick.move(to: CGPoint(x: x, y: chartRect.maxY))
-            tick.addLine(to: CGPoint(x: x, y: chartRect.maxY + 5))
+            tick.move(to: CGPoint(x: chartRect.minX - 5, y: y))
+            tick.addLine(to: CGPoint(x: chartRect.minX, y: y))
             context.stroke(tick, with: .color(.secondary.opacity(0.4)), lineWidth: 0.5)
             context.draw(
                 Text(formatTick(km)).font(.caption2).foregroundStyle(.secondary),
-                at: CGPoint(x: x, y: chartRect.maxY + 8),
-                anchor: .top
+                at: CGPoint(x: chartRect.minX - 8, y: y),
+                anchor: .trailing
             )
             km += tickInterval
         }
+
+        let midEle = (minEle + maxEle) / 2
+        context.draw(
+            Text(formatRouteElevation(midEle)).font(.caption2).foregroundStyle(.secondary),
+            at: CGPoint(x: chartRect.midX, y: chartRect.maxY + 18),
+            anchor: .top
+        )
     }
 
-    private func distanceTickInterval(totalKm: Double, width: CGFloat) -> Double {
+    private func distanceTickInterval(totalKm: Double, length: CGFloat) -> Double {
         let candidates = [0.5, 1, 2, 5, 10, 20, 25, 50, 100, 200]
-        let minTickWidth = 56.0
-        return candidates.first { $0 / max(totalKm, 0.001) * Double(width) >= minTickWidth } ?? 200
+        let minTickLength = 58.0
+        return candidates.first { $0 / max(totalKm, 0.001) * Double(length) >= minTickLength } ?? 200
     }
 
     private func formatTick(_ km: Double) -> String {
