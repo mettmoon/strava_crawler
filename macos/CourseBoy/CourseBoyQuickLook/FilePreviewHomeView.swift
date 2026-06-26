@@ -11,9 +11,7 @@ struct FilePreviewHomeView: View {
         NavigationStack {
             Group {
                 if let loadedCourse {
-                    CourseViewerView(course: loadedCourse) {
-                        isFileImporterPresented = true
-                    }
+                    CourseViewerView(course: loadedCourse)
                 } else {
                     emptyState
                 }

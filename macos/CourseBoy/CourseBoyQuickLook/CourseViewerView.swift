@@ -2,9 +2,11 @@ import SwiftUI
 
 struct CourseViewerView: View {
     let course: LoadedCourse
-    var onOpenFile: () -> Void
 
     @State private var selectedCueID: UUID?
+    @State private var selectedProfilePoint: CourseProfileSelection?
+    @State private var selectedTab: CourseViewerTab = .summary
+    @State private var elevationCueScrollRequest: ElevationCueScrollRequest?
 
     private var selectedCue: CourseCuePoint? {
         guard let selectedCueID else { return nil }
@@ -12,46 +14,99 @@ struct CourseViewerView: View {
     }
 
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             CourseSummaryTab(
                 course: course,
                 selectedCue: selectedCue,
-                onOpenFile: onOpenFile
+                selectedProfilePoint: selectedProfilePoint
             )
             .tabItem {
                 Label("요약", systemImage: "chart.bar.doc.horizontal")
             }
+            .tag(CourseViewerTab.summary)
 
-            CourseMapTab(course: course, selectedCueID: $selectedCueID)
+            CourseMapTab(
+                course: course,
+                selectedCueID: linkedCueSelection,
+                selectedProfilePoint: $selectedProfilePoint
+            )
                 .tabItem {
                     Label("지도", systemImage: "map")
                 }
+                .tag(CourseViewerTab.map)
 
-            CourseElevationTab(course: course, selectedCueID: selectedCueID)
+            CourseElevationTab(
+                course: course,
+                selectedCueID: $selectedCueID,
+                selectedProfilePoint: $selectedProfilePoint,
+                cueScrollRequest: $elevationCueScrollRequest,
+                isActive: selectedTab == .elevation
+            )
                 .tabItem {
                     Label("고도그래프", systemImage: "mountain.2")
                 }
+                .tag(CourseViewerTab.elevation)
 
-            CourseCueSheetTab(course: course, selectedCueID: $selectedCueID)
+            CourseCueSheetTab(
+                course: course,
+                selectedCueID: linkedCueSelection,
+                selectedProfilePoint: $selectedProfilePoint
+            )
                 .tabItem {
                     Label("큐시트", systemImage: "list.bullet.rectangle")
                 }
+                .tag(CourseViewerTab.cueSheet)
         }
     }
+
+    private var linkedCueSelection: Binding<UUID?> {
+        Binding {
+            selectedCueID
+        } set: { id in
+            if let id, id != selectedCueID {
+                elevationCueScrollRequest = ElevationCueScrollRequest(cueID: id)
+            }
+            if id != nil {
+                selectedProfilePoint = nil
+            }
+            selectedCueID = id
+        }
+    }
+}
+
+private enum CourseViewerTab: Hashable {
+    case summary
+    case map
+    case elevation
+    case cueSheet
+}
+
+private struct ElevationCueScrollRequest: Equatable {
+    var requestID = UUID()
+    var cueID: UUID
+}
+
+private struct ElevationCueScrollAnchorRow: Identifiable {
+    var id: UUID
+    var spacerHeight: CGFloat
 }
 
 private struct CourseSummaryTab: View {
     let course: LoadedCourse
     let selectedCue: CourseCuePoint?
-    var onOpenFile: () -> Void
+    let selectedProfilePoint: CourseProfileSelection?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                CourseHeaderView(course: course, onOpenFile: onOpenFile)
+                CourseHeaderView(course: course)
                 CourseSummaryGrid(course: course)
                 ViewerSection(title: "상세 정보", systemImage: "info.circle") {
-                    CourseDetailRows(course: course, selectedCue: selectedCue)
+                    CourseDetailRows(
+                        course: course,
+                        selectedCue: selectedCue,
+                        selectedProfilePoint: selectedProfilePoint
+                    )
                 }
             }
             .padding(16)
@@ -63,6 +118,7 @@ private struct CourseSummaryTab: View {
 private struct CourseMapTab: View {
     let course: LoadedCourse
     @Binding var selectedCueID: UUID?
+    @Binding var selectedProfilePoint: CourseProfileSelection?
 
     private var selectedCue: CourseCuePoint? {
         guard let selectedCueID else { return nil }
@@ -71,7 +127,11 @@ private struct CourseMapTab: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            CourseMapView(course: course, selectedCueID: $selectedCueID)
+            CourseMapView(
+                course: course,
+                selectedCueID: $selectedCueID,
+                selectedProfilePoint: $selectedProfilePoint
+            )
 
             if let selectedCue {
                 SelectedCueOverlay(cue: selectedCue) {
@@ -86,7 +146,10 @@ private struct CourseMapTab: View {
 
 private struct CourseElevationTab: View {
     let course: LoadedCourse
-    let selectedCueID: UUID?
+    @Binding var selectedCueID: UUID?
+    @Binding var selectedProfilePoint: CourseProfileSelection?
+    @Binding var cueScrollRequest: ElevationCueScrollRequest?
+    let isActive: Bool
 
     @State private var distanceScale: ElevationProfileScaleOption = .standard
     @State private var elevationScale: ElevationProfileScaleOption = .standard
@@ -106,6 +169,7 @@ private struct CourseElevationTab: View {
             let maxHorizontalOffset = max(0, profileSize.width - viewportWidth)
             let horizontalOffset = maxHorizontalOffset * CGFloat(horizontalScrollPosition)
             let renderWidth = max(profileSize.width, viewportWidth)
+            let profileSelectionForDisplay = selectedProfilePoint ?? selectedCueProfilePoint
 
             VStack(spacing: 0) {
                 HStack {
@@ -123,24 +187,53 @@ private struct CourseElevationTab: View {
                     horizontalOffset: horizontalOffset
                 )
 
-                ScrollView(.vertical) {
-                    ZStack(alignment: .topLeading) {
-                        ElevationProfileView(
-                            trackPoints: course.trackPoints,
-                            cuePoints: course.sortedCuePoints,
-                            selectedCueID: selectedCueID,
-                            contentWidth: profileSize.width,
-                            visibleWidth: viewportWidth,
-                            horizontalOffset: horizontalOffset
-                        )
-                        .frame(width: renderWidth, height: profileSize.height)
-                        .offset(x: -horizontalOffset)
+                ScrollViewReader { scrollProxy in
+                    ScrollView(.vertical) {
+                        ZStack(alignment: .topLeading) {
+                            ElevationProfileView(
+                                trackPoints: course.trackPoints,
+                                cuePoints: course.sortedCuePoints,
+                                selectedCueID: selectedCueID,
+                                selectedProfilePoint: profileSelectionForDisplay,
+                                contentWidth: profileSize.width,
+                                visibleWidth: viewportWidth,
+                                horizontalOffset: horizontalOffset,
+                                onSelectProfilePoint: { selection in
+                                    selectedProfilePoint = selection
+                                    selectedCueID = nil
+                                },
+                                onSelectCue: { cueID in
+                                    if selectedCueID == cueID {
+                                        selectedCueID = nil
+                                        selectedProfilePoint = nil
+                                    } else {
+                                        selectedProfilePoint = nil
+                                        selectedCueID = cueID
+                                    }
+                                }
+                            )
+                            .frame(width: renderWidth, height: profileSize.height)
+                            .offset(x: -horizontalOffset)
+
+                            cueScrollAnchors(profileSize: profileSize)
+                                .allowsHitTesting(false)
+                        }
+                        .frame(width: viewportWidth, height: profileSize.height, alignment: .topLeading)
+                        .clipped()
+                        .padding(.vertical, 12)
                     }
-                    .frame(width: viewportWidth, height: profileSize.height, alignment: .topLeading)
-                    .clipped()
-                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onChange(of: cueScrollRequest) { _, request in
+                        consumeCueScrollRequest(request, using: scrollProxy)
+                    }
+                    .onChange(of: isActive) { _, active in
+                        guard active else { return }
+                        consumeCueScrollRequest(cueScrollRequest, using: scrollProxy, animated: false)
+                    }
+                    .onAppear {
+                        consumeCueScrollRequest(cueScrollRequest, using: scrollProxy, animated: false)
+                    }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if maxHorizontalOffset > 1 {
                     HStack(spacing: 10) {
@@ -185,6 +278,70 @@ private struct CourseElevationTab: View {
                 - ElevationProfileView.headerHeight
                 - Self.graphVerticalPadding
         )
+    }
+
+    private var selectedCueProfilePoint: CourseProfileSelection? {
+        guard let selectedCueID,
+              let cue = course.cuePoints.first(where: { $0.id == selectedCueID }),
+              let index = Geo.nearestIndex(course.trackPoints, lat: cue.lat, lon: cue.lon) else {
+            return nil
+        }
+        return CourseProfileSelection(trackIndex: index, point: course.trackPoints[index])
+    }
+
+    @ViewBuilder
+    private func cueScrollAnchors(profileSize: CGSize) -> some View {
+        VStack(spacing: 0) {
+            ForEach(cueScrollAnchorRows(profileHeight: profileSize.height)) { row in
+                Color.clear
+                    .frame(width: 1, height: row.spacerHeight)
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .id(elevationCueAnchorID(row.id))
+            }
+        }
+        .frame(width: 1, height: profileSize.height, alignment: .topLeading)
+    }
+
+    private func cueScrollAnchorRows(profileHeight: CGFloat) -> [ElevationCueScrollAnchorRow] {
+        var cursor: CGFloat = 0
+        return course.sortedCuePoints.map { cue in
+            let targetY = min(
+                max(
+                    ElevationProfileView.yPosition(
+                        distanceKm: cue.distanceKm,
+                        trackPoints: course.trackPoints,
+                        profileHeight: profileHeight
+                    ),
+                    0
+                ),
+                max(0, profileHeight - 1)
+            )
+            let spacerHeight = max(0, targetY - cursor)
+            cursor += spacerHeight + 1
+            return ElevationCueScrollAnchorRow(id: cue.id, spacerHeight: spacerHeight)
+        }
+    }
+
+    private func consumeCueScrollRequest(
+        _ request: ElevationCueScrollRequest?,
+        using proxy: ScrollViewProxy,
+        animated: Bool = true
+    ) {
+        guard isActive, let request else { return }
+        let action = {
+            proxy.scrollTo(elevationCueAnchorID(request.cueID), anchor: .center)
+        }
+        if animated {
+            withAnimation(.easeInOut(duration: 0.25), action)
+        } else {
+            action()
+        }
+        cueScrollRequest = nil
+    }
+
+    private func elevationCueAnchorID(_ id: UUID) -> String {
+        "elevation-cue-\(id.uuidString)"
     }
 
     private var distanceScaleBinding: Binding<ElevationProfileScaleOption> {
@@ -273,12 +430,13 @@ private enum ElevationProfileScaleOption: Double, CaseIterable, Identifiable {
 private struct CourseCueSheetTab: View {
     let course: LoadedCourse
     @Binding var selectedCueID: UUID?
+    @Binding var selectedProfilePoint: CourseProfileSelection?
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    CueSheetListView(course: course, selectedCueID: $selectedCueID)
+                    CueSheetListView(course: course, selectedCueID: cueSelectionBinding)
                 }
                 .padding(16)
             }
@@ -289,6 +447,17 @@ private struct CourseCueSheetTab: View {
                     proxy.scrollTo(id, anchor: .center)
                 }
             }
+        }
+    }
+
+    private var cueSelectionBinding: Binding<UUID?> {
+        Binding {
+            selectedCueID
+        } set: { id in
+            if id != nil {
+                selectedProfilePoint = nil
+            }
+            selectedCueID = id
         }
     }
 }
@@ -349,29 +518,18 @@ private struct SelectedCueOverlay: View {
 
 private struct CourseHeaderView: View {
     let course: LoadedCourse
-    var onOpenFile: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(course.title)
-                        .font(.title2.weight(.semibold))
-                        .lineLimit(2)
-                    Text("\(course.fileKind.rawValue) · \(course.sourceURL.lastPathComponent)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-
-                Spacer()
-
-                Button(action: onOpenFile) {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(.bordered)
-                .accessibilityLabel("다른 파일 열기")
+            VStack(alignment: .leading, spacing: 4) {
+                Text(course.title)
+                    .font(.title2.weight(.semibold))
+                    .lineLimit(2)
+                Text("\(course.fileKind.rawValue) · \(course.sourceURL.lastPathComponent)")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
         }
     }
@@ -455,6 +613,7 @@ struct ViewerSection<Content: View>: View {
 private struct CourseDetailRows: View {
     let course: LoadedCourse
     let selectedCue: CourseCuePoint?
+    let selectedProfilePoint: CourseProfileSelection?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -469,9 +628,22 @@ private struct CourseDetailRows: View {
             if let selectedCue {
                 detailRow("선택한 큐", value: selectedCue.displayName)
                 detailRow("선택 위치", value: formatRouteDistance(selectedCue.distanceKm))
+                detailRow("선택 고도", value: formatRouteElevation(selectedCueElevation))
+            }
+            if let selectedProfilePoint {
+                detailRow("그래프 선택 거리", value: formatRouteDistance(selectedProfilePoint.distanceKm))
+                detailRow("그래프 선택 고도", value: formatRouteElevation(selectedProfilePoint.elevationMeters))
             }
         }
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var selectedCueElevation: Double? {
+        guard let selectedCue,
+              let index = Geo.nearestIndex(course.trackPoints, lat: selectedCue.lat, lon: selectedCue.lon) else {
+            return nil
+        }
+        return course.trackPoints[index].ele
     }
 
     private func detailRow(_ title: String, value: String) -> some View {
