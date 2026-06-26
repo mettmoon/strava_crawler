@@ -12,9 +12,17 @@
 
 /* Begin PBXFileReference section */
 		AA00000000000000000011 /* CourseBoy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CourseBoy.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BB00000000000000000011 /* CourseBoyQuickLook.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CourseBoyQuickLook.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		BB00000000000000000060 /* Exceptions for "CourseBoyQuickLook" folder in "CourseBoyQuickLook" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = BB00000000000000000010 /* CourseBoyQuickLook */;
+		};
 		D0A3A5E22FD778B0004C01A6 /* Exceptions for "CourseBoy" folder in "CourseBoy" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -33,6 +41,14 @@
 			path = CourseBoy;
 			sourceTree = "<group>";
 		};
+		BB00000000000000000020 /* CourseBoyQuickLook */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				BB00000000000000000060 /* Exceptions for "CourseBoyQuickLook" folder in "CourseBoyQuickLook" target */,
+			);
+			path = CourseBoyQuickLook;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -44,6 +60,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BB00000000000000000031 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -51,6 +74,7 @@
 			isa = PBXGroup;
 			children = (
 				AA00000000000000000020 /* CourseBoy */,
+				BB00000000000000000020 /* CourseBoyQuickLook */,
 				AA00000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -59,6 +83,7 @@
 			isa = PBXGroup;
 			children = (
 				AA00000000000000000011 /* CourseBoy.app */,
+				BB00000000000000000011 /* CourseBoyQuickLook.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -89,6 +114,28 @@
 			productReference = AA00000000000000000011 /* CourseBoy.app */;
 			productType = "com.apple.product-type.application";
 		};
+		BB00000000000000000010 /* CourseBoyQuickLook */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BB00000000000000000043 /* Build configuration list for PBXNativeTarget "CourseBoyQuickLook" */;
+			buildPhases = (
+				BB00000000000000000030 /* Sources */,
+				BB00000000000000000031 /* Frameworks */,
+				BB00000000000000000032 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				BB00000000000000000020 /* CourseBoyQuickLook */,
+			);
+			name = CourseBoyQuickLook;
+			packageProductDependencies = (
+			);
+			productName = CourseBoyQuickLook;
+			productReference = BB00000000000000000011 /* CourseBoyQuickLook.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -101,6 +148,9 @@
 				TargetAttributes = {
 					AA00000000000000000010 = {
 						CreatedOnToolsVersion = 26.5;
+					};
+					BB00000000000000000010 = {
+						CreatedOnToolsVersion = 26.6;
 					};
 				};
 			};
@@ -122,6 +172,7 @@
 			projectRoot = "";
 			targets = (
 				AA00000000000000000010 /* CourseBoy */,
+				BB00000000000000000010 /* CourseBoyQuickLook */,
 			);
 		};
 /* End PBXProject section */
@@ -134,10 +185,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BB00000000000000000032 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		AA00000000000000000030 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BB00000000000000000030 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -308,6 +373,70 @@
 			};
 			name = Release;
 		};
+		BB00000000000000000044 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 9YGS892Y3B;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CourseBoyQuickLook/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = CourseBoy;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wejoapps.CourseBoy.QuickLook;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BB00000000000000000045 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 9YGS892Y3B;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CourseBoyQuickLook/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = CourseBoy;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wejoapps.CourseBoy.QuickLook;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -325,6 +454,15 @@
 			buildConfigurations = (
 				AA00000000000000000044 /* Debug */,
 				AA00000000000000000045 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BB00000000000000000043 /* Build configuration list for PBXNativeTarget "CourseBoyQuickLook" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BB00000000000000000044 /* Debug */,
+				BB00000000000000000045 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
