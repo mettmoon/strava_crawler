@@ -1,5 +1,12 @@
 import SwiftUI
 
+struct ElevationProfileScale: Equatable {
+    var distanceFactor: CGFloat
+    var elevationFactor: CGFloat
+
+    static let standard = ElevationProfileScale(distanceFactor: 1, elevationFactor: 1)
+}
+
 struct ElevationProfileView: View {
     let trackPoints: [TrackPoint]
     let cuePoints: [CourseCuePoint]
@@ -9,6 +16,36 @@ struct ElevationProfileView: View {
         trackPoints.filter { $0.ele != nil }
     }
 
+    static func preferredSize(
+        trackPoints: [TrackPoint],
+        availableWidth: CGFloat,
+        scale: ElevationProfileScale
+    ) -> CGSize {
+        let availableWidth = max(1, availableWidth)
+        guard let elevationRange = elevationRangeMeters(trackPoints: trackPoints) else {
+            return CGSize(width: availableWidth, height: ElevationProfileLayout.emptyHeight)
+        }
+
+        let baseChartWidth = max(
+            1,
+            availableWidth - ElevationProfileLayout.leftPad - ElevationProfileLayout.rightPad
+        )
+        let chartWidth = baseChartWidth * max(0.25, scale.elevationFactor)
+        let pixelsPerKm = baseChartWidth / CGFloat(max(1, elevationRange) / 100)
+        let chartHeight = max(
+            1,
+            CGFloat(max(trackPoints.last?.cumKm ?? 0, 0)) * pixelsPerKm * max(0.25, scale.distanceFactor)
+        )
+
+        return CGSize(
+            width: chartWidth + ElevationProfileLayout.leftPad + ElevationProfileLayout.rightPad,
+            height: max(
+                ElevationProfileLayout.emptyHeight,
+                chartHeight + ElevationProfileLayout.topPad + ElevationProfileLayout.bottomPad
+            )
+        )
+    }
+
     var body: some View {
         if elevationPoints.count < 2 {
             ContentUnavailableView {
@@ -16,7 +53,7 @@ struct ElevationProfileView: View {
             } description: {
                 Text("이 파일에는 표시할 고도값이 없습니다.")
             }
-            .frame(maxWidth: .infinity, minHeight: 160)
+            .frame(maxWidth: .infinity, minHeight: ElevationProfileLayout.emptyHeight)
             .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
         } else {
             Canvas { context, size in
@@ -26,15 +63,11 @@ struct ElevationProfileView: View {
     }
 
     private func drawProfile(context: GraphicsContext, size: CGSize) {
-        let leftPad: CGFloat = 44
-        let rightPad: CGFloat = 8
-        let topPad: CGFloat = 12
-        let bottomPad: CGFloat = 34
         let chartRect = CGRect(
-            x: leftPad,
-            y: topPad,
-            width: max(1, size.width - leftPad - rightPad),
-            height: max(1, size.height - topPad - bottomPad)
+            x: ElevationProfileLayout.leftPad,
+            y: ElevationProfileLayout.topPad,
+            width: max(1, size.width - ElevationProfileLayout.leftPad - ElevationProfileLayout.rightPad),
+            height: max(1, size.height - ElevationProfileLayout.topPad - ElevationProfileLayout.bottomPad)
         )
 
         let elevations = elevationPoints.compactMap(\.ele)
@@ -254,10 +287,26 @@ struct ElevationProfileView: View {
         }
         return String(format: "%.0f", km)
     }
+
+    private static func elevationRangeMeters(trackPoints: [TrackPoint]) -> Double? {
+        let elevations = trackPoints.compactMap(\.ele)
+        guard let minEle = elevations.min(),
+              let maxEle = elevations.max(),
+              maxEle > minEle else { return nil }
+        return maxEle - minEle
+    }
 }
 
 private struct CueLabelPlacement {
     let cue: CourseCuePoint
     let guideY: CGFloat
     var labelY: CGFloat
+}
+
+private enum ElevationProfileLayout {
+    static let leftPad: CGFloat = 44
+    static let rightPad: CGFloat = 8
+    static let topPad: CGFloat = 12
+    static let bottomPad: CGFloat = 34
+    static let emptyHeight: CGFloat = 160
 }
