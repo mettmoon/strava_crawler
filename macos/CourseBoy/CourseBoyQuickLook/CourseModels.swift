@@ -74,6 +74,26 @@ struct TrackPoint: Equatable {
     }
 }
 
+struct CourseProfileSelection: Equatable {
+    var trackIndex: Int
+    var lat: Double
+    var lon: Double
+    var distanceKm: Double
+    var elevationMeters: Double?
+
+    var coordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+
+    init(trackIndex: Int, point: TrackPoint) {
+        self.trackIndex = trackIndex
+        self.lat = point.lat
+        self.lon = point.lon
+        self.distanceKm = point.cumKm
+        self.elevationMeters = point.ele
+    }
+}
+
 enum Geo {
     static let earthRadiusKm = 6371.0088
 

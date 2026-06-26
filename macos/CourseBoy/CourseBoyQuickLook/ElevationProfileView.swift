@@ -16,9 +16,12 @@ struct ElevationProfileView: View {
     let trackPoints: [TrackPoint]
     let cuePoints: [CourseCuePoint]
     let selectedCueID: UUID?
+    let selectedProfilePoint: CourseProfileSelection?
     var contentWidth: CGFloat = 0
     var visibleWidth: CGFloat = 0
     var horizontalOffset: CGFloat = 0
+    var onSelectProfilePoint: (CourseProfileSelection) -> Void = { _ in }
+    var onSelectCue: (UUID) -> Void = { _ in }
 
     private var elevationPoints: [TrackPoint] {
         trackPoints.filter { $0.ele != nil }
@@ -53,6 +56,17 @@ struct ElevationProfileView: View {
 
     static var headerHeight: CGFloat {
         ElevationProfileLayout.headerHeight
+    }
+
+    static func yPosition(
+        distanceKm: Double,
+        trackPoints: [TrackPoint],
+        profileHeight: CGFloat
+    ) -> CGFloat {
+        let totalKm = max(trackPoints.last?.cumKm ?? 0, 0.001)
+        let ratio = min(max(distanceKm / totalKm, 0), 1)
+        let chartHeight = max(1, profileHeight - ElevationProfileLayout.topPad - ElevationProfileLayout.bottomPad)
+        return ElevationProfileLayout.topPad + CGFloat(ratio) * chartHeight
     }
 
     static func fittingScale(
@@ -96,8 +110,22 @@ struct ElevationProfileView: View {
             .frame(maxWidth: .infinity, minHeight: ElevationProfileLayout.emptyHeight)
             .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
         } else {
-            Canvas { context, size in
-                drawProfile(context: context, size: size)
+            GeometryReader { proxy in
+                Canvas { context, size in
+                    drawProfile(context: context, size: size)
+                }
+                .contentShape(Rectangle())
+                .simultaneousGesture(
+                    SpatialTapGesture(coordinateSpace: .local)
+                        .onEnded { value in
+                            if let cue = cueHit(at: value.location, size: proxy.size) {
+                                onSelectCue(cue.id)
+                                return
+                            }
+                            guard let selection = profileSelection(at: value.location, size: proxy.size) else { return }
+                            onSelectProfilePoint(selection)
+                        }
+                )
             }
         }
     }
@@ -190,6 +218,17 @@ struct ElevationProfileView: View {
 
         if let selectedPlacement = cuePlacements.first(where: { $0.cue.id == selectedCueID }) {
             drawCueLabel(selectedPlacement, context: context, x: cueLabelX, selected: true)
+        }
+
+        if let selectedProfilePoint {
+            drawProfileSelection(
+                selectedProfilePoint,
+                context: context,
+                chartRect: chartRect,
+                canvasWidth: size.width,
+                xPosition: xPosition,
+                yPosition: yPosition
+            )
         }
 
     }
@@ -298,6 +337,188 @@ struct ElevationProfileView: View {
             Text(label).font(.caption2.weight(weight)).foregroundStyle(color),
             at: CGPoint(x: x, y: placement.labelY),
             anchor: .trailing
+        )
+    }
+
+    private func drawProfileSelection(
+        _ selection: CourseProfileSelection,
+        context: GraphicsContext,
+        chartRect: CGRect,
+        canvasWidth: CGFloat,
+        xPosition: (Double) -> CGFloat,
+        yPosition: (Double) -> CGFloat
+    ) {
+        guard let elevation = selection.elevationMeters else { return }
+
+        let x = min(max(xPosition(elevation), chartRect.minX), chartRect.maxX)
+        let y = min(max(yPosition(selection.distanceKm), chartRect.minY), chartRect.maxY)
+        let color = Color.cyan
+
+        var vertical = Path()
+        vertical.move(to: CGPoint(x: x, y: chartRect.minY))
+        vertical.addLine(to: CGPoint(x: x, y: chartRect.maxY))
+        context.stroke(
+            vertical,
+            with: .color(color.opacity(0.72)),
+            style: StrokeStyle(lineWidth: 1, dash: [4, 3])
+        )
+
+        var horizontal = Path()
+        horizontal.move(to: CGPoint(x: chartRect.minX, y: y))
+        horizontal.addLine(to: CGPoint(x: fixedCueGuideEndX(chartRect: chartRect, canvasWidth: canvasWidth), y: y))
+        context.stroke(
+            horizontal,
+            with: .color(color.opacity(0.72)),
+            style: StrokeStyle(lineWidth: 1, dash: [4, 3])
+        )
+
+        let dotRadius: CGFloat = 4
+        context.fill(
+            Path(ellipseIn: CGRect(
+                x: x - dotRadius,
+                y: y - dotRadius,
+                width: dotRadius * 2,
+                height: dotRadius * 2
+            )),
+            with: .color(color)
+        )
+        context.stroke(
+            Path(ellipseIn: CGRect(
+                x: x - dotRadius,
+                y: y - dotRadius,
+                width: dotRadius * 2,
+                height: dotRadius * 2
+            )),
+            with: .color(.white),
+            lineWidth: 1
+        )
+
+        drawProfileSelectionBubble(
+            selection,
+            context: context,
+            point: CGPoint(x: x, y: y),
+            chartRect: chartRect,
+            canvasWidth: canvasWidth
+        )
+    }
+
+    private func drawProfileSelectionBubble(
+        _ selection: CourseProfileSelection,
+        context: GraphicsContext,
+        point: CGPoint,
+        chartRect: CGRect,
+        canvasWidth: CGFloat
+    ) {
+        let bubbleSize = CGSize(width: 112, height: 44)
+        let maxX = max(canvasWidth, chartRect.maxX)
+        var origin = CGPoint(x: point.x + 10, y: point.y - bubbleSize.height - 10)
+        if origin.x + bubbleSize.width > maxX - 6 {
+            origin.x = point.x - bubbleSize.width - 10
+        }
+        if origin.y < chartRect.minY + 6 {
+            origin.y = point.y + 10
+        }
+        origin.x = min(max(origin.x, chartRect.minX + 6), maxX - bubbleSize.width - 6)
+        origin.y = min(max(origin.y, chartRect.minY + 6), chartRect.maxY - bubbleSize.height - 6)
+
+        let rect = CGRect(origin: origin, size: bubbleSize)
+        context.fill(
+            Path(roundedRect: rect, cornerRadius: 5),
+            with: .color(Color(.secondarySystemGroupedBackground).opacity(0.96))
+        )
+        context.stroke(
+            Path(roundedRect: rect, cornerRadius: 5),
+            with: .color(.secondary.opacity(0.35)),
+            lineWidth: 0.8
+        )
+
+        context.draw(
+            Text(formatRouteDistance(selection.distanceKm))
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.primary),
+            at: CGPoint(x: rect.midX, y: rect.minY + 14),
+            anchor: .center
+        )
+        context.draw(
+            Text(formatRouteElevation(selection.elevationMeters))
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.primary),
+            at: CGPoint(x: rect.midX, y: rect.minY + 31),
+            anchor: .center
+        )
+    }
+
+    private func profileSelection(at location: CGPoint, size: CGSize) -> CourseProfileSelection? {
+        let chartRect = chartRect(for: size)
+        guard chartRect.height > 0 else { return nil }
+        let totalKm = max(trackPoints.last?.cumKm ?? 0, 0.001)
+        let y = min(max(location.y, chartRect.minY), chartRect.maxY)
+        let distanceKm = Double((y - chartRect.minY) / chartRect.height) * totalKm
+        return nearestElevationSelection(to: distanceKm)
+    }
+
+    private func nearestElevationSelection(to distanceKm: Double) -> CourseProfileSelection? {
+        var bestIndex: Int?
+        var bestDistance = Double.infinity
+        for (index, point) in trackPoints.enumerated() where point.ele != nil {
+            let distance = abs(point.cumKm - distanceKm)
+            if distance < bestDistance {
+                bestDistance = distance
+                bestIndex = index
+            }
+        }
+        guard let bestIndex else { return nil }
+        return CourseProfileSelection(trackIndex: bestIndex, point: trackPoints[bestIndex])
+    }
+
+    private func cueHit(at location: CGPoint, size: CGSize) -> CourseCuePoint? {
+        let chartRect = chartRect(for: size)
+        let totalKm = max(trackPoints.last?.cumKm ?? 0, 0.001)
+        func yPosition(_ km: Double) -> CGFloat {
+            chartRect.minY + CGFloat(km / totalKm) * chartRect.height
+        }
+
+        let placements = cueLabelPlacements(chartRect: chartRect, yPosition: yPosition)
+        let labelX = fixedCueLabelX(chartRect: chartRect, canvasWidth: size.width)
+
+        for placement in placements.reversed() {
+            let selected = placement.cue.id == selectedCueID
+            let label = cueProfileLabel(placement.cue.displayName)
+            let labelWidth = cueLabelWidth(label, selected: selected)
+            let labelRect = CGRect(
+                x: labelX - labelWidth - 6,
+                y: placement.labelY - 10,
+                width: labelWidth + 10,
+                height: 20
+            )
+            if labelRect.contains(location) {
+                return placement.cue
+            }
+
+            let guideEndX = cueGuideEndX(
+                for: placement,
+                labelX: labelX,
+                chartRect: chartRect,
+                canvasWidth: size.width,
+                selected: selected
+            )
+            if abs(location.y - placement.guideY) <= 5,
+               location.x >= chartRect.minX,
+               location.x <= guideEndX {
+                return placement.cue
+            }
+        }
+
+        return nil
+    }
+
+    private func chartRect(for size: CGSize) -> CGRect {
+        let chartContentWidth = contentWidth > 0 ? contentWidth : size.width
+        return CGRect(
+            x: ElevationProfileLayout.leftPad,
+            y: ElevationProfileLayout.topPad,
+            width: max(1, chartContentWidth - ElevationProfileLayout.leftPad - ElevationProfileLayout.rightPad),
+            height: max(1, size.height - ElevationProfileLayout.topPad - ElevationProfileLayout.bottomPad)
         )
     }
 

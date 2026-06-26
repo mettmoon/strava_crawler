@@ -4,9 +4,10 @@ import SwiftUI
 struct CourseMapView: UIViewRepresentable {
     let course: LoadedCourse
     @Binding var selectedCueID: UUID?
+    @Binding var selectedProfilePoint: CourseProfileSelection?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(selectedCueID: $selectedCueID)
+        Coordinator(selectedCueID: $selectedCueID, selectedProfilePoint: $selectedProfilePoint)
     }
 
     func makeUIView(context: Context) -> MKMapView {
@@ -21,23 +22,29 @@ struct CourseMapView: UIViewRepresentable {
 
     func updateUIView(_ map: MKMapView, context: Context) {
         context.coordinator.selectedCueID = $selectedCueID
+        context.coordinator.selectedProfilePoint = $selectedProfilePoint
         context.coordinator.syncCourse(course, in: map)
         context.coordinator.syncSelectedCue(selectedCueID, in: map)
+        context.coordinator.syncProfileSelection(selectedProfilePoint, in: map)
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate {
         var selectedCueID: Binding<UUID?>
+        var selectedProfilePoint: Binding<CourseProfileSelection?>
         private var loadedCourseID: UUID?
         private var cueAnnotations: [CourseCueAnnotation] = []
+        private var profileSelectionAnnotation: CourseProfileSelectionAnnotation?
 
-        init(selectedCueID: Binding<UUID?>) {
+        init(selectedCueID: Binding<UUID?>, selectedProfilePoint: Binding<CourseProfileSelection?>) {
             self.selectedCueID = selectedCueID
+            self.selectedProfilePoint = selectedProfilePoint
         }
 
         func syncCourse(_ course: LoadedCourse, in map: MKMapView) {
             guard loadedCourseID != course.id else { return }
             loadedCourseID = course.id
             cueAnnotations = []
+            profileSelectionAnnotation = nil
 
             map.removeOverlays(map.overlays)
             map.removeAnnotations(map.annotations)
@@ -83,6 +90,28 @@ struct CourseMapView: UIViewRepresentable {
             map.setCenter(annotation.coordinate, animated: true)
         }
 
+        func syncProfileSelection(_ selection: CourseProfileSelection?, in map: MKMapView) {
+            guard let selection else {
+                if let profileSelectionAnnotation {
+                    map.removeAnnotation(profileSelectionAnnotation)
+                    self.profileSelectionAnnotation = nil
+                }
+                return
+            }
+
+            if let annotation = profileSelectionAnnotation {
+                annotation.update(selection: selection)
+            } else {
+                let annotation = CourseProfileSelectionAnnotation(selection: selection)
+                profileSelectionAnnotation = annotation
+                map.addAnnotation(annotation)
+            }
+
+            if selectedCueID.wrappedValue == nil {
+                map.setCenter(selection.coordinate, animated: true)
+            }
+        }
+
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             if overlay is CourseRoutePolyline {
                 let renderer = MKPolylineRenderer(overlay: overlay)
@@ -124,11 +153,25 @@ struct CourseMapView: UIViewRepresentable {
                 return view
             }
 
+            if let profileAnnotation = annotation as? CourseProfileSelectionAnnotation {
+                let identifier = "profile-selection"
+                let view = mapView.dequeueReusableAnnotationView(
+                    withIdentifier: identifier
+                ) as? MKMarkerAnnotationView ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+                view.annotation = profileAnnotation
+                view.canShowCallout = true
+                view.markerTintColor = .systemCyan
+                view.glyphImage = UIImage(systemName: "scope")
+                view.displayPriority = .required
+                return view
+            }
+
             return nil
         }
 
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
             guard let cue = view.annotation as? CourseCueAnnotation else { return }
+            selectedProfilePoint.wrappedValue = nil
             selectedCueID.wrappedValue = cue.cue.id
         }
 
@@ -177,5 +220,30 @@ private final class CourseCueAnnotation: NSObject, MKAnnotation {
         self.coordinate = cue.coordinate
         self.title = cue.displayName
         self.subtitle = "\(formatRouteDistance(cue.distanceKm)) · \(cuePointLabel(for: cue.pointType))"
+    }
+}
+
+private final class CourseProfileSelectionAnnotation: NSObject, MKAnnotation {
+    private(set) var selection: CourseProfileSelection
+    @objc dynamic private(set) var coordinate: CLLocationCoordinate2D
+    private(set) var title: String?
+    private(set) var subtitle: String?
+
+    init(selection: CourseProfileSelection) {
+        self.selection = selection
+        self.coordinate = selection.coordinate
+        super.init()
+        updateTitle()
+    }
+
+    func update(selection: CourseProfileSelection) {
+        self.selection = selection
+        coordinate = selection.coordinate
+        updateTitle()
+    }
+
+    private func updateTitle() {
+        title = "그래프 선택 위치"
+        subtitle = "\(formatRouteDistance(selection.distanceKm)) · \(formatRouteElevation(selection.elevationMeters))"
     }
 }
