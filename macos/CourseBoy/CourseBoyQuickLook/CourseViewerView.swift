@@ -91,24 +91,21 @@ private struct CourseElevationTab: View {
     @State private var distanceScale: ElevationProfileScaleOption = .standard
     @State private var elevationScale: ElevationProfileScaleOption = .standard
     @State private var horizontalScrollPosition = 0.0
-
-    private var profileScale: ElevationProfileScale {
-        ElevationProfileScale(
-            distanceFactor: distanceScale.factor,
-            elevationFactor: elevationScale.factor
-        )
-    }
+    @State private var fitAllEnabled = false
 
     var body: some View {
         GeometryReader { proxy in
+            let viewportSize = proxy.size
+            let profileScale = profileScale(for: viewportSize)
             let profileSize = ElevationProfileView.preferredSize(
                 trackPoints: course.trackPoints,
-                availableWidth: proxy.size.width,
+                availableWidth: viewportSize.width,
                 scale: profileScale
             )
-            let viewportWidth = max(1, proxy.size.width)
+            let viewportWidth = max(1, viewportSize.width)
             let maxHorizontalOffset = max(0, profileSize.width - viewportWidth)
             let horizontalOffset = maxHorizontalOffset * CGFloat(horizontalScrollPosition)
+            let renderWidth = max(profileSize.width, viewportWidth)
 
             VStack(spacing: 0) {
                 HStack {
@@ -118,16 +115,25 @@ private struct CourseElevationTab: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
 
+                ElevationProfileHeaderView(
+                    trackPoints: course.trackPoints,
+                    width: renderWidth,
+                    contentWidth: profileSize.width,
+                    visibleWidth: viewportWidth,
+                    horizontalOffset: horizontalOffset
+                )
+
                 ScrollView(.vertical) {
                     ZStack(alignment: .topLeading) {
                         ElevationProfileView(
                             trackPoints: course.trackPoints,
                             cuePoints: course.sortedCuePoints,
                             selectedCueID: selectedCueID,
+                            contentWidth: profileSize.width,
                             visibleWidth: viewportWidth,
                             horizontalOffset: horizontalOffset
                         )
-                        .frame(width: profileSize.width, height: profileSize.height)
+                        .frame(width: renderWidth, height: profileSize.height)
                         .offset(x: -horizontalOffset)
                     }
                     .frame(width: viewportWidth, height: profileSize.height, alignment: .topLeading)
@@ -156,10 +162,60 @@ private struct CourseElevationTab: View {
         .background(Color(.systemGroupedBackground))
     }
 
+    private func profileScale(for viewportSize: CGSize) -> ElevationProfileScale {
+        if fitAllEnabled {
+            return ElevationProfileView.fittingScale(
+                trackPoints: course.trackPoints,
+                availableWidth: viewportSize.width,
+                availableHeight: graphViewportHeight(in: viewportSize)
+            )
+        }
+
+        return ElevationProfileScale(
+            distanceFactor: distanceScale.factor,
+            elevationFactor: elevationScale.factor
+        )
+    }
+
+    private func graphViewportHeight(in viewportSize: CGSize) -> CGFloat {
+        max(
+            1,
+            viewportSize.height
+                - Self.scaleToolbarHeight
+                - ElevationProfileView.headerHeight
+                - Self.graphVerticalPadding
+        )
+    }
+
+    private var distanceScaleBinding: Binding<ElevationProfileScaleOption> {
+        Binding {
+            distanceScale
+        } set: { option in
+            distanceScale = option
+            fitAllEnabled = false
+        }
+    }
+
+    private var elevationScaleBinding: Binding<ElevationProfileScaleOption> {
+        Binding {
+            elevationScale
+        } set: { option in
+            elevationScale = option
+            fitAllEnabled = false
+        }
+    }
+
     private var scaleMenu: some View {
         Menu {
+            Button {
+                fitAllEnabled = true
+                horizontalScrollPosition = 0
+            } label: {
+                Label("전체보기", systemImage: fitAllEnabled ? "checkmark" : "rectangle.expand.vertical")
+            }
+
             Section("거리") {
-                Picker("거리", selection: $distanceScale) {
+                Picker("거리", selection: distanceScaleBinding) {
                     ForEach(ElevationProfileScaleOption.allCases) { option in
                         Text(option.title).tag(option)
                     }
@@ -167,7 +223,7 @@ private struct CourseElevationTab: View {
             }
 
             Section("고도") {
-                Picker("고도", selection: $elevationScale) {
+                Picker("고도", selection: elevationScaleBinding) {
                     ForEach(ElevationProfileScaleOption.allCases) { option in
                         Text(option.title).tag(option)
                     }
@@ -178,6 +234,7 @@ private struct CourseElevationTab: View {
                 distanceScale = .standard
                 elevationScale = .standard
                 horizontalScrollPosition = 0
+                fitAllEnabled = false
             } label: {
                 Label("기본값", systemImage: "arrow.counterclockwise")
             }
@@ -189,37 +246,27 @@ private struct CourseElevationTab: View {
         .buttonStyle(.bordered)
         .accessibilityLabel("스케일 조정")
     }
+
+    private static let scaleToolbarHeight: CGFloat = 46
+    private static let graphVerticalPadding: CGFloat = 24
 }
 
 private enum ElevationProfileScaleOption: Double, CaseIterable, Identifiable {
-    case compact = 0.5
-    case narrow = 0.75
+    case ten = 0.1
+    case quarter = 0.25
+    case half = 0.5
     case standard = 1
     case expanded = 1.5
     case detailed = 2
-    case maximum = 3
 
     var id: Double { rawValue }
 
     var factor: CGFloat {
-        CGFloat(rawValue)
+        CGFloat(rawValue) * ElevationProfileScale.standardFactor
     }
 
     var title: String {
-        switch self {
-        case .compact:
-            return "50%"
-        case .narrow:
-            return "75%"
-        case .standard:
-            return "100%"
-        case .expanded:
-            return "150%"
-        case .detailed:
-            return "200%"
-        case .maximum:
-            return "300%"
-        }
+        "\(Int(rawValue * 100))%"
     }
 }
 
