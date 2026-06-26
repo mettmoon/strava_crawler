@@ -88,22 +88,136 @@ private struct CourseElevationTab: View {
     let course: LoadedCourse
     let selectedCueID: UUID?
 
-    private var profileHeight: CGFloat {
-        min(1600, max(520, 420 + CGFloat(course.totalDistanceKm) * 8))
+    @State private var distanceScale: ElevationProfileScaleOption = .standard
+    @State private var elevationScale: ElevationProfileScaleOption = .standard
+    @State private var horizontalScrollPosition = 0.0
+
+    private var profileScale: ElevationProfileScale {
+        ElevationProfileScale(
+            distanceFactor: distanceScale.factor,
+            elevationFactor: elevationScale.factor
+        )
     }
 
     var body: some View {
-        ScrollView {
-            ElevationProfileView(
+        GeometryReader { proxy in
+            let profileSize = ElevationProfileView.preferredSize(
                 trackPoints: course.trackPoints,
-                cuePoints: course.sortedCuePoints,
-                selectedCueID: selectedCueID
+                availableWidth: proxy.size.width,
+                scale: profileScale
             )
-            .frame(maxWidth: .infinity)
-            .frame(height: profileHeight)
-            .padding(.vertical, 12)
+            let viewportWidth = max(1, proxy.size.width)
+            let maxHorizontalOffset = max(0, profileSize.width - viewportWidth)
+            let horizontalOffset = maxHorizontalOffset * CGFloat(horizontalScrollPosition)
+
+            VStack(spacing: 0) {
+                HStack {
+                    Spacer()
+                    scaleMenu
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+
+                ScrollView(.vertical) {
+                    ZStack(alignment: .topLeading) {
+                        ElevationProfileView(
+                            trackPoints: course.trackPoints,
+                            cuePoints: course.sortedCuePoints,
+                            selectedCueID: selectedCueID
+                        )
+                        .frame(width: profileSize.width, height: profileSize.height)
+                        .offset(x: -horizontalOffset)
+                    }
+                    .frame(width: viewportWidth, height: profileSize.height, alignment: .topLeading)
+                    .clipped()
+                    .padding(.vertical, 12)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if maxHorizontalOffset > 1 {
+                    HStack(spacing: 10) {
+                        Image(systemName: "arrow.left")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Slider(value: $horizontalScrollPosition, in: 0...1)
+                            .accessibilityLabel("가로 위치")
+                        Image(systemName: "arrow.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.top, 8)
+                    .padding(.bottom, 12)
+                }
+            }
         }
         .background(Color(.systemGroupedBackground))
+    }
+
+    private var scaleMenu: some View {
+        Menu {
+            Section("거리") {
+                Picker("거리", selection: $distanceScale) {
+                    ForEach(ElevationProfileScaleOption.allCases) { option in
+                        Text(option.title).tag(option)
+                    }
+                }
+            }
+
+            Section("고도") {
+                Picker("고도", selection: $elevationScale) {
+                    ForEach(ElevationProfileScaleOption.allCases) { option in
+                        Text(option.title).tag(option)
+                    }
+                }
+            }
+
+            Button {
+                distanceScale = .standard
+                elevationScale = .standard
+                horizontalScrollPosition = 0
+            } label: {
+                Label("기본값", systemImage: "arrow.counterclockwise")
+            }
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+                .font(.body.weight(.semibold))
+                .frame(width: 34, height: 30)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel("스케일 조정")
+    }
+}
+
+private enum ElevationProfileScaleOption: Double, CaseIterable, Identifiable {
+    case compact = 0.5
+    case narrow = 0.75
+    case standard = 1
+    case expanded = 1.5
+    case detailed = 2
+    case maximum = 3
+
+    var id: Double { rawValue }
+
+    var factor: CGFloat {
+        CGFloat(rawValue)
+    }
+
+    var title: String {
+        switch self {
+        case .compact:
+            return "50%"
+        case .narrow:
+            return "75%"
+        case .standard:
+            return "100%"
+        case .expanded:
+            return "150%"
+        case .detailed:
+            return "200%"
+        case .maximum:
+            return "300%"
+        }
     }
 }
 
