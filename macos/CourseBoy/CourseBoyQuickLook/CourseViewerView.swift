@@ -119,6 +119,7 @@ private struct CourseMapTab: View {
     let course: LoadedCourse
     @Binding var selectedCueID: UUID?
     @Binding var selectedProfilePoint: CourseProfileSelection?
+    @State private var locateRequest: CourseLocateRequest?
 
     private var selectedCue: CourseCuePoint? {
         guard let selectedCueID else { return nil }
@@ -126,24 +127,62 @@ private struct CourseMapTab: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack {
             CourseMapView(
                 course: course,
                 selectedCueID: $selectedCueID,
-                selectedProfilePoint: $selectedProfilePoint
+                selectedProfilePoint: $selectedProfilePoint,
+                locateRequest: $locateRequest
             )
             .ignoresSafeArea(.container, edges: [.top, .bottom])
 
-            if let selectedCue {
-                SelectedCueOverlay(cue: selectedCue) {
-                    selectedCueID = nil
+            VStack {
+                HStack {
+                    Spacer()
+                    locateButton
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 16)
+                Spacer()
+            }
+            .padding(.top, 12)
+            .padding(.trailing, 12)
+
+            VStack {
+                Spacer()
+                if let selectedCue {
+                    SelectedCueOverlay(cue: selectedCue) {
+                        selectedCueID = nil
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 16)
+                } else if let profilePoint = selectedProfilePoint {
+                    SelectedProfilePointOverlay(course: course, selection: profilePoint) {
+                        selectedProfilePoint = nil
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 16)
+                }
             }
         }
         .toolbarBackground(.bar, for: .navigationBar, .tabBar)
         .toolbarBackground(.visible, for: .navigationBar, .tabBar)
+    }
+
+    private var locateButton: some View {
+        Button {
+            locateRequest = CourseLocateRequest()
+        } label: {
+            Image(systemName: "location.fill")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 44, height: 44)
+                .background(.regularMaterial, in: Circle())
+                .overlay {
+                    Circle()
+                        .strokeBorder(Color(.separator), lineWidth: 0.5)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("내 위치")
     }
 }
 
@@ -439,7 +478,11 @@ private struct CourseCueSheetTab: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    CueSheetListView(course: course, selectedCueID: cueSelectionBinding)
+                    CueSheetListView(
+                        course: course,
+                        selectedCueID: cueSelectionBinding,
+                        selectedProfilePoint: $selectedProfilePoint
+                    )
                 }
                 .padding(16)
             }
@@ -448,6 +491,12 @@ private struct CourseCueSheetTab: View {
                 guard let id else { return }
                 withAnimation(.easeInOut(duration: 0.25)) {
                     proxy.scrollTo(id, anchor: .center)
+                }
+            }
+            .onChange(of: selectedProfilePoint) { _, selection in
+                guard selection != nil else { return }
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    proxy.scrollTo(CueSheetListView.profileSelectionRowID, anchor: .center)
                 }
             }
         }
@@ -500,6 +549,63 @@ private struct SelectedCueOverlay: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("선택 해제")
+        }
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color(.separator), lineWidth: 0.5)
+        }
+    }
+}
+
+private struct SelectedProfilePointOverlay: View {
+    let course: LoadedCourse
+    let selection: CourseProfileSelection
+    var onClose: () -> Void
+
+    private var progress: RouteElevationProgressStats? {
+        RouteElevationProgress(trackPoints: course.trackPoints)
+            .stats(atDistanceKm: selection.distanceKm, trackPoints: course.trackPoints)
+    }
+
+    private var remainingDistanceKm: Double {
+        max(0, course.totalDistanceKm - selection.distanceKm)
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(Color.cyan.opacity(0.16))
+                Image(systemName: "scope")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.cyan)
+            }
+            .frame(width: 34, height: 34)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("그래프 선택 위치")
+                    .font(.headline)
+                    .lineLimit(1)
+                Text("\(formatRouteDistance(selection.distanceKm)) · \(formatRouteElevation(selection.elevationMeters))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Text("남은 \(formatRouteDistance(remainingDistanceKm)) · 남은 상승 \(formatRouteElevation(progress?.ascentToEnd))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
 
             Spacer()

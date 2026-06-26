@@ -1,13 +1,21 @@
 import MapKit
 import SwiftUI
 
+struct CourseLocateRequest: Equatable {
+    var id = UUID()
+}
+
 struct CourseMapView: UIViewRepresentable {
     let course: LoadedCourse
     @Binding var selectedCueID: UUID?
     @Binding var selectedProfilePoint: CourseProfileSelection?
+    @Binding var locateRequest: CourseLocateRequest?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(selectedCueID: $selectedCueID, selectedProfilePoint: $selectedProfilePoint)
+        Coordinator(
+            selectedCueID: $selectedCueID,
+            selectedProfilePoint: $selectedProfilePoint
+        )
     }
 
     func makeUIView(context: Context) -> MKMapView {
@@ -24,20 +32,32 @@ struct CourseMapView: UIViewRepresentable {
         context.coordinator.selectedCueID = $selectedCueID
         context.coordinator.selectedProfilePoint = $selectedProfilePoint
         context.coordinator.syncCourse(course, in: map)
+        context.coordinator.syncLocateRequest(locateRequest, course: course, in: map)
         context.coordinator.syncSelectedCue(selectedCueID, in: map)
         context.coordinator.syncProfileSelection(selectedProfilePoint, in: map)
     }
 
-    final class Coordinator: NSObject, MKMapViewDelegate {
+    final class Coordinator: NSObject, MKMapViewDelegate, CLLocationManagerDelegate {
         var selectedCueID: Binding<UUID?>
         var selectedProfilePoint: Binding<CourseProfileSelection?>
         private var loadedCourseID: UUID?
         private var cueAnnotations: [CourseCueAnnotation] = []
         private var profileSelectionAnnotation: CourseProfileSelectionAnnotation?
+        private let locationManager = CLLocationManager()
+        private weak var pendingLocationMap: MKMapView?
+        private var pendingLocationCourse: LoadedCourse?
+        private var handledLocateRequestID: UUID?
 
-        init(selectedCueID: Binding<UUID?>, selectedProfilePoint: Binding<CourseProfileSelection?>) {
+        init(
+            selectedCueID: Binding<UUID?>,
+            selectedProfilePoint: Binding<CourseProfileSelection?>
+        ) {
             self.selectedCueID = selectedCueID
             self.selectedProfilePoint = selectedProfilePoint
+            super.init()
+            locationManager.delegate = self
+            locationManager.desiredAccuracy = kCLLocationAccuracyBest
+            locationManager.distanceFilter = kCLDistanceFilterNone
         }
 
         func syncCourse(_ course: LoadedCourse, in map: MKMapView) {
@@ -73,6 +93,25 @@ struct CourseMapView: UIViewRepresentable {
 
             cueAnnotations = course.sortedCuePoints.map(CourseCueAnnotation.init)
             map.addAnnotations(cueAnnotations)
+        }
+
+        func syncLocateRequest(_ request: CourseLocateRequest?, course: LoadedCourse, in map: MKMapView) {
+            guard let request, handledLocateRequestID != request.id else { return }
+            handledLocateRequestID = request.id
+            pendingLocationMap = map
+            pendingLocationCourse = course
+            map.showsUserLocation = true
+
+            switch locationManager.authorizationStatus {
+            case .notDetermined:
+                locationManager.requestWhenInUseAuthorization()
+            case .authorizedAlways, .authorizedWhenInUse:
+                requestCurrentLocation()
+            case .denied, .restricted:
+                centerMapOnKnownUserLocation(in: map, course: course)
+            @unknown default:
+                break
+            }
         }
 
         func syncSelectedCue(_ id: UUID?, in map: MKMapView) {
@@ -182,6 +221,74 @@ struct CourseMapView: UIViewRepresentable {
             }
         }
 
+        func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+            switch manager.authorizationStatus {
+            case .authorizedAlways, .authorizedWhenInUse:
+                requestCurrentLocation()
+            case .denied, .restricted:
+                pendingLocationMap = nil
+                pendingLocationCourse = nil
+            case .notDetermined:
+                break
+            @unknown default:
+                break
+            }
+        }
+
+        func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+            guard let location = locations.last,
+                  let map = pendingLocationMap,
+                  let course = pendingLocationCourse else {
+                return
+            }
+            applyCurrentLocation(location, in: map, course: course)
+        }
+
+        func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+            if let map = pendingLocationMap, let course = pendingLocationCourse {
+                centerMapOnKnownUserLocation(in: map, course: course)
+            }
+            pendingLocationMap = nil
+            pendingLocationCourse = nil
+        }
+
+        private func requestCurrentLocation() {
+            if let map = pendingLocationMap,
+               let course = pendingLocationCourse,
+               let location = map.userLocation.location {
+                applyCurrentLocation(location, in: map, course: course)
+                return
+            }
+            locationManager.requestLocation()
+        }
+
+        private func centerMapOnKnownUserLocation(in map: MKMapView, course: LoadedCourse) {
+            guard let location = map.userLocation.location else { return }
+            applyCurrentLocation(location, in: map, course: course)
+        }
+
+        private func applyCurrentLocation(_ location: CLLocation, in map: MKMapView, course: LoadedCourse) {
+            let coordinate = location.coordinate
+            let region = MKCoordinateRegion(
+                center: coordinate,
+                latitudinalMeters: 700,
+                longitudinalMeters: 700
+            )
+            map.setRegion(region, animated: true)
+
+            if let match = CourseRouteLocationMatcher.match(
+                coordinate: coordinate,
+                trackPoints: course.trackPoints,
+                toleranceMeters: 50
+            ) {
+                selectedCueID.wrappedValue = nil
+                selectedProfilePoint.wrappedValue = match.selection
+            }
+
+            pendingLocationMap = nil
+            pendingLocationCourse = nil
+        }
+
         private func paddedRect(for rect: MKMapRect) -> MKMapRect {
             let paddingX = max(rect.width * 0.12, 1200)
             let paddingY = max(rect.height * 0.12, 1200)
@@ -191,6 +298,96 @@ struct CourseMapView: UIViewRepresentable {
 }
 
 private final class CourseRoutePolyline: MKPolyline {}
+
+private struct CourseRouteLocationMatch {
+    var selection: CourseProfileSelection
+    var distanceFromRouteMeters: CLLocationDistance
+}
+
+private enum CourseRouteLocationMatcher {
+    static func match(
+        coordinate: CLLocationCoordinate2D,
+        trackPoints: [TrackPoint],
+        toleranceMeters: CLLocationDistance
+    ) -> CourseRouteLocationMatch? {
+        guard !trackPoints.isEmpty else { return nil }
+
+        if trackPoints.count == 1 {
+            let point = trackPoints[0]
+            let distance = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+                .distance(from: CLLocation(latitude: point.lat, longitude: point.lon))
+            guard distance <= toleranceMeters else { return nil }
+            return CourseRouteLocationMatch(
+                selection: CourseProfileSelection(trackIndex: 0, point: point),
+                distanceFromRouteMeters: distance
+            )
+        }
+
+        let target = MKMapPoint(coordinate)
+        var bestMatch: CourseRouteLocationMatch?
+
+        for index in 0..<(trackPoints.count - 1) {
+            let startPoint = trackPoints[index]
+            let endPoint = trackPoints[index + 1]
+            let start = MKMapPoint(startPoint.coordinate)
+            let end = MKMapPoint(endPoint.coordinate)
+            let dx = end.x - start.x
+            let dy = end.y - start.y
+            let segmentLengthSquared = dx * dx + dy * dy
+            let rawRatio = segmentLengthSquared > 0
+                ? ((target.x - start.x) * dx + (target.y - start.y) * dy) / segmentLengthSquared
+                : 0
+            let ratio = min(max(rawRatio, 0), 1)
+            let snappedPoint = MKMapPoint(
+                x: start.x + dx * ratio,
+                y: start.y + dy * ratio
+            )
+            let snappedCoordinate = snappedPoint.coordinate
+            let distance = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+                .distance(from: CLLocation(
+                    latitude: snappedCoordinate.latitude,
+                    longitude: snappedCoordinate.longitude
+                ))
+
+            guard distance <= toleranceMeters else { continue }
+            if let bestMatch, bestMatch.distanceFromRouteMeters <= distance { continue }
+
+            let distanceKm = startPoint.cumKm + (endPoint.cumKm - startPoint.cumKm) * ratio
+            let elevation = interpolatedElevation(from: startPoint, to: endPoint, ratio: ratio)
+            let trackIndex = ratio < 0.5 ? index : index + 1
+            let selection = CourseProfileSelection(
+                trackIndex: trackIndex,
+                lat: snappedCoordinate.latitude,
+                lon: snappedCoordinate.longitude,
+                distanceKm: distanceKm,
+                elevationMeters: elevation
+            )
+            bestMatch = CourseRouteLocationMatch(
+                selection: selection,
+                distanceFromRouteMeters: distance
+            )
+        }
+
+        return bestMatch
+    }
+
+    private static func interpolatedElevation(
+        from startPoint: TrackPoint,
+        to endPoint: TrackPoint,
+        ratio: Double
+    ) -> Double? {
+        switch (startPoint.ele, endPoint.ele) {
+        case let (.some(start), .some(end)):
+            return start + (end - start) * ratio
+        case let (.some(start), .none):
+            return start
+        case let (.none, .some(end)):
+            return end
+        case (.none, .none):
+            return nil
+        }
+    }
+}
 
 private final class CourseEndpointAnnotation: NSObject, MKAnnotation {
     enum Kind {
