@@ -123,7 +123,9 @@ private struct CourseElevationTab: View {
                         ElevationProfileView(
                             trackPoints: course.trackPoints,
                             cuePoints: course.sortedCuePoints,
-                            selectedCueID: selectedCueID
+                            selectedCueID: selectedCueID,
+                            visibleWidth: viewportWidth,
+                            horizontalOffset: horizontalOffset
                         )
                         .frame(width: profileSize.width, height: profileSize.height)
                         .offset(x: -horizontalOffset)
