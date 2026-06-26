@@ -11,7 +11,7 @@ struct CourseMapView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> MKMapView {
-        let map = MKMapView()
+        let map = MKMapView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
         map.delegate = context.coordinator
         map.showsCompass = true
         map.showsScale = true
