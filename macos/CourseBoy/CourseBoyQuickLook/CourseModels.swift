@@ -92,6 +92,14 @@ struct CourseProfileSelection: Equatable {
         self.distanceKm = point.cumKm
         self.elevationMeters = point.ele
     }
+
+    init(trackIndex: Int, lat: Double, lon: Double, distanceKm: Double, elevationMeters: Double?) {
+        self.trackIndex = trackIndex
+        self.lat = lat
+        self.lon = lon
+        self.distanceKm = distanceKm
+        self.elevationMeters = elevationMeters
+    }
 }
 
 enum Geo {
@@ -217,6 +225,73 @@ struct RouteElevationProgress: Equatable {
             descentFromStart: cumulativeDescent[clamped],
             ascentToEnd: max(0, totalAscent - cumulativeAscent[clamped]),
             descentToEnd: max(0, totalDescent - cumulativeDescent[clamped])
+        )
+    }
+
+    func stats(atDistanceKm distanceKm: Double, trackPoints pts: [TrackPoint]) -> RouteElevationProgressStats? {
+        guard hasElevationData,
+              pts.count == cumulativeAscent.count,
+              !pts.isEmpty else {
+            return nil
+        }
+
+        guard pts.count > 1 else {
+            return stats(at: 0)
+        }
+
+        let totalAscent = cumulativeAscent.last ?? 0
+        let totalDescent = cumulativeDescent.last ?? 0
+        let firstKm = pts[0].cumKm
+        let lastKm = pts[pts.count - 1].cumKm
+        let clampedKm = min(max(distanceKm, firstKm), lastKm)
+
+        if clampedKm <= firstKm {
+            return stats(
+                ascentFromStart: cumulativeAscent[0],
+                descentFromStart: cumulativeDescent[0],
+                totalAscent: totalAscent,
+                totalDescent: totalDescent
+            )
+        }
+
+        for index in 1..<pts.count where clampedKm <= pts[index].cumKm {
+            let previousKm = pts[index - 1].cumKm
+            let currentKm = pts[index].cumKm
+            let ratio = currentKm > previousKm
+                ? min(max((clampedKm - previousKm) / (currentKm - previousKm), 0), 1)
+                : 0
+            let ascentFromStart = cumulativeAscent[index - 1]
+                + (cumulativeAscent[index] - cumulativeAscent[index - 1]) * ratio
+            let descentFromStart = cumulativeDescent[index - 1]
+                + (cumulativeDescent[index] - cumulativeDescent[index - 1]) * ratio
+
+            return stats(
+                ascentFromStart: ascentFromStart,
+                descentFromStart: descentFromStart,
+                totalAscent: totalAscent,
+                totalDescent: totalDescent
+            )
+        }
+
+        return stats(
+            ascentFromStart: totalAscent,
+            descentFromStart: totalDescent,
+            totalAscent: totalAscent,
+            totalDescent: totalDescent
+        )
+    }
+
+    private func stats(
+        ascentFromStart: Double,
+        descentFromStart: Double,
+        totalAscent: Double,
+        totalDescent: Double
+    ) -> RouteElevationProgressStats {
+        RouteElevationProgressStats(
+            ascentFromStart: ascentFromStart,
+            descentFromStart: descentFromStart,
+            ascentToEnd: max(0, totalAscent - ascentFromStart),
+            descentToEnd: max(0, totalDescent - descentFromStart)
         )
     }
 }
