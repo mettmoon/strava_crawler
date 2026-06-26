@@ -436,16 +436,21 @@ struct CourseEditorView: View {
         guard !query.isEmpty else { return }
         isSearching = true
         searchError = nil
-        Task { @MainActor in
+        Task {
             do {
                 let results = try await KakaoLocalSearch.search(query: query, in: rect)
-                searchResults = results
-                if searchResults.isEmpty { searchError = "검색 결과 없음" }
+                await MainActor.run {
+                    searchResults = results
+                    if results.isEmpty { searchError = "검색 결과 없음" }
+                    isSearching = false
+                }
             } catch {
-                searchError = error.localizedDescription
-                searchResults = []
+                await MainActor.run {
+                    searchError = error.localizedDescription
+                    searchResults = []
+                    isSearching = false
+                }
             }
-            isSearching = false
         }
     }
 
@@ -1624,11 +1629,13 @@ struct CourseEditMapView: NSViewRepresentable {
             let prev = draft.routePoints[prevCount - 1]
             let profile = routingProfile
             isCalculatingBinding.wrappedValue = true
-            Task { @MainActor in
+            Task {
                 let seg = await OSRMRouter.shared.route(from: prev, to: newRP, profile: profile)
-                draft.appendRoutePoint(newRP, segment: seg)
-                isCalculatingBinding.wrappedValue = false
-                builtRouteSignature = ""; refresh()
+                await MainActor.run {
+                    draft.appendRoutePoint(newRP, segment: seg)
+                    isCalculatingBinding.wrappedValue = false
+                    builtRouteSignature = ""; refresh()
+                }
             }
         }
 
@@ -1762,16 +1769,19 @@ struct CourseEditMapView: NSViewRepresentable {
                 let prev = draft.routePoints[idx - 1]
                 let next = draft.routePoints[idx]
                 let profile = routingProfile
+                let currentSegments = draft.trackSegments
                 isCalculatingBinding.wrappedValue = true
-                Task { @MainActor in
-                    var segs = draft.trackSegments
+                Task {
+                    var segs = currentSegments
                     let seg = await OSRMRouter.shared.route(from: prev, to: next, profile: profile)
-                    let insertAt = idx - 1
-                    if insertAt < segs.count { segs.insert(seg, at: insertAt) }
-                    else { segs.append(seg) }
-                    draft.replaceSegments(segs)
-                    isCalculatingBinding.wrappedValue = false
-                    builtRouteSignature = ""; refresh()
+                    await MainActor.run {
+                        let insertAt = idx - 1
+                        if insertAt < segs.count { segs.insert(seg, at: insertAt) }
+                        else { segs.append(seg) }
+                        draft.replaceSegments(segs)
+                        isCalculatingBinding.wrappedValue = false
+                        builtRouteSignature = ""; refresh()
+                    }
                 }
             } else {
                 builtRouteSignature = ""; refresh()
@@ -1901,26 +1911,30 @@ struct CourseEditMapView: NSViewRepresentable {
 
                 let newRP = CourseRoutePoint(lat: newCoord.latitude, lon: newCoord.longitude)
                 let profile = routingProfile
+                let routePoints = draft.routePoints
+                let currentSegments = draft.trackSegments
                 isCalculatingBinding.wrappedValue = true
-                Task { @MainActor in
-                    var segs = draft.trackSegments
+                Task {
+                    var segs = currentSegments
                     if idx > 0 && idx - 1 < segs.count {
                         segs[idx - 1] = await OSRMRouter.shared.route(
-                            from: draft.routePoints[idx-1],
+                            from: routePoints[idx - 1],
                             to: newRP,
                             profile: profile
                         )
                     }
-                    if idx < draft.routePoints.count - 1 && idx < segs.count {
+                    if idx < routePoints.count - 1 && idx < segs.count {
                         segs[idx] = await OSRMRouter.shared.route(
                             from: newRP,
-                            to: draft.routePoints[idx+1],
+                            to: routePoints[idx + 1],
                             profile: profile
                         )
                     }
-                    draft.moveRoutePoint(at: idx, to: newRP, updatedSegments: segs)
-                    isCalculatingBinding.wrappedValue = false
-                    builtRouteSignature = ""; refresh()
+                    await MainActor.run {
+                        draft.moveRoutePoint(at: idx, to: newRP, updatedSegments: segs)
+                        isCalculatingBinding.wrappedValue = false
+                        builtRouteSignature = ""; refresh()
+                    }
                 }
             }
         }
