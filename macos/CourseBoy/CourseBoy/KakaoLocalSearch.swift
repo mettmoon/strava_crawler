@@ -1,5 +1,6 @@
 import Foundation
 import MapKit
+import OSLog
 import CourseBoyKit
 
 // MARK: - KakaoLocalResult
@@ -16,6 +17,8 @@ struct KakaoLocalResult: Identifiable, Sendable {
 // MARK: - KakaoLocalSearch
 
 enum KakaoLocalSearch {
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "CourseBoy", category: "KakaoLocalSearch")
+
     private static var apiKey: String {
         Bundle.main.infoDictionary?["KakaoLocalAPIKey"] as? String ?? ""
     }
@@ -50,12 +53,11 @@ enum KakaoLocalSearch {
         let session = URLSession(configuration: config)
 
         let req = URLRequest(url: comps.url!)
-        print("[KakaoSearch] 요청 URL: \(comps.url!)")
-        print("[KakaoSearch] 요청 헤더: \(headers)")
+        logger.debug("Kakao local search started queryLength=\(query.count, privacy: .public)")
 
         let (data, resp) = try await session.data(for: req)
         let statusCode = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        print("[KakaoSearch] 응답 status=\(statusCode), body=\(String(data: data, encoding: .utf8)?.prefix(300) ?? "-")")
+        logger.debug("Kakao local search finished status=\(statusCode, privacy: .public)")
         guard statusCode == 200 else {
             throw SearchError.httpError(statusCode)
         }
