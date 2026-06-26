@@ -22,15 +22,14 @@ struct ElevationProfileView: View {
             Canvas { context, size in
                 drawProfile(context: context, size: size)
             }
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
         }
     }
 
     private func drawProfile(context: GraphicsContext, size: CGSize) {
-        let leftPad: CGFloat = 56
-        let rightPad: CGFloat = 18
-        let topPad: CGFloat = 18
-        let bottomPad: CGFloat = 38
+        let leftPad: CGFloat = 44
+        let rightPad: CGFloat = 8
+        let topPad: CGFloat = 12
+        let bottomPad: CGFloat = 34
         let chartRect = CGRect(
             x: leftPad,
             y: topPad,
@@ -87,10 +86,13 @@ struct ElevationProfileView: View {
         }
         context.stroke(line, with: .color(.orange), style: StrokeStyle(lineWidth: 2, lineJoin: .round))
 
-        for cue in cuePoints {
+        let cuePlacements = cueLabelPlacements(chartRect: chartRect, yPosition: yPosition)
+
+        for placement in cuePlacements {
+            let cue = placement.cue
             let selected = cue.id == selectedCueID
             let glyph = cuePointGlyph(for: cue.pointType)
-            let y = yPosition(cue.distanceKm)
+            let y = placement.guideY
             var marker = Path()
             marker.move(to: CGPoint(x: chartRect.minX, y: y))
             marker.addLine(to: CGPoint(x: chartRect.maxX, y: y))
@@ -99,15 +101,14 @@ struct ElevationProfileView: View {
                 with: .color(selected ? glyph.color : glyph.color.opacity(0.45)),
                 style: StrokeStyle(lineWidth: selected ? 2 : 1, dash: selected ? [] : [4, 3])
             )
+        }
 
-            if selected {
-                let label = cue.displayName
-                context.draw(
-                    Text(label).font(.caption2.weight(.semibold)).foregroundStyle(glyph.color),
-                    at: CGPoint(x: chartRect.maxX - 4, y: min(max(y - 2, chartRect.minY + 4), chartRect.maxY - 4)),
-                    anchor: .bottomTrailing
-                )
-            }
+        for placement in cuePlacements where placement.cue.id != selectedCueID {
+            drawCueLabel(placement, context: context, chartRect: chartRect, selected: false)
+        }
+
+        if let selectedPlacement = cuePlacements.first(where: { $0.cue.id == selectedCueID }) {
+            drawCueLabel(selectedPlacement, context: context, chartRect: chartRect, selected: true)
         }
 
         context.draw(
@@ -176,10 +177,87 @@ struct ElevationProfileView: View {
         return candidates.first { $0 / max(totalKm, 0.001) * Double(length) >= minTickLength } ?? 200
     }
 
+    private func cueLabelPlacements(
+        chartRect: CGRect,
+        yPosition: (Double) -> CGFloat
+    ) -> [CueLabelPlacement] {
+        let items = cuePoints.map { cue in
+            CueLabelPlacement(
+                cue: cue,
+                guideY: min(max(yPosition(cue.distanceKm), chartRect.minY), chartRect.maxY),
+                labelY: min(max(yPosition(cue.distanceKm), chartRect.minY + 8), chartRect.maxY - 8)
+            )
+        }
+        .sorted { $0.guideY < $1.guideY }
+
+        guard items.count > 1 else { return items }
+
+        let availableHeight = max(1, chartRect.height - 16)
+        let spacing = min(18, max(8, availableHeight / CGFloat(items.count - 1)))
+        var placements = items
+
+        for index in placements.indices.dropFirst() {
+            let previous = placements[index - 1].labelY
+            placements[index].labelY = max(placements[index].labelY, previous + spacing)
+        }
+
+        if let last = placements.indices.last {
+            let overflow = placements[last].labelY - (chartRect.maxY - 8)
+            if overflow > 0 {
+                for index in placements.indices {
+                    placements[index].labelY -= overflow
+                }
+            }
+        }
+
+        for index in placements.indices.dropLast().reversed() {
+            let next = placements[index + 1].labelY
+            placements[index].labelY = min(placements[index].labelY, next - spacing)
+        }
+
+        for index in placements.indices {
+            placements[index].labelY = min(max(placements[index].labelY, chartRect.minY + 8), chartRect.maxY - 8)
+        }
+
+        return placements
+    }
+
+    private func drawCueLabel(
+        _ placement: CueLabelPlacement,
+        context: GraphicsContext,
+        chartRect: CGRect,
+        selected: Bool
+    ) {
+        let cue = placement.cue
+        let glyph = cuePointGlyph(for: cue.pointType)
+        let color = selected ? glyph.color : glyph.color.opacity(0.86)
+        let label = cueProfileLabel(cue.displayName)
+        let weight: Font.Weight = selected ? .bold : .semibold
+
+        context.draw(
+            Text(label).font(.caption2.weight(weight)).foregroundStyle(color),
+            at: CGPoint(x: chartRect.maxX - 4, y: placement.labelY),
+            anchor: .trailing
+        )
+    }
+
+    private func cueProfileLabel(_ label: String) -> String {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > 28 else { return trimmed }
+        let end = trimmed.index(trimmed.startIndex, offsetBy: 27)
+        return "\(trimmed[..<end])..."
+    }
+
     private func formatTick(_ km: Double) -> String {
         if km < 1 {
             return String(format: "%.1f", km)
         }
         return String(format: "%.0f", km)
     }
+}
+
+private struct CueLabelPlacement {
+    let cue: CourseCuePoint
+    let guideY: CGFloat
+    var labelY: CGFloat
 }
