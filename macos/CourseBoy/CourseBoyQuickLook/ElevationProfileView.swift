@@ -11,6 +11,8 @@ struct ElevationProfileView: View {
     let trackPoints: [TrackPoint]
     let cuePoints: [CourseCuePoint]
     let selectedCueID: UUID?
+    var visibleWidth: CGFloat = 0
+    var horizontalOffset: CGFloat = 0
 
     private var elevationPoints: [TrackPoint] {
         trackPoints.filter { $0.ele != nil }
@@ -136,12 +138,14 @@ struct ElevationProfileView: View {
             )
         }
 
+        let cueLabelX = fixedCueLabelX(chartRect: chartRect)
+
         for placement in cuePlacements where placement.cue.id != selectedCueID {
-            drawCueLabel(placement, context: context, chartRect: chartRect, selected: false)
+            drawCueLabel(placement, context: context, x: cueLabelX, selected: false)
         }
 
         if let selectedPlacement = cuePlacements.first(where: { $0.cue.id == selectedCueID }) {
-            drawCueLabel(selectedPlacement, context: context, chartRect: chartRect, selected: true)
+            drawCueLabel(selectedPlacement, context: context, x: cueLabelX, selected: true)
         }
 
         context.draw(
@@ -258,7 +262,7 @@ struct ElevationProfileView: View {
     private func drawCueLabel(
         _ placement: CueLabelPlacement,
         context: GraphicsContext,
-        chartRect: CGRect,
+        x: CGFloat,
         selected: Bool
     ) {
         let cue = placement.cue
@@ -269,9 +273,15 @@ struct ElevationProfileView: View {
 
         context.draw(
             Text(label).font(.caption2.weight(weight)).foregroundStyle(color),
-            at: CGPoint(x: chartRect.maxX - 4, y: placement.labelY),
+            at: CGPoint(x: x, y: placement.labelY),
             anchor: .trailing
         )
+    }
+
+    private func fixedCueLabelX(chartRect: CGRect) -> CGFloat {
+        guard visibleWidth > 0 else { return chartRect.maxX - 4 }
+        let viewportRightInContent = horizontalOffset + visibleWidth - 8
+        return min(max(viewportRightInContent, chartRect.minX + 32), chartRect.maxX - 4)
     }
 
     private func cueProfileLabel(_ label: String) -> String {
