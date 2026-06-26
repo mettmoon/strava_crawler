@@ -132,6 +132,7 @@ private struct CourseMapTab: View {
                 selectedCueID: $selectedCueID,
                 selectedProfilePoint: $selectedProfilePoint
             )
+            .ignoresSafeArea(.container, edges: [.top, .bottom])
 
             if let selectedCue {
                 SelectedCueOverlay(cue: selectedCue) {
@@ -141,6 +142,8 @@ private struct CourseMapTab: View {
                 .padding(.bottom, 16)
             }
         }
+        .toolbarBackground(.bar, for: .navigationBar, .tabBar)
+        .toolbarBackground(.visible, for: .navigationBar, .tabBar)
     }
 }
 
