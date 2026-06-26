@@ -12,38 +12,113 @@ struct CourseViewerView: View {
     }
 
     var body: some View {
+        TabView {
+            CourseSummaryTab(
+                course: course,
+                selectedCue: selectedCue,
+                onOpenFile: onOpenFile
+            )
+            .tabItem {
+                Label("요약", systemImage: "chart.bar.doc.horizontal")
+            }
+
+            CourseMapTab(course: course, selectedCueID: $selectedCueID)
+                .tabItem {
+                    Label("지도", systemImage: "map")
+                }
+
+            CourseElevationTab(course: course, selectedCueID: selectedCueID)
+                .tabItem {
+                    Label("고도그래프", systemImage: "mountain.2")
+                }
+
+            CourseCueSheetTab(course: course, selectedCueID: $selectedCueID)
+                .tabItem {
+                    Label("큐시트", systemImage: "list.bullet.rectangle")
+                }
+        }
+    }
+}
+
+private struct CourseSummaryTab: View {
+    let course: LoadedCourse
+    let selectedCue: CourseCuePoint?
+    var onOpenFile: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                CourseHeaderView(course: course, onOpenFile: onOpenFile)
+                CourseSummaryGrid(course: course)
+                ViewerSection(title: "상세 정보", systemImage: "info.circle") {
+                    CourseDetailRows(course: course, selectedCue: selectedCue)
+                }
+            }
+            .padding(16)
+        }
+        .background(Color(.systemGroupedBackground))
+    }
+}
+
+private struct CourseMapTab: View {
+    let course: LoadedCourse
+    @Binding var selectedCueID: UUID?
+
+    private var selectedCue: CourseCuePoint? {
+        guard let selectedCueID else { return nil }
+        return course.cuePoints.first { $0.id == selectedCueID }
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            CourseMapView(course: course, selectedCueID: $selectedCueID)
+
+            if let selectedCue {
+                SelectedCueOverlay(cue: selectedCue) {
+                    selectedCueID = nil
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
+            }
+        }
+    }
+}
+
+private struct CourseElevationTab: View {
+    let course: LoadedCourse
+    let selectedCueID: UUID?
+
+    private var profileHeight: CGFloat {
+        min(1600, max(520, 420 + CGFloat(course.totalDistanceKm) * 8))
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                ViewerSection(title: "고도 그래프", systemImage: "mountain.2") {
+                    ElevationProfileView(
+                        trackPoints: course.trackPoints,
+                        cuePoints: course.sortedCuePoints,
+                        selectedCueID: selectedCueID
+                    )
+                    .frame(height: profileHeight)
+                }
+            }
+            .padding(16)
+        }
+        .background(Color(.systemGroupedBackground))
+    }
+}
+
+private struct CourseCueSheetTab: View {
+    let course: LoadedCourse
+    @Binding var selectedCueID: UUID?
+
+    var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    CourseHeaderView(course: course, onOpenFile: onOpenFile)
-
-                    CourseSummaryGrid(course: course)
-
-                    ViewerSection(title: "지도", systemImage: "map") {
-                        CourseMapView(course: course, selectedCueID: $selectedCueID)
-                            .frame(height: 360)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-
-                    ViewerSection(title: "고도 그래프", systemImage: "mountain.2") {
-                        ElevationProfileView(
-                            trackPoints: course.trackPoints,
-                            cuePoints: course.sortedCuePoints,
-                            selectedCueID: selectedCueID
-                        )
-                        .frame(height: 190)
-                    }
-
-                    ViewerSection(title: "큐시트", systemImage: "list.bullet.rectangle") {
-                        CueSheetListView(
-                            course: course,
-                            selectedCueID: $selectedCueID
-                        )
-                    }
-
-                    ViewerSection(title: "상세 정보", systemImage: "info.circle") {
-                        CourseDetailRows(course: course, selectedCue: selectedCue)
-                    }
+                    CueSheetListView(course: course, selectedCueID: $selectedCueID)
                 }
                 .padding(16)
             }
@@ -54,6 +129,60 @@ struct CourseViewerView: View {
                     proxy.scrollTo(id, anchor: .center)
                 }
             }
+        }
+    }
+}
+
+private struct SelectedCueOverlay: View {
+    let cue: CourseCuePoint
+    var onClose: () -> Void
+
+    private var glyph: CuePointGlyph {
+        cuePointGlyph(for: cue.pointType)
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(glyph.color.opacity(0.16))
+                if let symbol = glyph.symbol {
+                    Image(systemName: symbol)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(glyph.color)
+                } else if let text = glyph.text {
+                    Text(text)
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(glyph.color)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+            }
+            .frame(width: 34, height: 34)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(cue.displayName)
+                    .font(.headline)
+                    .lineLimit(1)
+                Text("\(formatRouteDistance(cue.distanceKm)) · \(cuePointLabel(for: cue.pointType))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("선택 해제")
+        }
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color(.separator), lineWidth: 0.5)
         }
     }
 }
