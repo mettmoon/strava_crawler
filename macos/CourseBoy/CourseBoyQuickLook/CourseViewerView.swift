@@ -94,17 +94,14 @@ private struct CourseElevationTab: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                ViewerSection(title: "고도 그래프", systemImage: "mountain.2") {
-                    ElevationProfileView(
-                        trackPoints: course.trackPoints,
-                        cuePoints: course.sortedCuePoints,
-                        selectedCueID: selectedCueID
-                    )
-                    .frame(height: profileHeight)
-                }
-            }
-            .padding(16)
+            ElevationProfileView(
+                trackPoints: course.trackPoints,
+                cuePoints: course.sortedCuePoints,
+                selectedCueID: selectedCueID
+            )
+            .frame(maxWidth: .infinity)
+            .frame(height: profileHeight)
+            .padding(.vertical, 12)
         }
         .background(Color(.systemGroupedBackground))
     }
