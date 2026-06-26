@@ -160,7 +160,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> MKMapView {
-        let map = HoverMapView()
+        let map = HoverMapView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
         let coordinator = context.coordinator
         map.delegate = context.coordinator
         map.showsCompass = true
