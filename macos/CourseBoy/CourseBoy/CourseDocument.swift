@@ -13,14 +13,23 @@ extension UTType {
 final class CourseDocument: ReferenceFileDocument, @unchecked Sendable {
     typealias Snapshot = Data
 
-    static let readableFilenameExtensions = ["csb"]
+    static let readableFilenameExtensions = ["csb", "tcx", "gpx"]
+    static let coursePlanFilenameExtensions = ["csb"]
 
     static var readableContentTypes: [UTType] {
-        [.coursePlan, .coursePlanFileExtension]
+        [.coursePlan, .coursePlanFileExtension, .tcx, .gpx, .xmlGPX]
     }
     static var writableContentTypes: [UTType] { [.coursePlan] }
 
     static func normalizedReadableFileURL(_ url: URL) -> URL? {
+        normalizedFileURL(url, allowedExtensions: readableFilenameExtensions)
+    }
+
+    static func normalizedCoursePlanFileURL(_ url: URL) -> URL? {
+        normalizedFileURL(url, allowedExtensions: coursePlanFilenameExtensions)
+    }
+
+    private static func normalizedFileURL(_ url: URL, allowedExtensions: [String]) -> URL? {
         let fileURL: URL
         if (url as NSURL).isFileReferenceURL(), let resolvedURL = (url as NSURL).filePathURL {
             fileURL = resolvedURL
@@ -29,7 +38,7 @@ final class CourseDocument: ReferenceFileDocument, @unchecked Sendable {
         }
 
         guard fileURL.isFileURL else { return nil }
-        guard readableFilenameExtensions.contains(fileURL.pathExtension.lowercased()) else { return nil }
+        guard allowedExtensions.contains(fileURL.pathExtension.lowercased()) else { return nil }
 
         return fileURL.standardizedFileURL
     }
@@ -49,7 +58,20 @@ final class CourseDocument: ReferenceFileDocument, @unchecked Sendable {
         guard let data = configuration.file.regularFileContents else {
             throw CocoaError(.fileReadCorruptFile)
         }
-        course = try CoursePlanFileCoder.makeRecord(from: data)
+
+        let filename = configuration.file.preferredFilename ?? configuration.file.filename ?? ""
+        let fallbackTitle = (filename as NSString).deletingPathExtension
+        let ext = (filename as NSString).pathExtension.lowercased()
+        let contentType = configuration.contentType
+
+        if ext == "tcx" || contentType.conforms(to: .tcx) {
+            course = try CourseTCXFileCoder.makeRecord(from: data, fallbackTitle: fallbackTitle, sourceFilePath: nil)
+        } else if ext == "gpx" || contentType.conforms(to: .gpx) || contentType.conforms(to: .xmlGPX) {
+            course = try CourseGPXFileCoder.makeRecord(from: data, fallbackTitle: fallbackTitle, sourceFilePath: nil)
+        } else {
+            course = try CoursePlanFileCoder.makeRecord(from: data)
+        }
+
         observeCourse()
     }
 
