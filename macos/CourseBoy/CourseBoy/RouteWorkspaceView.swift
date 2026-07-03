@@ -103,13 +103,20 @@ struct RouteWorkspaceView: View {
                             onCourseParsed: { parsedCourse = $0 },
                             onHighlight: { highlightPoints = $0 }
                         )
-                        .opacity(rangeSelection == nil ? 1 : 0)
-                        .allowsHitTesting(rangeSelection == nil)
+                        .opacity(rangeSelection == nil && pinnedDistanceKm == nil ? 1 : 0)
+                        .allowsHitTesting(rangeSelection == nil && pinnedDistanceKm == nil)
 
                         if let range = rangeSelection {
                             RangeStatsInspectorView(
                                 trackPoints: parsedCourse?.trackPoints ?? [],
                                 range: range
+                            )
+                            .background(.background)
+                        } else if let km = pinnedDistanceKm {
+                            PinnedPointInspectorView(
+                                trackPoints: parsedCourse?.trackPoints ?? [],
+                                distanceKm: km,
+                                onClear: { pinnedDistanceKm = nil }
                             )
                             .background(.background)
                         }
@@ -144,7 +151,11 @@ struct RouteWorkspaceView: View {
                     cuePoints: cuePoints(for: pts),
                     hoverInfo: $routeHoverInfo,
                     rangeSelection: rangeSelection,
-                    pinnedDistanceKm: pinnedDistanceKm
+                    pinnedDistanceKm: pinnedDistanceKm,
+                    onPinDistance: { km in
+                        rangeSelection = nil
+                        pinnedDistanceKm = km
+                    }
                 )
                 Divider()
                 ElevationChartView(

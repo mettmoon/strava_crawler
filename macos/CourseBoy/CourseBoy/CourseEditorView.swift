@@ -141,6 +141,12 @@ struct CourseEditorView: View {
                                     range: range,
                                     onAddSegment: { addSegmentFromRange(range) }
                                 )
+                            } else if let km = pinnedDistanceKm {
+                                PinnedPointInspectorView(
+                                    trackPoints: draft.allTrackPoints,
+                                    distanceKm: km,
+                                    onClear: { pinnedDistanceKm = nil }
+                                )
                             } else {
                                 CourseEditorCueInspectorView(
                                     course: course,
@@ -235,6 +241,11 @@ struct CourseEditorView: View {
                     onDeselectFocus: { selectedCueID = nil },
                     onSearchInVisibleRect: { rect in
                         performSearch(in: rect)
+                    },
+                    onPinDistance: { km in
+                        selectedCueID = nil
+                        rangeSelection = nil
+                        pinnedDistanceKm = km
                     }
                 )
                 MapStylePicker(selection: mapStyle)
@@ -1349,6 +1360,7 @@ struct CourseEditMapView: NSViewRepresentable {
     var onSelectCue: (UUID) -> Void
     var onDeselectFocus: () -> Void
     var onSearchInVisibleRect: (MKMapRect) -> Void
+    var onPinDistance: ((Double) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(draft: draft, isCalculatingBinding: $isCalculating,
@@ -1356,6 +1368,7 @@ struct CourseEditMapView: NSViewRepresentable {
                     routingProfile: routingProfile,
                     onSelectCue: onSelectCue,
                     onDeselectFocus: onDeselectFocus,
+                    onPinDistance: onPinDistance,
                     onSearchInVisibleRect: onSearchInVisibleRect)
     }
 
@@ -1390,6 +1403,7 @@ struct CourseEditMapView: NSViewRepresentable {
         context.coordinator.draft = draft
         context.coordinator.onSelectCue = onSelectCue
         context.coordinator.onDeselectFocus = onDeselectFocus
+        context.coordinator.onPinDistance = onPinDistance
         context.coordinator.onSearchInVisibleRect = onSearchInVisibleRect
         context.coordinator.routingProfile = routingProfile
         context.coordinator.refresh()
@@ -1409,6 +1423,7 @@ struct CourseEditMapView: NSViewRepresentable {
         var searchResultsBinding: Binding<[KakaoLocalResult]>
         var onSelectCue: (UUID) -> Void
         var onDeselectFocus: () -> Void
+        var onPinDistance: ((Double) -> Void)?
         var onSearchInVisibleRect: (MKMapRect) -> Void
         var routingProfile: OSRMRouteProfile
         var appliedMapStyle: MapStyleOption?
@@ -1431,6 +1446,7 @@ struct CourseEditMapView: NSViewRepresentable {
              routingProfile: OSRMRouteProfile,
              onSelectCue: @escaping (UUID) -> Void,
              onDeselectFocus: @escaping () -> Void,
+             onPinDistance: ((Double) -> Void)?,
              onSearchInVisibleRect: @escaping (MKMapRect) -> Void) {
             self.draft = draft
             self.isCalculatingBinding = isCalculatingBinding
@@ -1438,6 +1454,7 @@ struct CourseEditMapView: NSViewRepresentable {
             self.routingProfile = routingProfile
             self.onSelectCue = onSelectCue
             self.onDeselectFocus = onDeselectFocus
+            self.onPinDistance = onPinDistance
             self.onSearchInVisibleRect = onSearchInVisibleRect
         }
 
@@ -1674,6 +1691,21 @@ struct CourseEditMapView: NSViewRepresentable {
             for ann in map.annotations.compactMap({ $0 as? PinnedLocationAnnotation }) {
                 let annPt = map.convert(ann.coordinate, toPointTo: map)
                 if abs(annPt.x - pt.x) < hitRadius && abs(annPt.y - pt.y) < hitRadius { return }
+            }
+
+            // 경로(트랙) 위 클릭 → pin 설정 (RoutePoint 추가하지 않음)
+            let allPts = draftAllTrackPoints()
+            if let onPinDistance,
+               allPts.count >= 2,
+               let projection = nearestProjectionOnMap(map, pts: allPts, to: pt),
+               projection.screenDistance <= 10,
+               let info = routeHoverInfo(
+                    trackPoints: allPts,
+                    segmentStartIndex: projection.segmentStartIndex,
+                    fraction: projection.fraction
+               ) {
+                onPinDistance(info.distanceKm)
+                return
             }
 
             // 빈 영역 → 큐 포커스 해제 + RoutePoint 추가

@@ -79,12 +79,19 @@ struct SegmentWorkspaceView: View {
                     SegmentDetailView(segment: segment) { highlights in
                         highlightPoints = highlights
                     }
-                    .opacity(rangeSelection == nil ? 1 : 0)
-                    .allowsHitTesting(rangeSelection == nil)
+                    .opacity(rangeSelection == nil && pinnedDistanceKm == nil ? 1 : 0)
+                    .allowsHitTesting(rangeSelection == nil && pinnedDistanceKm == nil)
 
                     if let range = rangeSelection {
                         RangeStatsInspectorView(trackPoints: pts, range: range)
                             .background(.background)
+                    } else if let km = pinnedDistanceKm {
+                        PinnedPointInspectorView(
+                            trackPoints: pts,
+                            distanceKm: km,
+                            onClear: { pinnedDistanceKm = nil }
+                        )
+                        .background(.background)
                     }
                 }
                 .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
@@ -107,7 +114,11 @@ struct SegmentWorkspaceView: View {
                     cuePoints: [],
                     hoverInfo: $hoverInfo,
                     rangeSelection: rangeSelection,
-                    pinnedDistanceKm: pinnedDistanceKm
+                    pinnedDistanceKm: pinnedDistanceKm,
+                    onPinDistance: { km in
+                        rangeSelection = nil
+                        pinnedDistanceKm = km
+                    }
                 )
                 Divider()
                 ElevationChartView(
