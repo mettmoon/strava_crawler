@@ -18,6 +18,7 @@ extension UTType {
 }
 
 enum CourseImportFileCoder {
+    static let readableFilenameExtensions = ["tcx", "gpx"]
     static var readableContentTypes: [UTType] { [.tcx, .gpx, .xmlGPX] }
 
     static func makeRecord(from url: URL) throws -> CourseRecord {
