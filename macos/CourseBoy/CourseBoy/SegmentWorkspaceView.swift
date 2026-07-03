@@ -82,14 +82,12 @@ struct SegmentWorkspaceView: View {
                     .opacity(rangeSelection == nil && pinnedDistanceKm == nil ? 1 : 0)
                     .allowsHitTesting(rangeSelection == nil && pinnedDistanceKm == nil)
 
-                    if let range = rangeSelection {
-                        RangeStatsInspectorView(trackPoints: pts, range: range)
-                            .background(.background)
-                    } else if let km = pinnedDistanceKm {
-                        PinnedPointInspectorView(
+                    if rangeSelection != nil || pinnedDistanceKm != nil {
+                        SelectionInspectorStack(
                             trackPoints: pts,
-                            distanceKm: km,
-                            onClear: { pinnedDistanceKm = nil }
+                            rangeSelection: rangeSelection,
+                            pinnedDistanceKm: pinnedDistanceKm,
+                            onClearPin: { pinnedDistanceKm = nil }
                         )
                         .background(.background)
                     }
@@ -116,7 +114,6 @@ struct SegmentWorkspaceView: View {
                     rangeSelection: rangeSelection,
                     pinnedDistanceKm: pinnedDistanceKm,
                     onPinDistance: { km in
-                        rangeSelection = nil
                         pinnedDistanceKm = km
                     }
                 )

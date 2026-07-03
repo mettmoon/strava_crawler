@@ -721,9 +721,6 @@ struct ElevationChartView: View {
     }
 
     private func handleTap(location: CGPoint, contentWidth: CGFloat) {
-        // 드래그 선택은 항상 해제 (짧은 클릭 = 새로운 선택)
-        rangeSelection?.wrappedValue = nil
-
         if pinnedDistanceKm != nil, !trackPoints.isEmpty, totalKm > 0, contentWidth > 0 {
             let km = kmAtX(location.x, contentWidth: contentWidth)
             pinnedDistanceKm?.wrappedValue = km

@@ -61,13 +61,12 @@ struct CourseWorkspaceView: View {
             contentPane(trackPoints: pts, course: course)
                 .inspector(isPresented: $isInspectorPresented) {
                     Group {
-                        if let range = rangeSelection {
-                            RangeStatsInspectorView(trackPoints: pts, range: range)
-                        } else if let km = pinnedDistanceKm {
-                            PinnedPointInspectorView(
+                        if rangeSelection != nil || pinnedDistanceKm != nil {
+                            SelectionInspectorStack(
                                 trackPoints: pts,
-                                distanceKm: km,
-                                onClear: { pinnedDistanceKm = nil }
+                                rangeSelection: rangeSelection,
+                                pinnedDistanceKm: pinnedDistanceKm,
+                                onClearPin: { pinnedDistanceKm = nil }
                             )
                         } else {
                             CourseCueInspectorView(course: course, selectedCueID: selectedCueID)
@@ -114,14 +113,11 @@ struct CourseWorkspaceView: View {
                     onSelectCue: {
                         selectedCueIDs = [$0]
                         rangeSelection = nil
-                        pinnedDistanceKm = nil
                     },
                     hoverInfo: $hoverInfo,
                     rangeSelection: rangeSelection,
                     pinnedDistanceKm: pinnedDistanceKm,
                     onPinDistance: { km in
-                        selectedCueIDs.removeAll()
-                        rangeSelection = nil
                         pinnedDistanceKm = km
                     }
                 )

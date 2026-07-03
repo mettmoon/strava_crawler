@@ -1,6 +1,34 @@
 import SwiftUI
 import CourseBoyKit
 
+/// 구간 선택과 pin 선택이 동시에 있을 수 있으므로, 각각 있으면 세로로 쌓아서 표시한다.
+struct SelectionInspectorStack: View {
+    var trackPoints: [TrackPoint]
+    var rangeSelection: ChartRangeSelection?
+    var pinnedDistanceKm: Double?
+    var onClearPin: (() -> Void)? = nil
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                if let range = rangeSelection {
+                    RangeStatsInspectorView(trackPoints: trackPoints, range: range).content
+                }
+                if rangeSelection != nil, pinnedDistanceKm != nil {
+                    Divider().padding(.horizontal, 12)
+                }
+                if let km = pinnedDistanceKm {
+                    PinnedPointInspectorView(
+                        trackPoints: trackPoints,
+                        distanceKm: km,
+                        onClear: onClearPin
+                    ).content
+                }
+            }
+        }
+    }
+}
+
 /// 사용자가 고도그래프 또는 지도 경로를 클릭해 지정한 임시 pin 위치의 상세 정보 인스펙터.
 struct PinnedPointInspectorView: View {
     var trackPoints: [TrackPoint]
@@ -20,49 +48,53 @@ struct PinnedPointInspectorView: View {
     private var totalKm: Double { trackPoints.last?.cumKm ?? 0 }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                header
+        ScrollView { content }
+    }
 
-                if let info {
-                    section(title: "위치", icon: "location") {
-                        infoRow("시작점으로부터", value: formatKm(info.distanceKm))
-                        infoRow("종료점까지", value: formatKm(max(0, totalKm - info.distanceKm)))
-                        infoRow("고도", value: formatEle(info.elevationMeters))
-                        infoRow("경사", value: formatGrade(info.gradePercent),
-                                valueColor: gradeColor(info.gradePercent))
-                        infoRow("방향", value: formatRouteDirection(info))
-                    }
+    /// SelectionInspectorStack에서 재사용하기 위해 스크롤 뷰 없이 노출.
+    @ViewBuilder
+    var content: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            header
 
-                    if let progressStats {
-                        section(title: "누적 고도", icon: "mountain.2") {
-                            infoRow("시작점부터 누적 상승",
-                                    value: formatDeltaEle(progressStats.ascentFromStart, sign: "+"),
-                                    valueColor: .red)
-                            infoRow("시작점부터 누적 하강",
-                                    value: formatDeltaEle(progressStats.descentFromStart, sign: "-"),
-                                    valueColor: .blue)
-                            infoRow("종료점까지 남은 상승",
-                                    value: formatDeltaEle(progressStats.ascentToEnd, sign: "+"),
-                                    valueColor: .red)
-                            infoRow("종료점까지 남은 하강",
-                                    value: formatDeltaEle(progressStats.descentToEnd, sign: "-"),
-                                    valueColor: .blue)
-                        }
-                    }
-
-                    section(title: "좌표", icon: "mappin.and.ellipse") {
-                        infoRow("위도", value: String(format: "%.6f", info.lat))
-                        infoRow("경도", value: String(format: "%.6f", info.lon))
-                    }
-                } else {
-                    Text("선택한 위치의 데이터를 찾을 수 없습니다.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+            if let info {
+                section(title: "위치", icon: "location") {
+                    infoRow("시작점으로부터", value: formatKm(info.distanceKm))
+                    infoRow("종료점까지", value: formatKm(max(0, totalKm - info.distanceKm)))
+                    infoRow("고도", value: formatEle(info.elevationMeters))
+                    infoRow("경사", value: formatGrade(info.gradePercent),
+                            valueColor: gradeColor(info.gradePercent))
+                    infoRow("방향", value: formatRouteDirection(info))
                 }
+
+                if let progressStats {
+                    section(title: "누적 고도", icon: "mountain.2") {
+                        infoRow("시작점부터 누적 상승",
+                                value: formatDeltaEle(progressStats.ascentFromStart, sign: "+"),
+                                valueColor: .red)
+                        infoRow("시작점부터 누적 하강",
+                                value: formatDeltaEle(progressStats.descentFromStart, sign: "-"),
+                                valueColor: .blue)
+                        infoRow("종료점까지 남은 상승",
+                                value: formatDeltaEle(progressStats.ascentToEnd, sign: "+"),
+                                valueColor: .red)
+                        infoRow("종료점까지 남은 하강",
+                                value: formatDeltaEle(progressStats.descentToEnd, sign: "-"),
+                                valueColor: .blue)
+                    }
+                }
+
+                section(title: "좌표", icon: "mappin.and.ellipse") {
+                    infoRow("위도", value: String(format: "%.6f", info.lat))
+                    infoRow("경도", value: String(format: "%.6f", info.lon))
+                }
+            } else {
+                Text("선택한 위치의 데이터를 찾을 수 없습니다.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
-            .padding(16)
         }
+        .padding(16)
     }
 
     @ViewBuilder
