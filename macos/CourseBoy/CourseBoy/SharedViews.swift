@@ -1,5 +1,42 @@
 import SwiftUI
+import AppKit
 import CourseBoyKit
+
+// MARK: - 지도 마커 이미지 (Hover / Pinned)
+
+func makeHoverDotImage() -> NSImage {
+    let size = NSSize(width: 12, height: 12)
+    let image = NSImage(size: size)
+    image.lockFocus()
+    NSColor.black.withAlphaComponent(0.28).setFill()
+    NSBezierPath(ovalIn: NSRect(x: 1, y: 0, width: 10, height: 10)).fill()
+    NSColor.white.setFill()
+    NSBezierPath(ovalIn: NSRect(x: 2, y: 2, width: 8, height: 8)).fill()
+    NSColor.systemOrange.setStroke()
+    let ring = NSBezierPath(ovalIn: NSRect(x: 2, y: 2, width: 8, height: 8))
+    ring.lineWidth = 1
+    ring.stroke()
+    image.unlockFocus()
+    return image
+}
+
+func makePinnedDotImage() -> NSImage {
+    let size = NSSize(width: 18, height: 18)
+    let image = NSImage(size: size)
+    image.lockFocus()
+    NSColor.black.withAlphaComponent(0.32).setFill()
+    NSBezierPath(ovalIn: NSRect(x: 1, y: 0, width: 16, height: 16)).fill()
+    NSColor.systemYellow.withAlphaComponent(0.35).setFill()
+    NSBezierPath(ovalIn: NSRect(x: 1, y: 1, width: 16, height: 16)).fill()
+    NSColor.systemYellow.setFill()
+    NSBezierPath(ovalIn: NSRect(x: 5, y: 5, width: 8, height: 8)).fill()
+    NSColor.black.withAlphaComponent(0.75).setStroke()
+    let ring = NSBezierPath(ovalIn: NSRect(x: 5, y: 5, width: 8, height: 8))
+    ring.lineWidth = 1.3
+    ring.stroke()
+    image.unlockFocus()
+    return image
+}
 
 // MARK: - 공통 헬퍼
 

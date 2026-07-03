@@ -19,6 +19,7 @@ struct RouteWorkspaceView: View {
     @State private var routeHoverInfo: RouteHoverInfo?
     @State private var showDeleteConfirm = false
     @State private var rangeSelection: ChartRangeSelection?
+    @State private var pinnedDistanceKm: Double?
     @State private var selectedSegmentRouteID: String?
     @State private var selectedSegmentIDs: Set<String> = []
 
@@ -118,6 +119,8 @@ struct RouteWorkspaceView: View {
         }
         .task(id: route.id) {
             syncSegmentSelection(for: route)
+            pinnedDistanceKm = nil
+            rangeSelection = nil
         }
         .onChange(of: route.segments.map(\.segmentID)) { _, _ in
             syncSegmentSelection(for: route)
@@ -140,14 +143,16 @@ struct RouteWorkspaceView: View {
                     highlightPoints: highlightPoints,
                     cuePoints: cuePoints(for: pts),
                     hoverInfo: $routeHoverInfo,
-                    rangeSelection: rangeSelection
+                    rangeSelection: rangeSelection,
+                    pinnedDistanceKm: pinnedDistanceKm
                 )
                 Divider()
                 ElevationChartView(
                     trackPoints: pts,
                     markers: markers(for: pts),
                     hoverInfo: $routeHoverInfo,
-                    rangeSelection: $rangeSelection
+                    rangeSelection: $rangeSelection,
+                    pinnedDistanceKm: $pinnedDistanceKm
                 )
             }
         }

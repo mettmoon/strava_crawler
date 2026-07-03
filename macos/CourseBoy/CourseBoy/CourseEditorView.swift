@@ -78,6 +78,7 @@ struct CourseEditorView: View {
     @State private var selectedCueID: UUID?
     @State private var editingCueID: UUID?
     @State private var rangeSelection: ChartRangeSelection?
+    @State private var pinnedDistanceKm: Double?
     @State private var isInspectorPresented = true
 
     // 카카오 검색
@@ -226,6 +227,8 @@ struct CourseEditorView: View {
                     mapViewRef: $mapViewRef,
                     selectedCueID: selectedCueID,
                     rangeSelection: rangeSelection,
+                    hoverInfo: hoverInfo,
+                    pinnedDistanceKm: pinnedDistanceKm,
                     mapStyle: mapStyle.wrappedValue,
                     routingProfile: routeProfile.wrappedValue,
                     onSelectCue: { selectedCueID = $0 },
@@ -261,6 +264,7 @@ struct CourseEditorView: View {
                 focusedDistanceKm: focusedDistanceKm(for: pts),
                 hoverInfo: $hoverInfo,
                 rangeSelection: $rangeSelection,
+                pinnedDistanceKm: $pinnedDistanceKm,
                 onAddCueAtHover: { km in
                     addCueFromElevation(distanceKm: km, trackPoints: pts)
                 },
@@ -1338,6 +1342,8 @@ struct CourseEditMapView: NSViewRepresentable {
     @Binding var mapViewRef: MKMapView?
     var selectedCueID: UUID?
     var rangeSelection: ChartRangeSelection?
+    var hoverInfo: RouteHoverInfo?
+    var pinnedDistanceKm: Double?
     var mapStyle: MapStyleOption = .standard
     var routingProfile: OSRMRouteProfile = .defaultProfile
     var onSelectCue: (UUID) -> Void
@@ -1390,6 +1396,8 @@ struct CourseEditMapView: NSViewRepresentable {
         context.coordinator.updateSearchAnnotations(map: map, results: searchResults)
         context.coordinator.syncFocusedCue(in: map, focusedID: selectedCueID)
         context.coordinator.syncRangeSelection(in: map, selection: rangeSelection)
+        context.coordinator.syncHoverLocation(in: map, info: hoverInfo)
+        context.coordinator.syncPinnedLocation(in: map, distanceKm: pinnedDistanceKm)
         promoteRangeEndpointAnnotationViews(in: map)
     }
 
@@ -1414,6 +1422,9 @@ struct CourseEditMapView: NSViewRepresentable {
         private var rangePolyline: RangeSelectionPolyline?
         private var rangeEndpointAnnotations: [RangeEndpointAnnotation] = []
         private var lastRangeSignature: String = ""
+        private var hoverAnnotation: HoverAnnotation?
+        private var pinnedAnnotation: PinnedLocationAnnotation?
+        private var lastPinnedSignature: String = ""
 
         init(draft: CourseEditorDraft, isCalculatingBinding: Binding<Bool>,
              searchResultsBinding: Binding<[KakaoLocalResult]>,
@@ -1462,6 +1473,9 @@ struct CourseEditMapView: NSViewRepresentable {
             lastFocusedCueID = nil
             // range overlay는 syncRangeSelection이 별도로 다시 만든다.
             lastRangeSignature = ""
+            hoverAnnotation = nil
+            pinnedAnnotation = nil
+            lastPinnedSignature = ""
 
             if needsFitOnFirstLoad && !draft.routePoints.isEmpty {
                 needsFitOnFirstLoad = false
@@ -1560,6 +1574,48 @@ struct CourseEditMapView: NSViewRepresentable {
             promoteRangeEndpointAnnotationViews(in: map)
         }
 
+        // MARK: 호버 위치 동기화
+
+        func syncHoverLocation(in map: MKMapView, info: RouteHoverInfo?) {
+            guard let info else {
+                if let existing = hoverAnnotation {
+                    map.removeAnnotation(existing)
+                    hoverAnnotation = nil
+                }
+                return
+            }
+            let coord = CLLocationCoordinate2D(latitude: info.lat, longitude: info.lon)
+            if let existing = hoverAnnotation {
+                existing.coordinate = coord
+            } else {
+                let annotation = HoverAnnotation()
+                annotation.coordinate = coord
+                map.addAnnotation(annotation)
+                hoverAnnotation = annotation
+            }
+        }
+
+        func syncPinnedLocation(in map: MKMapView, distanceKm: Double?) {
+            let sig: String = distanceKm.map { String(format: "%.6f", $0) } ?? ""
+            guard sig != lastPinnedSignature else { return }
+            lastPinnedSignature = sig
+
+            if let existing = pinnedAnnotation {
+                map.removeAnnotation(existing)
+                pinnedAnnotation = nil
+            }
+            guard let km = distanceKm else { return }
+            let allPts = draftAllTrackPoints()
+            guard let info = routeHoverInfo(trackPoints: allPts, nearestToDistanceKm: km) else { return }
+            let annotation = PinnedLocationAnnotation(
+                lat: info.lat, lon: info.lon,
+                distanceKm: info.distanceKm,
+                elevationMeters: info.elevationMeters
+            )
+            map.addAnnotation(annotation)
+            pinnedAnnotation = annotation
+        }
+
         private func fitMap(map: MKMapView) {
             // trackSegments의 모든 점을 포함하는 rect로 fit. 없으면 routePoints로 fallback.
             let allCoords: [CLLocationCoordinate2D] = {
@@ -1610,6 +1666,12 @@ struct CourseEditMapView: NSViewRepresentable {
 
             // 검색 결과 핀 위 클릭도 무시 (MKMapView 콜아웃이 처리)
             for ann in map.annotations.compactMap({ $0 as? SearchResultAnnotation }) {
+                let annPt = map.convert(ann.coordinate, toPointTo: map)
+                if abs(annPt.x - pt.x) < hitRadius && abs(annPt.y - pt.y) < hitRadius { return }
+            }
+
+            // 임시 pin annotation 위 클릭 → 콜아웃 처리에 위임
+            for ann in map.annotations.compactMap({ $0 as? PinnedLocationAnnotation }) {
                 let annPt = map.convert(ann.coordinate, toPointTo: map)
                 if abs(annPt.x - pt.x) < hitRadius && abs(annPt.y - pt.y) < hitRadius { return }
             }
@@ -1890,8 +1952,33 @@ struct CourseEditMapView: NSViewRepresentable {
                 v.titleVisibility = .visible
                 return v
             }
+            if annotation is HoverAnnotation {
+                let identifier = "hoverPoint"
+                let view = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
+                    ?? MKAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+                view.annotation = annotation
+                view.image = Self.hoverDotImage
+                view.displayPriority = .required
+                view.canShowCallout = false
+                view.zPriority = .max
+                return view
+            }
+            if annotation is PinnedLocationAnnotation {
+                let identifier = "pinnedLocation"
+                let view = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
+                    ?? MKAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+                view.annotation = annotation
+                view.image = Self.pinnedDotImage
+                view.displayPriority = .required
+                view.canShowCallout = true
+                view.zPriority = .max
+                return view
+            }
             return nil
         }
+
+        private static let hoverDotImage: NSImage = makeHoverDotImage()
+        private static let pinnedDotImage: NSImage = makePinnedDotImage()
 
         func mapView(_ mapView: MKMapView, annotationView view: MKAnnotationView,
                      didChange newState: MKAnnotationView.DragState,

@@ -12,6 +12,8 @@ struct ElevationChartView: View {
     @Binding var hoverInfo: RouteHoverInfo?
     /// 선택한 구간(km). 차트 드래그 중에도 갱신된다 (`isDragging == true`).
     var rangeSelection: Binding<ChartRangeSelection?>? = nil
+    /// 그래프 클릭으로 지정한 임시 선택 위치(km). nil이면 표시되지 않는다.
+    var pinnedDistanceKm: Binding<Double?>? = nil
     /// 호버 위치에서 우클릭 → "웨이포인트 추가" 선택 시 호출. 인자: 누적 거리(km).
     var onAddCueAtHover: ((Double) -> Void)? = nil
     /// 차트 배경(아무 곳)을 클릭했을 때 호출. 큐 포커스 해제 등에 사용.
@@ -63,6 +65,7 @@ struct ElevationChartView: View {
                                       hiddenMarkerCount: hiddenMarkerCount,
                                       hoverInfo: hoverInfo,
                                       focusedDistanceKm: focusedDistanceKm,
+                                      pinnedDistanceKm: pinnedDistanceKm?.wrappedValue,
                                       rangeSelection: rangeSelection?.wrappedValue)
                         }
                         .frame(width: contentWidth, height: stripH + chartBodyHeight)
@@ -87,11 +90,12 @@ struct ElevationChartView: View {
                                     handleRangeDragEnded(value: value, contentWidth: contentWidth)
                                 }
                         )
-                        .onTapGesture {
-                            // 빈 클릭 → 큐 포커스 + 드래그 선택 모두 해제
-                            rangeSelection?.wrappedValue = nil
-                            onBackgroundClick?()
-                        }
+                        .gesture(
+                            SpatialTapGesture()
+                                .onEnded { value in
+                                    handleTap(location: value.location, contentWidth: contentWidth)
+                                }
+                        )
                         .background(
                             WheelZoomView { delta in applyZoom(delta: delta) }
                         )
@@ -284,6 +288,7 @@ struct ElevationChartView: View {
                            hiddenMarkerCount: Int,
                            hoverInfo: RouteHoverInfo?,
                            focusedDistanceKm: Double?,
+                           pinnedDistanceKm: Double?,
                            rangeSelection: ChartRangeSelection?) {
         guard let (minEle, maxEle) = eleRange, maxEle > minEle else { return }
         let eleSpan  = maxEle - minEle
@@ -524,6 +529,37 @@ struct ElevationChartView: View {
                      anchor: .center)
         }
 
+        // ── 클릭으로 지정한 임시 pin 마커 ─────────────────────
+        if let pinnedDistanceKm,
+           let pinnedInfo = routeHoverInfo(trackPoints: trackPoints,
+                                           nearestToDistanceKm: pinnedDistanceKm),
+           let pinnedEle = pinnedInfo.elevationMeters {
+            let px = min(max(xPos(pinnedInfo.distanceKm), 0), size.width)
+            let py = min(max(yPos(pinnedEle), bodyTop), bodyBot)
+            let pinColor = Color.yellow
+
+            var pLine = Path()
+            pLine.move(to: CGPoint(x: px, y: bodyTop))
+            pLine.addLine(to: CGPoint(x: px, y: bodyBot))
+            ctx.stroke(pLine, with: .color(pinColor.opacity(0.9)),
+                       style: StrokeStyle(lineWidth: 1.5))
+
+            let outerR: CGFloat = 8
+            ctx.fill(Path(ellipseIn: CGRect(
+                x: px - outerR, y: py - outerR,
+                width: outerR * 2, height: outerR * 2
+            )), with: .color(pinColor.opacity(0.28)))
+            let innerR: CGFloat = 4.5
+            ctx.fill(Path(ellipseIn: CGRect(
+                x: px - innerR, y: py - innerR,
+                width: innerR * 2, height: innerR * 2
+            )), with: .color(pinColor))
+            ctx.stroke(Path(ellipseIn: CGRect(
+                x: px - innerR, y: py - innerR,
+                width: innerR * 2, height: innerR * 2
+            )), with: .color(.black.opacity(0.6)), style: StrokeStyle(lineWidth: 1.2))
+        }
+
         // ── 큐시트 선택 마커 (호버보다 먼저 그려서, 호버가 위에 오도록) ─
         if let focusedDistanceKm,
            let focusedInfo = routeHoverInfo(trackPoints: trackPoints,
@@ -682,6 +718,19 @@ struct ElevationChartView: View {
             endKm: endKm,
             isDragging: false
         )
+    }
+
+    private func handleTap(location: CGPoint, contentWidth: CGFloat) {
+        // 드래그 선택은 항상 해제 (짧은 클릭 = 새로운 선택)
+        rangeSelection?.wrappedValue = nil
+
+        if pinnedDistanceKm != nil, !trackPoints.isEmpty, totalKm > 0, contentWidth > 0 {
+            let km = kmAtX(location.x, contentWidth: contentWidth)
+            pinnedDistanceKm?.wrappedValue = km
+        }
+
+        // 큐 포커스 등 상위 상태도 해제
+        onBackgroundClick?()
     }
 
     private func updateHover(location: CGPoint, contentWidth: CGFloat) {
