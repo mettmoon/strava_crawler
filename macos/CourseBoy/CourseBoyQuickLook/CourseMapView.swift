@@ -1,5 +1,6 @@
 import MapKit
 import SwiftUI
+import UIKit
 
 struct CourseLocateRequest: Equatable {
     var id = UUID()
@@ -25,7 +26,12 @@ struct CourseMapView: UIViewRepresentable {
         map.showsScale = true
         map.pointOfInterestFilter = .excludingAll
         map.preferredConfiguration = MKStandardMapConfiguration(elevationStyle: .realistic)
+        context.coordinator.attach(map)
         return map
+    }
+
+    static func dismantleUIView(_ uiView: MKMapView, coordinator: Coordinator) {
+        coordinator.detach()
     }
 
     func updateUIView(_ map: MKMapView, context: Context) {
@@ -48,6 +54,11 @@ struct CourseMapView: UIViewRepresentable {
         private weak var pendingLocationMap: MKMapView?
         private var pendingLocationCourse: LoadedCourse?
         private var handledLocateRequestID: UUID?
+        private weak var attachedMap: MKMapView?
+        private var didEnterBackgroundObserver: NSObjectProtocol?
+        private var willEnterForegroundObserver: NSObjectProtocol?
+        private var savedConfiguration: MKMapConfiguration?
+        private var savedShowsUserLocation = false
 
         init(
             selectedCueID: Binding<UUID?>,
@@ -59,6 +70,73 @@ struct CourseMapView: UIViewRepresentable {
             locationManager.delegate = self
             locationManager.desiredAccuracy = kCLLocationAccuracyBest
             locationManager.distanceFilter = kCLDistanceFilterNone
+        }
+
+        deinit {
+            if let observer = didEnterBackgroundObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            if let observer = willEnterForegroundObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
+
+        func attach(_ map: MKMapView) {
+            attachedMap = map
+            let center = NotificationCenter.default
+            didEnterBackgroundObserver = center.addObserver(
+                forName: UIApplication.didEnterBackgroundNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.handleDidEnterBackground()
+            }
+            willEnterForegroundObserver = center.addObserver(
+                forName: UIApplication.willEnterForegroundNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.handleWillEnterForeground()
+            }
+        }
+
+        func detach() {
+            if let observer = didEnterBackgroundObserver {
+                NotificationCenter.default.removeObserver(observer)
+                didEnterBackgroundObserver = nil
+            }
+            if let observer = willEnterForegroundObserver {
+                NotificationCenter.default.removeObserver(observer)
+                willEnterForegroundObserver = nil
+            }
+            locationManager.stopUpdatingLocation()
+            attachedMap = nil
+        }
+
+        private func handleDidEnterBackground() {
+            locationManager.stopUpdatingLocation()
+            pendingLocationMap = nil
+            pendingLocationCourse = nil
+
+            guard let map = attachedMap else { return }
+            savedShowsUserLocation = map.showsUserLocation
+            map.showsUserLocation = false
+
+            if savedConfiguration == nil {
+                savedConfiguration = map.preferredConfiguration
+                let flat = MKStandardMapConfiguration(elevationStyle: .flat)
+                flat.pointOfInterestFilter = .excludingAll
+                map.preferredConfiguration = flat
+            }
+        }
+
+        private func handleWillEnterForeground() {
+            guard let map = attachedMap else { return }
+            if let saved = savedConfiguration {
+                map.preferredConfiguration = saved
+                savedConfiguration = nil
+            }
+            map.showsUserLocation = savedShowsUserLocation
         }
 
         func syncCourse(_ course: LoadedCourse, in map: MKMapView) {
