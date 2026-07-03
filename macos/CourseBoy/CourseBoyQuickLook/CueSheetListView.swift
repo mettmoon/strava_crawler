@@ -2,6 +2,16 @@ import SwiftUI
 
 struct CueSheetListView: View {
     static let profileSelectionRowID = "profile-selection-row"
+    static let startEndpointRowID = "cuesheet-endpoint-start"
+    static let endEndpointRowID = "cuesheet-endpoint-end"
+
+    static func rowID(for selection: CourseProfileSelection, in course: LoadedCourse) -> String {
+        switch selection.endpointKind(in: course) {
+        case .start: return startEndpointRowID
+        case .end: return endEndpointRowID
+        case .none: return profileSelectionRowID
+        }
+    }
 
     let course: LoadedCourse
     @Binding var selectedCueID: UUID?
@@ -24,6 +34,19 @@ struct CueSheetListView: View {
             LazyVStack(spacing: 8) {
                 ForEach(listItems) { item in
                     switch item {
+                    case .endpoint(let endpoint):
+                        TrackEndpointRow(
+                            endpoint: endpoint,
+                            remainingDistanceKm: remainingDistanceKm(from: endpoint.distanceKm),
+                            isSelected: isEndpointSelected(endpoint)
+                        )
+                        .id(endpoint.rowID)
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                toggleEndpointSelection(endpoint)
+                            }
+                        }
+
                     case .profile(let selection):
                         ProfileSelectionCueSheetRow(
                             selection: selection,
@@ -53,14 +76,48 @@ struct CueSheetListView: View {
 
     private var listItems: [CueSheetListItem] {
         var items = course.sortedCuePoints.map(CueSheetListItem.cue)
-        if let selectedProfilePoint {
+        let endpoints = trackEndpoints
+        let endpointIndices = Set(endpoints.map(\.trackIndex))
+        if let selectedProfilePoint,
+           !endpointIndices.contains(selectedProfilePoint.trackIndex) {
             items.append(.profile(selectedProfilePoint))
+        }
+        for endpoint in endpoints {
+            items.append(.endpoint(endpoint))
         }
         return items.sorted { lhs, rhs in
             if lhs.distanceKm == rhs.distanceKm {
                 return lhs.sortOrder < rhs.sortOrder
             }
             return lhs.distanceKm < rhs.distanceKm
+        }
+    }
+
+    private var trackEndpoints: [TrackEndpoint] {
+        var result: [TrackEndpoint] = []
+        if let start = course.trackPoints.first {
+            result.append(TrackEndpoint(kind: .start, point: start, trackIndex: 0))
+        }
+        if course.trackPoints.count > 1,
+           let end = course.trackPoints.last {
+            result.append(TrackEndpoint(kind: .end, point: end, trackIndex: course.trackPoints.count - 1))
+        }
+        return result
+    }
+
+    private func isEndpointSelected(_ endpoint: TrackEndpoint) -> Bool {
+        selectedProfilePoint?.trackIndex == endpoint.trackIndex
+    }
+
+    private func toggleEndpointSelection(_ endpoint: TrackEndpoint) {
+        if isEndpointSelected(endpoint) {
+            selectedProfilePoint = nil
+        } else {
+            selectedCueID = nil
+            selectedProfilePoint = CourseProfileSelection(
+                trackIndex: endpoint.trackIndex,
+                point: endpoint.point
+            )
         }
     }
 
@@ -79,11 +136,14 @@ struct CueSheetListView: View {
 }
 
 private enum CueSheetListItem: Identifiable {
+    case endpoint(TrackEndpoint)
     case profile(CourseProfileSelection)
     case cue(CourseCuePoint)
 
     var id: String {
         switch self {
+        case .endpoint(let endpoint):
+            return endpoint.rowID
         case .profile:
             return CueSheetListView.profileSelectionRowID
         case .cue(let cue):
@@ -93,6 +153,8 @@ private enum CueSheetListItem: Identifiable {
 
     var distanceKm: Double {
         switch self {
+        case .endpoint(let endpoint):
+            return endpoint.distanceKm
         case .profile(let selection):
             return selection.distanceKm
         case .cue(let cue):
@@ -102,12 +164,58 @@ private enum CueSheetListItem: Identifiable {
 
     var sortOrder: Int {
         switch self {
+        case .endpoint(let endpoint):
+            // Start goes before other items at the same distance; end goes after.
+            return endpoint.kind == .start ? -1 : 2
         case .profile:
             return 0
         case .cue:
             return 1
         }
     }
+}
+
+private struct TrackEndpoint {
+    enum Kind {
+        case start
+        case end
+
+        var title: String {
+            switch self {
+            case .start: return "시작점"
+            case .end: return "종료점"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .start: return "flag.fill"
+            case .end: return "flag.checkered"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .start: return .green
+            case .end: return .red
+            }
+        }
+
+        var rowID: String {
+            switch self {
+            case .start: return CueSheetListView.startEndpointRowID
+            case .end: return CueSheetListView.endEndpointRowID
+            }
+        }
+    }
+
+    let kind: Kind
+    let point: TrackPoint
+    let trackIndex: Int
+
+    var distanceKm: Double { point.cumKm }
+    var elevation: Double? { point.ele }
+    var rowID: String { kind.rowID }
 }
 
 private struct CueSheetRow: View {
@@ -214,6 +322,63 @@ private struct ProfileSelectionCueSheetRow: View {
         .overlay {
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(Color.cyan.opacity(0.65), lineWidth: 1)
+        }
+    }
+}
+
+private struct TrackEndpointRow: View {
+    let endpoint: TrackEndpoint
+    let remainingDistanceKm: Double
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(endpoint.kind.color.opacity(0.16))
+                Image(systemName: endpoint.kind.symbol)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(endpoint.kind.color)
+            }
+            .frame(width: 34, height: 34)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(endpoint.kind.title)
+                        .font(.headline)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(formatRouteDistance(endpoint.distanceKm))
+                        .font(.subheadline.weight(.medium))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack(spacing: 8) {
+                    Text("고도 \(formatRouteElevation(endpoint.elevation))")
+                    if endpoint.kind == .start {
+                        Text("남은 \(formatRouteDistance(remainingDistanceKm))")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            }
+        }
+        .padding(12)
+        .background(
+            isSelected
+                ? endpoint.kind.color.opacity(0.22)
+                : Color(.secondarySystemGroupedBackground),
+            in: RoundedRectangle(cornerRadius: 8)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(
+                    isSelected ? endpoint.kind.color.opacity(0.9) : Color.clear,
+                    lineWidth: isSelected ? 1.5 : 0
+                )
         }
     }
 }

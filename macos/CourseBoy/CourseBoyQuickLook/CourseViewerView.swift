@@ -101,12 +101,17 @@ private struct CourseSummaryTab: View {
             VStack(alignment: .leading, spacing: 16) {
                 CourseHeaderView(course: course)
                 CourseSummaryGrid(course: course)
+                if selectedCue != nil || selectedProfilePoint != nil {
+                    ViewerSection(title: "선택한 큐", systemImage: "mappin.and.ellipse") {
+                        SelectedCueDetailRows(
+                            course: course,
+                            selectedCue: selectedCue,
+                            selectedProfilePoint: selectedProfilePoint
+                        )
+                    }
+                }
                 ViewerSection(title: "상세 정보", systemImage: "info.circle") {
-                    CourseDetailRows(
-                        course: course,
-                        selectedCue: selectedCue,
-                        selectedProfilePoint: selectedProfilePoint
-                    )
+                    CourseDetailRows(course: course)
                 }
             }
             .padding(16)
@@ -494,9 +499,10 @@ private struct CourseCueSheetTab: View {
                 }
             }
             .onChange(of: selectedProfilePoint) { _, selection in
-                guard selection != nil else { return }
+                guard let selection else { return }
+                let rowID = CueSheetListView.rowID(for: selection, in: course)
                 withAnimation(.easeInOut(duration: 0.25)) {
-                    proxy.scrollTo(CueSheetListView.profileSelectionRowID, anchor: .center)
+                    proxy.scrollTo(rowID, anchor: .center)
                 }
             }
         }
@@ -582,19 +588,43 @@ private struct SelectedProfilePointOverlay: View {
         max(0, course.totalDistanceKm - selection.distanceKm)
     }
 
+    private var endpointKind: CourseTrackEndpointKind? {
+        selection.endpointKind(in: course)
+    }
+
+    private var titleText: String {
+        endpointKind?.title ?? "그래프 선택 위치"
+    }
+
+    private var accentColor: Color {
+        switch endpointKind {
+        case .start: return .green
+        case .end: return .red
+        case .none: return .cyan
+        }
+    }
+
+    private var symbolName: String {
+        switch endpointKind {
+        case .start: return "flag.fill"
+        case .end: return "flag.checkered"
+        case .none: return "scope"
+        }
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             ZStack {
                 Circle()
-                    .fill(Color.cyan.opacity(0.16))
-                Image(systemName: "scope")
+                    .fill(accentColor.opacity(0.16))
+                Image(systemName: symbolName)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.cyan)
+                    .foregroundStyle(accentColor)
             }
             .frame(width: 34, height: 34)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("그래프 선택 위치")
+                Text(titleText)
                     .font(.headline)
                     .lineLimit(1)
                 Text("\(formatRouteDistance(selection.distanceKm)) · \(formatRouteElevation(selection.elevationMeters))")
@@ -721,27 +751,48 @@ struct ViewerSection<Content: View>: View {
 
 private struct CourseDetailRows: View {
     let course: LoadedCourse
+
+    var body: some View {
+        VStack(spacing: 0) {
+            DetailRow(title: "파일", value: course.sourceURL.lastPathComponent)
+            DetailRow(title: "형식", value: course.fileKind.rawValue)
+            DetailRow(title: "트랙 포인트", value: "\(course.trackPoints.count)")
+            DetailRow(title: "경유지", value: "\(course.routePoints.count)")
+            DetailRow(title: "큐시트", value: "\(course.cuePoints.count)")
+            DetailRow(title: "최저 고도", value: formatRouteElevation(course.elevationStats.min))
+            DetailRow(title: "최고 고도", value: formatRouteElevation(course.elevationStats.max))
+            DetailRow(title: "누적 하강", value: formatRouteElevation(course.elevationStats.descent))
+        }
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct SelectedCueDetailRows: View {
+    let course: LoadedCourse
     let selectedCue: CourseCuePoint?
     let selectedProfilePoint: CourseProfileSelection?
 
     var body: some View {
         VStack(spacing: 0) {
-            detailRow("파일", value: course.sourceURL.lastPathComponent)
-            detailRow("형식", value: course.fileKind.rawValue)
-            detailRow("트랙 포인트", value: "\(course.trackPoints.count)")
-            detailRow("경유지", value: "\(course.routePoints.count)")
-            detailRow("큐시트", value: "\(course.cuePoints.count)")
-            detailRow("최저 고도", value: formatRouteElevation(course.elevationStats.min))
-            detailRow("최고 고도", value: formatRouteElevation(course.elevationStats.max))
-            detailRow("누적 하강", value: formatRouteElevation(course.elevationStats.descent))
             if let selectedCue {
-                detailRow("선택한 큐", value: selectedCue.displayName)
-                detailRow("선택 위치", value: formatRouteDistance(selectedCue.distanceKm))
-                detailRow("선택 고도", value: formatRouteElevation(selectedCueElevation))
+                DetailRow(title: "선택한 큐", value: selectedCue.displayName)
+                DetailRow(title: "종류", value: cuePointLabel(for: selectedCue.pointType))
+                DetailRow(title: "위치", value: formatRouteDistance(selectedCue.distanceKm))
+                DetailRow(title: "고도", value: formatRouteElevation(selectedCueElevation))
+                if !selectedCue.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    DetailRow(title: "메모", value: selectedCue.notes)
+                }
             }
             if let selectedProfilePoint {
-                detailRow("그래프 선택 거리", value: formatRouteDistance(selectedProfilePoint.distanceKm))
-                detailRow("그래프 선택 고도", value: formatRouteElevation(selectedProfilePoint.elevationMeters))
+                let endpoint = selectedProfilePoint.endpointKind(in: course)
+                DetailRow(
+                    title: endpoint.map { "\($0.title) 거리" } ?? "그래프 선택 거리",
+                    value: formatRouteDistance(selectedProfilePoint.distanceKm)
+                )
+                DetailRow(
+                    title: endpoint.map { "\($0.title) 고도" } ?? "그래프 선택 고도",
+                    value: formatRouteElevation(selectedProfilePoint.elevationMeters)
+                )
             }
         }
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
@@ -754,8 +805,13 @@ private struct CourseDetailRows: View {
         }
         return course.trackPoints[index].ele
     }
+}
 
-    private func detailRow(_ title: String, value: String) -> some View {
+private struct DetailRow: View {
+    let title: String
+    let value: String
+
+    var body: some View {
         HStack(spacing: 12) {
             Text(title)
                 .foregroundStyle(.secondary)
