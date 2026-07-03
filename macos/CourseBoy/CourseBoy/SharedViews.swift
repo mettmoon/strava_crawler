@@ -167,19 +167,28 @@ func routeHoverInfo(
 
 func routeHoverInfo(trackPoints: [TrackPoint], nearestToDistanceKm km: Double) -> RouteHoverInfo? {
     guard trackPoints.count >= 2 else { return nil }
-    let clampedKm = min(max(km, trackPoints.first?.cumKm ?? 0), trackPoints.last?.cumKm ?? km)
-    for i in 0..<(trackPoints.count - 1) {
-        let a = trackPoints[i]
-        let b = trackPoints[i + 1]
-        let lo = min(a.cumKm, b.cumKm)
-        let hi = max(a.cumKm, b.cumKm)
-        if clampedKm >= lo, clampedKm <= hi {
-            let span = b.cumKm - a.cumKm
-            let fraction = span == 0 ? 0 : (clampedKm - a.cumKm) / span
-            return routeHoverInfo(trackPoints: trackPoints, segmentStartIndex: i, fraction: fraction)
+    let firstKm = trackPoints.first!.cumKm
+    let lastKm = trackPoints.last!.cumKm
+    let clampedKm = min(max(km, firstKm), lastKm)
+
+    // trackPoints 는 cumKm 오름차순이므로 binary search 로 구간을 찾는다.
+    // 예전에는 hover 이벤트마다 O(n) 선형 탐색이라 5k+ 포인트에서 CPU 를
+    // 태웠다.
+    var lo = 0
+    var hi = trackPoints.count - 1
+    while lo + 1 < hi {
+        let mid = (lo + hi) / 2
+        if trackPoints[mid].cumKm <= clampedKm {
+            lo = mid
+        } else {
+            hi = mid
         }
     }
-    return routeHoverInfo(trackPoints: trackPoints, segmentStartIndex: trackPoints.count - 2, fraction: 1)
+    let a = trackPoints[lo]
+    let b = trackPoints[hi]
+    let span = b.cumKm - a.cumKm
+    let fraction = span == 0 ? 0 : (clampedKm - a.cumKm) / span
+    return routeHoverInfo(trackPoints: trackPoints, segmentStartIndex: lo, fraction: fraction)
 }
 
 func formatRouteDistance(_ km: Double) -> String {
