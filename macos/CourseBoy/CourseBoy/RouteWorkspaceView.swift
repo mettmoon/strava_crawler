@@ -106,17 +106,12 @@ struct RouteWorkspaceView: View {
                         .opacity(rangeSelection == nil && pinnedDistanceKm == nil ? 1 : 0)
                         .allowsHitTesting(rangeSelection == nil && pinnedDistanceKm == nil)
 
-                        if let range = rangeSelection {
-                            RangeStatsInspectorView(
+                        if rangeSelection != nil || pinnedDistanceKm != nil {
+                            SelectionInspectorStack(
                                 trackPoints: parsedCourse?.trackPoints ?? [],
-                                range: range
-                            )
-                            .background(.background)
-                        } else if let km = pinnedDistanceKm {
-                            PinnedPointInspectorView(
-                                trackPoints: parsedCourse?.trackPoints ?? [],
-                                distanceKm: km,
-                                onClear: { pinnedDistanceKm = nil }
+                                rangeSelection: rangeSelection,
+                                pinnedDistanceKm: pinnedDistanceKm,
+                                onClearPin: { pinnedDistanceKm = nil }
                             )
                             .background(.background)
                         }
@@ -153,7 +148,6 @@ struct RouteWorkspaceView: View {
                     rangeSelection: rangeSelection,
                     pinnedDistanceKm: pinnedDistanceKm,
                     onPinDistance: { km in
-                        rangeSelection = nil
                         pinnedDistanceKm = km
                     }
                 )

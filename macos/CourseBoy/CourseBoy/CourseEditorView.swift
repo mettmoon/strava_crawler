@@ -134,19 +134,28 @@ struct CourseEditorView: View {
                 detailPane
                     .inspector(isPresented: $isInspectorPresented) {
                         Group {
-                            if let range = rangeSelection {
-                                CourseEditorRangeInspectorView(
-                                    draft: draft,
-                                    trackPoints: draft.allTrackPoints,
-                                    range: range,
-                                    onAddSegment: { addSegmentFromRange(range) }
-                                )
-                            } else if let km = pinnedDistanceKm {
-                                PinnedPointInspectorView(
-                                    trackPoints: draft.allTrackPoints,
-                                    distanceKm: km,
-                                    onClear: { pinnedDistanceKm = nil }
-                                )
+                            if rangeSelection != nil || pinnedDistanceKm != nil {
+                                VStack(spacing: 0) {
+                                    SelectionInspectorStack(
+                                        trackPoints: draft.allTrackPoints,
+                                        rangeSelection: rangeSelection,
+                                        pinnedDistanceKm: pinnedDistanceKm,
+                                        onClearPin: { pinnedDistanceKm = nil }
+                                    )
+                                    if let range = rangeSelection {
+                                        Divider()
+                                        Button {
+                                            addSegmentFromRange(range)
+                                        } label: {
+                                            Label("구간 추가", systemImage: "flag.checkered")
+                                                .frame(maxWidth: .infinity)
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                        .controlSize(.large)
+                                        .disabled(range.lengthKm <= 0 || range.isDragging)
+                                        .padding(12)
+                                    }
+                                }
                             } else {
                                 CourseEditorCueInspectorView(
                                     course: course,
@@ -243,8 +252,6 @@ struct CourseEditorView: View {
                         performSearch(in: rect)
                     },
                     onPinDistance: { km in
-                        selectedCueID = nil
-                        rangeSelection = nil
                         pinnedDistanceKm = km
                     }
                 )
@@ -1314,33 +1321,6 @@ private struct CourseEditorCueInspectorView: View {
         let diff = bEle - aEle
         let sign = diff > 0 ? "+" : (diff < 0 ? "" : "")
         return String(format: "%@%.0f m", sign, diff)
-    }
-}
-
-// MARK: - CourseEditorRangeInspectorView
-
-/// 우측 인스펙터 (드래그 구간 선택 시): 구간 통계 + "구간 추가" 버튼.
-private struct CourseEditorRangeInspectorView: View {
-    var draft: CourseEditorDraft
-    var trackPoints: [TrackPoint]
-    var range: ChartRangeSelection
-    var onAddSegment: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            RangeStatsInspectorView(trackPoints: trackPoints, range: range)
-            Divider()
-            Button {
-                onAddSegment()
-            } label: {
-                Label("구간 추가", systemImage: "flag.checkered")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(range.lengthKm <= 0 || range.isDragging)
-            .padding(12)
-        }
     }
 }
 

@@ -11,44 +11,48 @@ struct RangeStatsInspectorView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                header
+        ScrollView { content }
+    }
 
-                if let stats {
-                    section(title: "구간", icon: "ruler") {
-                        infoRow("시작", value: formatKm(stats.startKm))
-                        infoRow("종료", value: formatKm(stats.endKm))
-                        infoRow("길이", value: formatKm(stats.lengthKm),
-                                valueColor: .accentColor)
-                    }
+    /// SelectionInspectorStack에서 재사용하기 위해 스크롤 뷰 없이 노출.
+    @ViewBuilder
+    var content: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            header
 
-                    section(title: "고도", icon: "mountain.2") {
-                        infoRow("시작 고도", value: formatEle(stats.startEle))
-                        infoRow("종료 고도", value: formatEle(stats.endEle))
-                        infoRow("최고", value: formatEle(stats.maxEle))
-                        infoRow("최저", value: formatEle(stats.minEle))
-                        infoRow("총 상승", value: formatDeltaEle(stats.ascentMeters, sign: "+"),
-                                valueColor: .red)
-                        infoRow("총 하강", value: formatDeltaEle(stats.descentMeters, sign: "-"),
-                                valueColor: .blue)
-                        infoRow("순 고도차",
-                                value: formatNetEle(stats),
-                                valueColor: netEleColor(stats))
-                    }
-
-                    section(title: "경사", icon: "angle") {
-                        infoRow("평균 경사", value: formatGrade(stats.averageGradePercent),
-                                valueColor: gradeColor(stats.averageGradePercent))
-                    }
-                } else {
-                    Text("선택 구간이 너무 짧습니다.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+            if let stats {
+                section(title: "구간", icon: "ruler") {
+                    infoRow("시작", value: formatKm(stats.startKm))
+                    infoRow("종료", value: formatKm(stats.endKm))
+                    infoRow("길이", value: formatKm(stats.lengthKm),
+                            valueColor: .accentColor)
                 }
+
+                section(title: "고도", icon: "mountain.2") {
+                    infoRow("시작 고도", value: formatEle(stats.startEle))
+                    infoRow("종료 고도", value: formatEle(stats.endEle))
+                    infoRow("최고", value: formatEle(stats.maxEle))
+                    infoRow("최저", value: formatEle(stats.minEle))
+                    infoRow("총 상승", value: formatDeltaEle(stats.ascentMeters, sign: "+"),
+                            valueColor: .red)
+                    infoRow("총 하강", value: formatDeltaEle(stats.descentMeters, sign: "-"),
+                            valueColor: .blue)
+                    infoRow("순 고도차",
+                            value: formatNetEle(stats),
+                            valueColor: netEleColor(stats))
+                }
+
+                section(title: "경사", icon: "angle") {
+                    infoRow("평균 경사", value: formatGrade(stats.averageGradePercent),
+                            valueColor: gradeColor(stats.averageGradePercent))
+                }
+            } else {
+                Text("선택 구간이 너무 짧습니다.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
-            .padding(16)
         }
+        .padding(16)
     }
 
     @ViewBuilder
