@@ -15,6 +15,7 @@ struct CourseWorkspaceView: View {
     @State private var hoverInfo: RouteHoverInfo?
     @State private var selectedCueIDs: Set<UUID> = []
     @State private var rangeSelection: ChartRangeSelection?
+    @State private var pinnedDistanceKm: Double?
     @State private var isInspectorPresented = true
 
     private var selectedCueID: UUID? {
@@ -108,7 +109,8 @@ struct CourseWorkspaceView: View {
                         rangeSelection = nil
                     },
                     hoverInfo: $hoverInfo,
-                    rangeSelection: rangeSelection
+                    rangeSelection: rangeSelection,
+                    pinnedDistanceKm: pinnedDistanceKm
                 )
                 Divider()
                 ElevationChartView(
@@ -117,6 +119,7 @@ struct CourseWorkspaceView: View {
                     focusedDistanceKm: focusKm,
                     hoverInfo: $hoverInfo,
                     rangeSelection: $rangeSelection,
+                    pinnedDistanceKm: $pinnedDistanceKm,
                     onBackgroundClick: { selectedCueIDs.removeAll() }
                 )
             }

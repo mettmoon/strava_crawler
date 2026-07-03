@@ -50,6 +50,18 @@ final class EndpointAnnotation: MKPointAnnotation {
 }
 
 final class HoverAnnotation: MKPointAnnotation {}
+final class PinnedLocationAnnotation: MKPointAnnotation {
+    let distanceKm: Double
+    let elevationMeters: Double?
+    init(lat: Double, lon: Double, distanceKm: Double, elevationMeters: Double?) {
+        self.distanceKm = distanceKm
+        self.elevationMeters = elevationMeters
+        super.init()
+        coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        title = formatRouteDistance(distanceKm)
+        subtitle = formatRouteElevation(elevationMeters)
+    }
+}
 
 let rangeEndpointTopLayerZPosition: CGFloat = 1_000_000
 
@@ -117,6 +129,8 @@ struct RouteMapView: View {
     @Binding var hoverInfo: RouteHoverInfo?
     /// 선택한 거리 구간을 지도에도 강조 표시.
     var rangeSelection: ChartRangeSelection? = nil
+    /// 그래프 클릭으로 지정된 임시 pin 위치(km).
+    var pinnedDistanceKm: Double? = nil
 
     @AppStorage(MapStyleStorageKey.main) private var mapStyleRaw: String = MapStyleOption.standard.rawValue
 
@@ -138,6 +152,7 @@ struct RouteMapView: View {
                 onSelectCue: onSelectCue,
                 hoverInfo: $hoverInfo,
                 rangeSelection: rangeSelection,
+                pinnedDistanceKm: pinnedDistanceKm,
                 mapStyle: mapStyle.wrappedValue
             )
             MapStylePicker(selection: mapStyle)
@@ -155,6 +170,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
     var onSelectCue: ((UUID) -> Void)? = nil
     @Binding var hoverInfo: RouteHoverInfo?
     var rangeSelection: ChartRangeSelection? = nil
+    var pinnedDistanceKm: Double? = nil
     var mapStyle: MapStyleOption
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -218,6 +234,8 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             coordinator.rangePolyline = nil
             coordinator.rangeEndpointAnnotations = []
             coordinator.lastRangeSignature = ""
+            coordinator.pinnedAnnotation = nil
+            coordinator.lastPinnedSignature = ""
             coordinator.hideTooltip()
             if hoverInfo != nil {
                 let hoverBinding = $hoverInfo
@@ -255,6 +273,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         coordinator.syncFocusedCue(in: map, focusedID: focusedCueID)
         coordinator.syncHoverPresentation(in: map, info: hoverInfo)
         coordinator.syncRangeSelection(in: map, selection: rangeSelection)
+        coordinator.syncPinnedLocation(in: map, distanceKm: pinnedDistanceKm)
         promoteRangeEndpointAnnotationViews(in: map)
     }
 
@@ -305,6 +324,8 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         var rangePolyline: RangeSelectionPolyline?
         var rangeEndpointAnnotations: [RangeEndpointAnnotation] = []
         var lastRangeSignature: String = ""
+        var pinnedAnnotation: PinnedLocationAnnotation?
+        var lastPinnedSignature: String = ""
 
         @objc func handleRightClick(_ gesture: NSClickGestureRecognizer) {
             guard let map = gesture.view as? MKMapView else { return }
@@ -480,6 +501,28 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             map.addAnnotations(anns)
             rangeEndpointAnnotations = anns
             promoteRangeEndpointAnnotationViews(in: map)
+        }
+
+        func syncPinnedLocation(in map: MKMapView, distanceKm: Double?) {
+            let sig: String = distanceKm.map { String(format: "%.6f", $0) } ?? ""
+            guard sig != lastPinnedSignature else { return }
+            lastPinnedSignature = sig
+
+            if let existing = pinnedAnnotation {
+                map.removeAnnotation(existing)
+                pinnedAnnotation = nil
+            }
+
+            guard let km = distanceKm,
+                  let info = routeHoverInfo(trackPoints: trackPoints, nearestToDistanceKm: km) else { return }
+
+            let annotation = PinnedLocationAnnotation(
+                lat: info.lat, lon: info.lon,
+                distanceKm: info.distanceKm,
+                elevationMeters: info.elevationMeters
+            )
+            map.addAnnotation(annotation)
+            pinnedAnnotation = annotation
         }
 
         func syncHoverPresentation(in map: MKMapView, info: RouteHoverInfo?) {
@@ -677,6 +720,18 @@ private struct RouteMapRepresentable: NSViewRepresentable {
                 return view
             }
 
+            if annotation is PinnedLocationAnnotation {
+                let identifier = "pinnedLocation"
+                let view = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
+                    ?? MKAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+                view.annotation = annotation
+                view.image = Self.pinnedDotImage
+                view.displayPriority = .required
+                view.canShowCallout = true
+                view.zPriority = .max
+                return view
+            }
+
             if let range = annotation as? RangeEndpointAnnotation {
                 let identifier = range.kind == .start ? "rangeStart" : "rangeEnd"
                 let v = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
@@ -738,21 +793,8 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             return v
         }
 
-        private static let hoverDotImage: NSImage = {
-            let size = NSSize(width: 12, height: 12)
-            let image = NSImage(size: size)
-            image.lockFocus()
-            NSColor.black.withAlphaComponent(0.28).setFill()
-            NSBezierPath(ovalIn: NSRect(x: 1, y: 0, width: 10, height: 10)).fill()
-            NSColor.white.setFill()
-            NSBezierPath(ovalIn: NSRect(x: 2, y: 2, width: 8, height: 8)).fill()
-            NSColor.systemOrange.setStroke()
-            let ring = NSBezierPath(ovalIn: NSRect(x: 2, y: 2, width: 8, height: 8))
-            ring.lineWidth = 1
-            ring.stroke()
-            image.unlockFocus()
-            return image
-        }()
+        private static let hoverDotImage: NSImage = makeHoverDotImage()
+        static let pinnedDotImage: NSImage = makePinnedDotImage()
 
         private static let endpointClusteringIdentifier = "routeEndpoint"
         private static let startEndpointImage = endpointLabelImage(text: "Start", color: .systemGreen)

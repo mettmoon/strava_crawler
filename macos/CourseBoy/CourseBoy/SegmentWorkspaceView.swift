@@ -15,6 +15,7 @@ struct SegmentWorkspaceView: View {
     @State private var hoverInfo: RouteHoverInfo?
     @State private var showDeleteConfirm = false
     @State private var rangeSelection: ChartRangeSelection?
+    @State private var pinnedDistanceKm: Double?
 
     var body: some View {
         Group {
@@ -105,14 +106,16 @@ struct SegmentWorkspaceView: View {
                     highlightPoints: highlightPoints,
                     cuePoints: [],
                     hoverInfo: $hoverInfo,
-                    rangeSelection: rangeSelection
+                    rangeSelection: rangeSelection,
+                    pinnedDistanceKm: pinnedDistanceKm
                 )
                 Divider()
                 ElevationChartView(
                     trackPoints: pts,
                     markers: [],
                     hoverInfo: $hoverInfo,
-                    rangeSelection: $rangeSelection
+                    rangeSelection: $rangeSelection,
+                    pinnedDistanceKm: $pinnedDistanceKm
                 )
             }
         }
@@ -121,6 +124,8 @@ struct SegmentWorkspaceView: View {
     private func load() async {
         guard let id = segmentID else { segment = nil; return }
         segment = try? await container.segmentRepository.fetch(id: id)
+        pinnedDistanceKm = nil
+        rangeSelection = nil
     }
 
     private func reloadSegment(id: String) async {
