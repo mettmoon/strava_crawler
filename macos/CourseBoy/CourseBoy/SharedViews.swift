@@ -1,6 +1,43 @@
 import SwiftUI
 import AppKit
+import MapKit
 import CourseBoyKit
+
+// MARK: - 지도 좌표계 최근접 투영
+
+/// 지도 위 화면 좌표(`screenPoint`)에서 트랙 폴리라인에 가장 가까운 점을 찾아
+/// 세그먼트 시작 인덱스, 세그먼트 내 비율(0..1), 화면 거리(pt)를 리턴한다.
+func nearestProjectionOnMap(
+    _ map: MKMapView,
+    pts: [TrackPoint],
+    to screenPoint: CGPoint
+) -> (segmentStartIndex: Int, fraction: Double, screenDistance: CGFloat)? {
+    guard pts.count >= 2 else { return nil }
+    var best: (segmentStartIndex: Int, fraction: Double, screenDistance: CGFloat)?
+
+    for i in 0..<(pts.count - 1) {
+        let a = pts[i]
+        let b = pts[i + 1]
+        let p1 = map.convert(CLLocationCoordinate2D(latitude: a.lat, longitude: a.lon), toPointTo: map)
+        let p2 = map.convert(CLLocationCoordinate2D(latitude: b.lat, longitude: b.lon), toPointTo: map)
+
+        let dx = p2.x - p1.x
+        let dy = p2.y - p1.y
+        let len2 = dx * dx + dy * dy
+        guard len2 > 0 else { continue }
+
+        let rawT = ((screenPoint.x - p1.x) * dx + (screenPoint.y - p1.y) * dy) / len2
+        let t = min(max(rawT, 0), 1)
+        let projected = CGPoint(x: p1.x + dx * t, y: p1.y + dy * t)
+        let distance = hypot(screenPoint.x - projected.x, screenPoint.y - projected.y)
+
+        if best == nil || distance < best!.screenDistance {
+            best = (i, Double(t), distance)
+        }
+    }
+
+    return best
+}
 
 // MARK: - 지도 마커 이미지 (Hover / Pinned)
 

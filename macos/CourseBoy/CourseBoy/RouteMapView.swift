@@ -131,6 +131,8 @@ struct RouteMapView: View {
     var rangeSelection: ChartRangeSelection? = nil
     /// 그래프 클릭으로 지정된 임시 pin 위치(km).
     var pinnedDistanceKm: Double? = nil
+    /// 지도에서 경로 위 클릭 시 호출. 인자: 누적 거리(km).
+    var onPinDistance: ((Double) -> Void)? = nil
 
     @AppStorage(MapStyleStorageKey.main) private var mapStyleRaw: String = MapStyleOption.standard.rawValue
 
@@ -150,6 +152,7 @@ struct RouteMapView: View {
                 focusedCueID: focusedCueID,
                 onDeselectFocus: onDeselectFocus,
                 onSelectCue: onSelectCue,
+                onPinDistance: onPinDistance,
                 hoverInfo: $hoverInfo,
                 rangeSelection: rangeSelection,
                 pinnedDistanceKm: pinnedDistanceKm,
@@ -168,6 +171,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
     var focusedCueID: UUID? = nil
     var onDeselectFocus: (() -> Void)? = nil
     var onSelectCue: ((UUID) -> Void)? = nil
+    var onPinDistance: ((Double) -> Void)? = nil
     @Binding var hoverInfo: RouteHoverInfo?
     var rangeSelection: ChartRangeSelection? = nil
     var pinnedDistanceKm: Double? = nil
@@ -221,6 +225,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         coordinator.hoverInfo = $hoverInfo
         coordinator.onDeselectFocus = onDeselectFocus
         coordinator.onSelectCue = onSelectCue
+        coordinator.onPinDistance = onPinDistance
 
         if coordinator.builtPointSignature != signature {
             map.removeOverlays(map.overlays)
@@ -320,6 +325,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         var hoverInfo: Binding<RouteHoverInfo?>?
         var onDeselectFocus: (() -> Void)?
         var onSelectCue: ((UUID) -> Void)?
+        var onPinDistance: ((Double) -> Void)?
         var lastFocusedCueID: UUID?
         var rangePolyline: RangeSelectionPolyline?
         var rangeEndpointAnnotations: [RangeEndpointAnnotation] = []
@@ -335,16 +341,35 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         }
 
         @objc func handleEmptyAreaClick(_ gesture: NSClickGestureRecognizer) {
-            guard let map = gesture.view as? MKMapView, let superview = map.superview else { return }
+            guard let map = gesture.view as? MKMapView else { return }
             let pointInMap = gesture.location(in: map)
-            let pointInSuper = map.convert(pointInMap, to: superview)
-            // 클릭 지점에 annotation이 있으면 무시 (annotation 자체 선택은 MKMapView가 처리).
-            var view = map.hitTest(pointInSuper)
-            while let v = view {
-                if v is MKAnnotationView { return }
-                if v === map { break }
-                view = v.superview
+
+            // 좌표 기반 annotation hit-test (hover/pinned dot은 pass-through).
+            let hitRadius: CGFloat = 20
+            for annotation in map.annotations {
+                if annotation is HoverAnnotation { continue }
+                if annotation is PinnedLocationAnnotation { continue }
+                let annPt = map.convert(annotation.coordinate, toPointTo: map)
+                if abs(annPt.x - pointInMap.x) < hitRadius && abs(annPt.y - pointInMap.y) < hitRadius {
+                    // annotation 자체 선택은 MKMapView가 처리
+                    return
+                }
             }
+
+            // 경로 위 클릭 → pin 설정
+            if let onPinDistance,
+               trackPoints.count >= 2,
+               let projection = nearestProjection(in: map, to: pointInMap),
+               projection.screenDistance <= hoverHitThreshold,
+               let info = routeHoverInfo(
+                    trackPoints: trackPoints,
+                    segmentStartIndex: projection.segmentStartIndex,
+                    fraction: projection.fraction
+               ) {
+                onPinDistance(info.distanceKm)
+                return
+            }
+
             onDeselectFocus?()
         }
 

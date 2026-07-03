@@ -63,6 +63,12 @@ struct CourseWorkspaceView: View {
                     Group {
                         if let range = rangeSelection {
                             RangeStatsInspectorView(trackPoints: pts, range: range)
+                        } else if let km = pinnedDistanceKm {
+                            PinnedPointInspectorView(
+                                trackPoints: pts,
+                                distanceKm: km,
+                                onClear: { pinnedDistanceKm = nil }
+                            )
                         } else {
                             CourseCueInspectorView(course: course, selectedCueID: selectedCueID)
                         }
@@ -103,14 +109,21 @@ struct CourseWorkspaceView: View {
                     onDeselectFocus: {
                         selectedCueIDs.removeAll()
                         rangeSelection = nil
+                        pinnedDistanceKm = nil
                     },
                     onSelectCue: {
                         selectedCueIDs = [$0]
                         rangeSelection = nil
+                        pinnedDistanceKm = nil
                     },
                     hoverInfo: $hoverInfo,
                     rangeSelection: rangeSelection,
-                    pinnedDistanceKm: pinnedDistanceKm
+                    pinnedDistanceKm: pinnedDistanceKm,
+                    onPinDistance: { km in
+                        selectedCueIDs.removeAll()
+                        rangeSelection = nil
+                        pinnedDistanceKm = km
+                    }
                 )
                 Divider()
                 ElevationChartView(
