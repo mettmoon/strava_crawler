@@ -179,6 +179,42 @@ private struct RouteMapRepresentable: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
+    private func trackSignature(for pts: [TrackPoint]) -> String {
+        guard let first = pts.first, let last = pts.last else { return "" }
+        return String(
+            format: "%d|%.6f|%.6f|%.6f|%.6f|%.6f",
+            pts.count, first.lat, first.lon, last.lat, last.lon, last.cumKm
+        )
+    }
+
+    static func dismantleNSView(_ map: MKMapView, coordinator: Coordinator) {
+        // NSClickGestureRecognizer 는 target(Coordinator) 를 강참조한다.
+        // 델리게이트와 콜백을 끊지 않으면 Coordinator/맵이 함께 살아남는다.
+        for gr in Array(map.gestureRecognizers) {
+            map.removeGestureRecognizer(gr)
+        }
+        map.delegate = nil
+        map.removeOverlays(map.overlays)
+        map.removeAnnotations(map.annotations)
+        if let hover = map as? HoverMapView {
+            hover.onRouteMouseMoved = nil
+            hover.onRouteMouseExited = nil
+        }
+        coordinator.mainPolyline = nil
+        coordinator.highlightPolyline = nil
+        coordinator.rangePolyline = nil
+        coordinator.endpointAnnotations = []
+        coordinator.cueAnnotations = []
+        coordinator.rangeEndpointAnnotations = []
+        coordinator.hoverAnnotation = nil
+        coordinator.pinnedAnnotation = nil
+        coordinator.onDeselectFocus = nil
+        coordinator.onSelectCue = nil
+        coordinator.onPinDistance = nil
+        coordinator.hoverInfo = nil
+        coordinator.removeTooltip()
+    }
+
     func makeNSView(context: Context) -> MKMapView {
         let map = HoverMapView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
         let coordinator = context.coordinator
@@ -220,7 +256,10 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             applyMapStyle(mapStyle, to: map)
             coordinator.appliedMapStyle = mapStyle
         }
-        let signature = trackPoints.map { "\($0.lat),\($0.lon),\($0.cumKm)" }
+        // count + 총거리 + 첫/끝 좌표만으로 트랙 변경을 감지한다.
+        // 이전에는 매번 트랙포인트 수만큼 문자열을 만들어 5k+ 포인트에서 큰
+        // 할당 비용이 발생했다.
+        let signature = trackSignature(for: trackPoints)
         coordinator.trackPoints = trackPoints
         coordinator.hoverInfo = $hoverInfo
         coordinator.onDeselectFocus = onDeselectFocus
@@ -233,6 +272,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             coordinator.mainPolyline = nil
             coordinator.builtPointSignature = signature
             coordinator.highlightSignature = []
+            coordinator.highlightPolyline = nil
             coordinator.endpointAnnotations = []
             coordinator.cueAnnotations = []
             coordinator.hoverAnnotation = nil
@@ -314,7 +354,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
 
     final class Coordinator: NSObject, MKMapViewDelegate {
         var appliedMapStyle: MapStyleOption?
-        var builtPointSignature: [String] = []
+        var builtPointSignature: String = ""
         var highlightSignature: [Double] = []
         var mainPolyline: MKPolyline?
         var highlightPolyline: HighlightPolyline?
@@ -593,6 +633,12 @@ private struct RouteMapRepresentable: NSViewRepresentable {
 
         func hideTooltip() {
             tooltipView?.isHidden = true
+        }
+
+        func removeTooltip() {
+            tooltipView?.removeFromSuperview()
+            tooltipView = nil
+            tooltipLabel = nil
         }
 
         private func nearestProjection(

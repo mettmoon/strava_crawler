@@ -5,7 +5,14 @@ actor CachingSegmentRepository: SegmentRepository {
     private static let currentSegmentsPath = "CourseBoy/segments"
     private static let legacySegmentsPath = "StravaTCX/segments"
 
+    /// LRU 상한. 이보다 많이 쌓이면 오래 안 쓴 것부터 축출한다.
+    /// 대부분의 편집 세션은 수십~수백 개 이내 세그먼트만 활발히 참조하므로
+    /// 512 는 넉넉한 워킹셋. 세그먼트 하나 대략 수~수십 KB.
+    private static let memoryCacheCapacity = 512
+
     private var memoryCache: [String: SegmentInfo] = [:]
+    /// LRU 순서. 뒤로 갈수록 최근 접근.
+    private var lruOrder: [String] = []
     private let storageDir: URL
     private let remoteService: any StravaRemoteService
 
@@ -19,14 +26,20 @@ actor CachingSegmentRepository: SegmentRepository {
     }
 
     func fetch(id: String) async throws -> SegmentInfo? {
-        if let hit = memoryCache[id] { return hit }
+        if let hit = memoryCache[id] {
+            touch(id)
+            return hit
+        }
         if let disk = loadFromDisk(id: id) {
-            memoryCache[id] = disk
+            insert(id: id, segment: disk)
             return disk
         }
         return nil
     }
 
+    /// 라이브러리 화면용 전량 조회.
+    /// 반환 결과 자체는 필요하지만 이걸 모두 메모리 캐시에 올리면 캐시가 파일 수만큼 무한 증가한다.
+    /// 그래서 이미 캐시에 있는 것만 갱신하고, 나머지는 반환값으로만 흘려보낸다.
     func fetchAll() async throws -> [SegmentInfo] {
         var result: [String: SegmentInfo] = memoryCache
         let fm = FileManager.default
@@ -37,7 +50,6 @@ actor CachingSegmentRepository: SegmentRepository {
             guard let data = try? Data(contentsOf: url),
                   let seg = try? JSONDecoder().decode(SegmentInfo.self, from: data) else { continue }
             result[id] = seg
-            memoryCache[id] = seg
         }
         return result.values.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     }
@@ -45,19 +57,38 @@ actor CachingSegmentRepository: SegmentRepository {
     func fetchOrDownload(id: String, credentials: Credentials) async throws -> SegmentInfo {
         if let cached = try await fetch(id: id) { return cached }
         let seg = try await remoteService.fetchSegment(id: id, credentials: credentials)
-        memoryCache[id] = seg
+        insert(id: id, segment: seg)
         saveToDisk(seg)
         return seg
     }
 
     func save(_ segment: SegmentInfo) async throws {
-        memoryCache[segment.segmentID] = segment
+        insert(id: segment.segmentID, segment: segment)
         saveToDisk(segment)
     }
 
     func invalidate(id: String) async throws {
         memoryCache.removeValue(forKey: id)
+        lruOrder.removeAll { $0 == id }
         try? FileManager.default.removeItem(at: storageFile(for: id))
+    }
+
+    // MARK: - LRU
+
+    private func touch(_ id: String) {
+        if let idx = lruOrder.firstIndex(of: id) {
+            lruOrder.remove(at: idx)
+        }
+        lruOrder.append(id)
+    }
+
+    private func insert(id: String, segment: SegmentInfo) {
+        memoryCache[id] = segment
+        touch(id)
+        while lruOrder.count > Self.memoryCacheCapacity {
+            let evict = lruOrder.removeFirst()
+            memoryCache.removeValue(forKey: evict)
+        }
     }
 
     // MARK: - 디스크 저장

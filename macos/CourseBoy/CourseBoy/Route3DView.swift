@@ -265,6 +265,23 @@ struct SceneKitRouteView: NSViewRepresentable {
         }
     }
 
+    /// 뷰 해제 시 씬을 완전히 비워 SceneKit 내부에 남는 노드/텍스처 참조를 끊는다.
+    static func dismantleNSView(_ view: SCNView, coordinator: Coordinator) {
+        view.scene?.rootNode.enumerateChildNodes { node, _ in
+            node.geometry?.materials.forEach { $0.diffuse.contents = nil }
+            node.geometry = nil
+            node.light = nil
+            node.removeFromParentNode()
+        }
+        view.scene = nil
+        view.pointOfView = nil
+        if let keyView = view as? KeyResponderSCNView {
+            keyView.onPreset = { _ in }
+            keyView.onReset  = {}
+        }
+        coordinator.cachedScene = nil
+    }
+
     // MARK: - 씬 전체 재구성 (trackPoints / exaggeration / pathWidth 변경 시에만)
 
     private func rebuildScene(view: SCNView, context: Context) {
@@ -277,6 +294,16 @@ struct SceneKitRouteView: NSViewRepresentable {
         coordinator.builtPointSignature = trackPoints.map(\.cumKm)
         coordinator.builtExaggeration = exaggeration
         coordinator.builtHalfWidth = Float(pathWidth)
+
+        // 이전 씬의 노드/geometry/material 을 명시적으로 정리한다.
+        // scene = 로 교체만 하면 SceneKit 내부 참조로 인해 노드가 남아 VRAM 이 누적된다.
+        if let oldScene = view.scene {
+            oldScene.rootNode.enumerateChildNodes { node, _ in
+                node.geometry?.materials.forEach { $0.diffuse.contents = nil }
+                node.geometry = nil
+                node.removeFromParentNode()
+            }
+        }
 
         let scene = SCNScene()
         scene.rootNode.addChildNode(SCNNode(geometry: result.wallGeometry))
@@ -441,7 +468,7 @@ struct SceneKitRouteView: NSViewRepresentable {
     private func groundGrid(size: Float) -> SCNNode {
         let plane = SCNPlane(width: CGFloat(size), height: CGFloat(size))
         let mat = SCNMaterial()
-        mat.diffuse.contents = gridImage(size: 512, cells: 20)
+        mat.diffuse.contents = Self.sharedGridImage
         mat.isDoubleSided = true
         mat.lightingModel = .constant
         mat.transparency = 0.6
@@ -453,7 +480,11 @@ struct SceneKitRouteView: NSViewRepresentable {
         return node
     }
 
-    private func gridImage(size: Int, cells: Int) -> NSImage {
+    // rebuildScene 마다 새 NSImage 를 만들면 텍스처가 GPU 에 누적된다.
+    // 격자 이미지는 파라미터 불변이라 프로세스 수명 동안 공유해도 안전.
+    private static let sharedGridImage: NSImage = makeGridImage(size: 512, cells: 20)
+
+    private static func makeGridImage(size: Int, cells: Int) -> NSImage {
         let img = NSImage(size: NSSize(width: size, height: size))
         img.lockFocus()
         NSColor(white: 0.25, alpha: 1).setFill()

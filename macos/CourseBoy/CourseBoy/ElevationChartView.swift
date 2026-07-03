@@ -26,6 +26,43 @@ struct ElevationChartView: View {
     @State private var chartBodyHeight: CGFloat = 120
     @State private var showCustomPopover = false
 
+    /// Canvas 매 프레임 elevPts/Path 재계산을 피하기 위한 캐시.
+    /// SwiftUI View struct 는 매번 재생성되지만, @State 로 참조 타입을 들고 있으면
+    /// 뷰 인스턴스 수명 동안 값이 유지된다.
+    @State private var elevationCache = ElevationCache()
+
+    private final class ElevationCache {
+        var signature: String = ""
+        /// 정규화(0~1) 좌표. size, eleRange 가 바뀌어도 signature 는 유지되므로
+        /// 실제 그리기 시 size 로 곱해서 재사용한다.
+        var normalized: [CGPoint] = []
+    }
+
+    private func normalizedElevationPoints(minEle: Double, eleSpan: Double) -> [CGPoint] {
+        // trackPoints.count + 처음/끝 좌표 + eleRange 로 시그니처.
+        let sig = String(
+            format: "%d|%.4f|%.4f|%.2f|%.2f",
+            trackPoints.count,
+            trackPoints.first?.cumKm ?? 0,
+            trackPoints.last?.cumKm ?? 0,
+            minEle, eleSpan
+        )
+        if elevationCache.signature == sig {
+            return elevationCache.normalized
+        }
+        var result: [CGPoint] = []
+        result.reserveCapacity(trackPoints.count)
+        for tp in trackPoints {
+            guard let e = tp.ele, totalKm > 0 else { continue }
+            let nx = tp.cumKm / totalKm
+            let ny = (e - minEle) / eleSpan
+            result.append(CGPoint(x: nx, y: ny))
+        }
+        elevationCache.normalized = result
+        elevationCache.signature = sig
+        return result
+    }
+
     private let rowHeight: CGFloat = 16
     private let rowPad: CGFloat = 4
     private let minPixelsPerKm: CGFloat = 40
@@ -307,16 +344,24 @@ struct ElevationChartView: View {
         }
 
         // ── 고도 채우기 ────────────────────────────────────────
-        let elevPts = trackPoints.compactMap { tp -> CGPoint? in
-            guard let e = tp.ele else { return nil }
-            return CGPoint(x: xPos(tp.cumKm), y: yPos(e))
+        // 정규화된 좌표(0~1)를 캐시하고 매 프레임 size 로만 곱한다.
+        // hover 등으로 chart 가 60fps 재렌더될 때 5k+ 포인트를 매번 compactMap 하는
+        // 비용을 없앤다.
+        let normalized = normalizedElevationPoints(minEle: minEle, eleSpan: eleSpan)
+        guard normalized.count >= 2 else { return }
+        let vScale = bodyH - vPad * 2
+        func denormalize(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: p.x * size.width, y: bodyBot - vPad - p.y * vScale)
         }
-        guard elevPts.count >= 2 else { return }
+        let firstPt = denormalize(normalized[0])
+        let lastPt = denormalize(normalized.last!)
 
         var fillPath = Path()
-        fillPath.move(to: CGPoint(x: elevPts[0].x, y: bodyBot))
-        elevPts.forEach { fillPath.addLine(to: $0) }
-        fillPath.addLine(to: CGPoint(x: elevPts.last!.x, y: bodyBot))
+        fillPath.move(to: CGPoint(x: firstPt.x, y: bodyBot))
+        for p in normalized {
+            fillPath.addLine(to: denormalize(p))
+        }
+        fillPath.addLine(to: CGPoint(x: lastPt.x, y: bodyBot))
         fillPath.closeSubpath()
 
         ctx.fill(fillPath, with: .linearGradient(
@@ -326,8 +371,10 @@ struct ElevationChartView: View {
         ))
 
         var linePath = Path()
-        linePath.move(to: elevPts[0])
-        elevPts.dropFirst().forEach { linePath.addLine(to: $0) }
+        linePath.move(to: firstPt)
+        for i in 1..<normalized.count {
+            linePath.addLine(to: denormalize(normalized[i]))
+        }
         ctx.stroke(linePath, with: .color(.orange),
                    style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
 
@@ -672,13 +719,21 @@ struct ElevationChartView: View {
 
     private func nearestIndex(to km: Double) -> Int? {
         guard !trackPoints.isEmpty else { return nil }
-        var best = 0
-        var bestDist = Double.infinity
-        for (i, tp) in trackPoints.enumerated() {
-            let d = abs(tp.cumKm - km)
-            if d < bestDist { bestDist = d; best = i }
+        // trackPoints 는 cumKm 오름차순이므로 이진 탐색으로 최근접 두 점을
+        // 찾고 그 중 가까운 쪽을 반환한다.
+        var lo = 0
+        var hi = trackPoints.count - 1
+        while lo + 1 < hi {
+            let mid = (lo + hi) / 2
+            if trackPoints[mid].cumKm <= km {
+                lo = mid
+            } else {
+                hi = mid
+            }
         }
-        return best
+        let dLo = abs(trackPoints[lo].cumKm - km)
+        let dHi = abs(trackPoints[hi].cumKm - km)
+        return dLo <= dHi ? lo : hi
     }
 
     // MARK: - 드래그 구간 선택

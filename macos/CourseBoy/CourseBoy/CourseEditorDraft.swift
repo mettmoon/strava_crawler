@@ -47,15 +47,28 @@ final class CourseEditorDraft {
         }
     }
 
+    /// allTrackPoints 캐시. trackSegments 의 identity(개수+각 구간 길이+첫/끝 좌표)로 무효화.
+    /// @ObservationIgnored 로 두어 캐시 갱신이 SwiftUI 재렌더링을 유발하지 않게 한다.
+    @ObservationIgnored private var _allTrackPointsCache: [TrackPoint] = []
+    @ObservationIgnored private var _allTrackPointsSignature: String = "invalid"
+
     /// 전체 트랙포인트 (모든 구간 이어붙임, 구간 이음새 중복 제거 후 cumKm 재계산).
     /// `CourseRecord.allTrackPoints`와 동일한 규칙.
+    ///
+    /// 매 SwiftUI body 평가마다 재계산되면 5k+ 포인트에서 심각한 낭비.
+    /// trackSegments 시그니처가 바뀔 때만 재계산한다.
     var allTrackPoints: [TrackPoint] {
+        let sig = Self.trackSegmentsSignature(trackSegments)
+        if sig == _allTrackPointsSignature {
+            return _allTrackPointsCache
+        }
         var raw: [TrackPointCodable] = []
         for (segIdx, seg) in trackSegments.enumerated() {
             let slice = segIdx == 0 ? seg : Array(seg.dropFirst())
             raw.append(contentsOf: slice)
         }
         var result: [TrackPoint] = []
+        result.reserveCapacity(raw.count)
         var cumKm: Double = 0
         for (i, tp) in raw.enumerated() {
             if i > 0 {
@@ -64,7 +77,28 @@ final class CourseEditorDraft {
             }
             result.append(TrackPoint(lat: tp.lat, lon: tp.lon, ele: tp.ele, time: nil, cumKm: cumKm))
         }
+        _allTrackPointsCache = result
+        _allTrackPointsSignature = sig
         return result
+    }
+
+    /// trackSegments 의 구조적 시그니처. 전체 좌표 해시 대신 count/양끝 좌표로 근사.
+    /// 편집 API 들이 항상 trackSegments 를 통째로 교체하므로 충돌 가능성이 낮다.
+    private static func trackSegmentsSignature(_ segs: [[TrackPointCodable]]) -> String {
+        if segs.isEmpty { return "empty" }
+        var parts: [String] = []
+        parts.reserveCapacity(segs.count)
+        for seg in segs {
+            guard let first = seg.first, let last = seg.last else {
+                parts.append("0")
+                continue
+            }
+            parts.append(String(
+                format: "%d:%.6f,%.6f→%.6f,%.6f",
+                seg.count, first.lat, first.lon, last.lat, last.lon
+            ))
+        }
+        return parts.joined(separator: "|")
     }
 
     /// 현재 draft 상태를 문서 모델에 반영한다.

@@ -1743,17 +1743,10 @@ struct CourseEditMapView: NSViewRepresentable {
         }
 
         private func draftAllTrackPoints() -> [TrackPoint] {
-            var raw: [TrackPointCodable] = []
-            for (i, seg) in draft.trackSegments.enumerated() {
-                raw.append(contentsOf: i == 0 ? seg : Array(seg.dropFirst()))
-            }
-            var result: [TrackPoint] = []
-            var cumKm: Double = 0
-            for (i, tp) in raw.enumerated() {
-                if i > 0 { cumKm += Geo.haversineKm(raw[i-1].lat, raw[i-1].lon, tp.lat, tp.lon) }
-                result.append(TrackPoint(lat: tp.lat, lon: tp.lon, ele: tp.ele, time: nil, cumKm: cumKm))
-            }
-            return result
+            // CourseEditorDraft.allTrackPoints 가 trackSegments 시그니처로 캐시한다.
+            // 여기서 별도 계산하면 매 hover/click 마다 5k+ 포인트를 재순회하게 되므로
+            // draft 캐시를 그대로 활용한다.
+            draft.allTrackPoints
         }
 
         private func showDeleteMenu(for ann: RoutePointAnnotation, in map: MKMapView) {
