@@ -102,6 +102,28 @@ struct CourseProfileSelection: Equatable {
     }
 }
 
+enum CourseTrackEndpointKind {
+    case start
+    case end
+
+    var title: String {
+        switch self {
+        case .start: return "시작점"
+        case .end: return "종료점"
+        }
+    }
+}
+
+extension CourseProfileSelection {
+    func endpointKind(in course: LoadedCourse) -> CourseTrackEndpointKind? {
+        let count = course.trackPoints.count
+        guard count > 0 else { return nil }
+        if trackIndex == 0 { return .start }
+        if count > 1, trackIndex == count - 1 { return .end }
+        return nil
+    }
+}
+
 enum Geo {
     static let earthRadiusKm = 6371.0088
 

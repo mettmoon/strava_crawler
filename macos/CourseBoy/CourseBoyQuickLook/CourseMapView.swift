@@ -42,6 +42,7 @@ struct CourseMapView: UIViewRepresentable {
         var selectedProfilePoint: Binding<CourseProfileSelection?>
         private var loadedCourseID: UUID?
         private var cueAnnotations: [CourseCueAnnotation] = []
+        private var endpointAnnotations: [CourseEndpointAnnotation] = []
         private var profileSelectionAnnotation: CourseProfileSelectionAnnotation?
         private let locationManager = CLLocationManager()
         private weak var pendingLocationMap: MKMapView?
@@ -64,6 +65,7 @@ struct CourseMapView: UIViewRepresentable {
             guard loadedCourseID != course.id else { return }
             loadedCourseID = course.id
             cueAnnotations = []
+            endpointAnnotations = []
             profileSelectionAnnotation = nil
 
             map.removeOverlays(map.overlays)
@@ -85,10 +87,18 @@ struct CourseMapView: UIViewRepresentable {
             }
 
             if let first = course.trackPoints.first {
-                map.addAnnotation(CourseEndpointAnnotation(kind: .start, point: first))
+                let annotation = CourseEndpointAnnotation(kind: .start, point: first, trackIndex: 0)
+                endpointAnnotations.append(annotation)
+                map.addAnnotation(annotation)
             }
-            if let last = course.trackPoints.last {
-                map.addAnnotation(CourseEndpointAnnotation(kind: .end, point: last))
+            if course.trackPoints.count > 1, let last = course.trackPoints.last {
+                let annotation = CourseEndpointAnnotation(
+                    kind: .end,
+                    point: last,
+                    trackIndex: course.trackPoints.count - 1
+                )
+                endpointAnnotations.append(annotation)
+                map.addAnnotation(annotation)
             }
 
             cueAnnotations = course.sortedCuePoints.map(CourseCueAnnotation.init)
@@ -135,8 +145,26 @@ struct CourseMapView: UIViewRepresentable {
                     map.removeAnnotation(profileSelectionAnnotation)
                     self.profileSelectionAnnotation = nil
                 }
+                deselectEndpointAnnotations(in: map)
                 return
             }
+
+            if let endpoint = endpointAnnotation(matching: selection) {
+                if let profileSelectionAnnotation {
+                    map.removeAnnotation(profileSelectionAnnotation)
+                    self.profileSelectionAnnotation = nil
+                }
+                if !map.selectedAnnotations.contains(where: { ($0 as? CourseEndpointAnnotation) === endpoint }) {
+                    deselectEndpointAnnotations(in: map, except: endpoint)
+                    map.selectAnnotation(endpoint, animated: true)
+                }
+                if selectedCueID.wrappedValue == nil {
+                    map.setCenter(endpoint.coordinate, animated: true)
+                }
+                return
+            }
+
+            deselectEndpointAnnotations(in: map)
 
             if let annotation = profileSelectionAnnotation {
                 annotation.update(selection: selection)
@@ -148,6 +176,17 @@ struct CourseMapView: UIViewRepresentable {
 
             if selectedCueID.wrappedValue == nil {
                 map.setCenter(selection.coordinate, animated: true)
+            }
+        }
+
+        private func endpointAnnotation(matching selection: CourseProfileSelection) -> CourseEndpointAnnotation? {
+            endpointAnnotations.first { $0.trackIndex == selection.trackIndex }
+        }
+
+        private func deselectEndpointAnnotations(in map: MKMapView, except keep: CourseEndpointAnnotation? = nil) {
+            for annotation in map.selectedAnnotations {
+                guard let endpoint = annotation as? CourseEndpointAnnotation, endpoint !== keep else { continue }
+                map.deselectAnnotation(endpoint, animated: true)
             }
         }
 
@@ -209,15 +248,35 @@ struct CourseMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
-            guard let cue = view.annotation as? CourseCueAnnotation else { return }
-            selectedProfilePoint.wrappedValue = nil
-            selectedCueID.wrappedValue = cue.cue.id
+            if let cue = view.annotation as? CourseCueAnnotation {
+                selectedProfilePoint.wrappedValue = nil
+                selectedCueID.wrappedValue = cue.cue.id
+                return
+            }
+            if let endpoint = view.annotation as? CourseEndpointAnnotation {
+                selectedCueID.wrappedValue = nil
+                let selection = CourseProfileSelection(
+                    trackIndex: endpoint.trackIndex,
+                    point: endpoint.point
+                )
+                if selectedProfilePoint.wrappedValue != selection {
+                    selectedProfilePoint.wrappedValue = selection
+                }
+                return
+            }
         }
 
         func mapView(_ mapView: MKMapView, didDeselect view: MKAnnotationView) {
-            guard view.annotation is CourseCueAnnotation else { return }
-            if mapView.selectedAnnotations.compactMap({ $0 as? CourseCueAnnotation }).isEmpty {
-                selectedCueID.wrappedValue = nil
+            if view.annotation is CourseCueAnnotation {
+                if mapView.selectedAnnotations.compactMap({ $0 as? CourseCueAnnotation }).isEmpty {
+                    selectedCueID.wrappedValue = nil
+                }
+                return
+            }
+            if let endpoint = view.annotation as? CourseEndpointAnnotation,
+               selectedProfilePoint.wrappedValue?.trackIndex == endpoint.trackIndex {
+                selectedProfilePoint.wrappedValue = nil
+                return
             }
         }
 
@@ -396,11 +455,18 @@ private final class CourseEndpointAnnotation: NSObject, MKAnnotation {
     }
 
     let kind: Kind
+    let point: TrackPoint
+    let trackIndex: Int
     let coordinate: CLLocationCoordinate2D
     let title: String?
+    var subtitle: String? {
+        "\(formatRouteDistance(point.cumKm)) · \(formatRouteElevation(point.ele))"
+    }
 
-    init(kind: Kind, point: TrackPoint) {
+    init(kind: Kind, point: TrackPoint, trackIndex: Int) {
         self.kind = kind
+        self.point = point
+        self.trackIndex = trackIndex
         self.coordinate = point.coordinate
         self.title = kind == .start ? "시작점" : "종료점"
     }
