@@ -249,6 +249,18 @@ struct ElevationProfileView: View {
             availableLength: chartRect.width,
             targetSpacing: ElevationProfileLayout.majorSpacing
         )
+        let mMinor = mStep / 5
+
+        var elevationMinor = ceil(minEle / mMinor) * mMinor
+        while elevationMinor < maxEle - 0.0001 {
+            let ratio = CGFloat((elevationMinor - minEle) / elevationRange)
+            let x = chartRect.minX + ratio * chartRect.width
+            var path = Path()
+            path.move(to: CGPoint(x: x, y: chartRect.minY))
+            path.addLine(to: CGPoint(x: x, y: chartRect.maxY))
+            context.stroke(path, with: .color(.secondary.opacity(0.06)), lineWidth: 0.5)
+            elevationMinor += mMinor
+        }
 
         var elevation = ceil(minEle / mStep) * mStep
         while elevation < maxEle - 0.0001 {
@@ -257,7 +269,7 @@ struct ElevationProfileView: View {
             var path = Path()
             path.move(to: CGPoint(x: x, y: chartRect.minY))
             path.addLine(to: CGPoint(x: x, y: chartRect.maxY))
-            context.stroke(path, with: .color(.secondary.opacity(0.14)), lineWidth: 0.5)
+            context.stroke(path, with: .color(.secondary.opacity(0.20)), lineWidth: 0.5)
             elevation += mStep
         }
 
@@ -267,6 +279,17 @@ struct ElevationProfileView: View {
             availableLength: chartRect.height,
             targetSpacing: ElevationProfileLayout.majorSpacing
         )
+        let kmMinor = kmStep / 5
+
+        var kmMinorValue = kmMinor
+        while kmMinorValue < totalKmSafe - kmMinor * 0.001 {
+            let y = chartRect.minY + CGFloat(kmMinorValue / totalKmSafe) * chartRect.height
+            var line = Path()
+            line.move(to: CGPoint(x: chartRect.minX, y: y))
+            line.addLine(to: CGPoint(x: chartRect.maxX, y: y))
+            context.stroke(line, with: .color(.secondary.opacity(0.05)), lineWidth: 0.5)
+            kmMinorValue += kmMinor
+        }
 
         var km = 0.0
         while km <= totalKmSafe + kmStep * 0.001 {
@@ -274,7 +297,7 @@ struct ElevationProfileView: View {
             var line = Path()
             line.move(to: CGPoint(x: chartRect.minX, y: y))
             line.addLine(to: CGPoint(x: chartRect.maxX, y: y))
-            context.stroke(line, with: .color(.secondary.opacity(0.10)), lineWidth: 0.5)
+            context.stroke(line, with: .color(.secondary.opacity(0.16)), lineWidth: 0.5)
 
             var tick = Path()
             tick.move(to: CGPoint(x: chartRect.minX - 5, y: y))
