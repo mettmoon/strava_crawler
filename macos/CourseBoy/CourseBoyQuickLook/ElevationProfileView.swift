@@ -294,24 +294,52 @@ struct ElevationProfileView: View {
             kmMinorValue += kmMinor
         }
 
+        let pxPerKmStep = chartRect.height * CGFloat(kmStep / totalKmSafe)
+        let endPxThreshold: CGFloat = 12
+
         var km = 0.0
         while km <= totalKmSafe + kmStep * 0.001 {
-            let y = chartRect.minY + CGFloat(km / totalKmSafe) * chartRect.height
-            var line = Path()
-            line.move(to: CGPoint(x: chartRect.minX, y: y))
-            line.addLine(to: CGPoint(x: chartRect.maxX, y: y))
-            context.stroke(line, with: .color(.secondary.opacity(0.16)), lineWidth: 0.5)
+            let distanceToEndPx = CGFloat((totalKmSafe - km) / totalKmSafe) * chartRect.height
+            let overlapsEnd = km < totalKmSafe - 0.0001 && distanceToEndPx < endPxThreshold
 
+            let y = chartRect.minY + CGFloat(km / totalKmSafe) * chartRect.height
+
+            if km > 0.0001 {
+                var line = Path()
+                line.move(to: CGPoint(x: chartRect.minX, y: y))
+                line.addLine(to: CGPoint(x: chartRect.maxX, y: y))
+                context.stroke(line, with: .color(.secondary.opacity(0.16)), lineWidth: 0.5)
+
+                var tick = Path()
+                tick.move(to: CGPoint(x: chartRect.minX - 5, y: y))
+                tick.addLine(to: CGPoint(x: chartRect.minX, y: y))
+                context.stroke(tick, with: .color(.secondary.opacity(0.4)), lineWidth: 0.5)
+            }
+
+            if !overlapsEnd {
+                context.draw(
+                    Text(formatTick(km, step: kmStep)).font(.caption2).foregroundStyle(.secondary),
+                    at: CGPoint(x: chartRect.minX - 8, y: y),
+                    anchor: .trailing
+                )
+            }
+            km += kmStep
+        }
+
+        let stepsFit = abs(totalKmSafe / kmStep - (totalKmSafe / kmStep).rounded()) < 0.02
+        if !stepsFit && pxPerKmStep > 0 {
+            let y = chartRect.minY + chartRect.height
             var tick = Path()
             tick.move(to: CGPoint(x: chartRect.minX - 5, y: y))
             tick.addLine(to: CGPoint(x: chartRect.minX, y: y))
-            context.stroke(tick, with: .color(.secondary.opacity(0.4)), lineWidth: 0.5)
+            context.stroke(tick, with: .color(.secondary.opacity(0.55)), lineWidth: 0.5)
             context.draw(
-                Text(formatTick(km, step: kmStep)).font(.caption2).foregroundStyle(.secondary),
+                Text(formatTick(totalKmSafe, step: kmStep))
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.primary),
                 at: CGPoint(x: chartRect.minX - 8, y: y),
                 anchor: .trailing
             )
-            km += kmStep
         }
 
     }
