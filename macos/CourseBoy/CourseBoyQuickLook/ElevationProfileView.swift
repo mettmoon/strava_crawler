@@ -709,21 +709,34 @@ struct ElevationProfileHeaderView: View {
             return chartRect.minX + ratio * chartRect.width
         }
 
-        var elevation = ceil(bounds.minimum / 100) * 100
+        let mStep = ElevationProfileView.niceStep(
+            span: max(0.0001, bounds.maximum - bounds.minimum),
+            availableLength: chartRect.width,
+            targetSpacing: ElevationProfileLayout.majorSpacing
+        )
+
+        let pxPerStep = chartRect.width * CGFloat(mStep / max(0.0001, bounds.maximum - bounds.minimum))
+        let labelStride = pxPerStep < ElevationProfileLayout.headerLabelMinSpacing ? 2 : 1
+
+        var elevation = ceil(bounds.minimum / mStep) * mStep
         if elevation <= bounds.minimum + 0.001 {
-            elevation += 100
+            elevation += mStep
         }
 
+        var stepIndex = 0
         while elevation < bounds.maximum - 0.001 {
-            let x = xPosition(elevation)
-            drawElevationLabel(
-                formatRouteElevation(elevation),
-                context: context,
-                at: CGPoint(x: x, y: 6),
-                anchor: .top,
-                emphasized: false
-            )
-            elevation += 100
+            if stepIndex % labelStride == 0 {
+                let x = xPosition(elevation)
+                drawElevationLabel(
+                    formatRouteElevation(elevation),
+                    context: context,
+                    at: CGPoint(x: x, y: 6),
+                    anchor: .top,
+                    emphasized: false
+                )
+            }
+            elevation += mStep
+            stepIndex += 1
         }
 
         drawElevationLabel(
@@ -774,4 +787,5 @@ private enum ElevationProfileLayout {
     static let headerHeight: CGFloat = 28
     static let cueLabelGuideGap: CGFloat = 6
     static let majorSpacing: CGFloat = 44
+    static let headerLabelMinSpacing: CGFloat = 32
 }
