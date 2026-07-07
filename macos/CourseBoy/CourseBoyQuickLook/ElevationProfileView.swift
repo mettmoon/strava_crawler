@@ -13,8 +13,8 @@ struct ElevationProfileScale: Equatable {
 }
 
 enum ElevationProfileMetrics {
-    static let referenceKmPerViewport: Double = 20
-    static let referenceElevationPerViewport: Double = 500
+    static let referencePtPerKm: CGFloat = 30
+    static let referencePtPer100m: CGFloat = 50
 }
 
 struct ElevationProfileView: View {
@@ -56,8 +56,8 @@ struct ElevationProfileView: View {
         let dFactor = max(ElevationProfileScale.minimumFactor, scale.distanceFactor)
         let eFactor = max(ElevationProfileScale.minimumFactor, scale.elevationFactor)
 
-        let ptPerKm = viewportChartHeight / CGFloat(ElevationProfileMetrics.referenceKmPerViewport) * dFactor
-        let ptPer100m = viewportChartWidth / CGFloat(ElevationProfileMetrics.referenceElevationPerViewport / 100) * eFactor
+        let ptPerKm = ElevationProfileMetrics.referencePtPerKm * dFactor
+        let ptPer100m = ElevationProfileMetrics.referencePtPer100m * eFactor
 
         let chartHeight = max(viewportChartHeight, CGFloat(totalKm) * ptPerKm)
         let chartWidth = max(viewportChartWidth, CGFloat(elevationRange / 100) * ptPer100m)
@@ -88,14 +88,26 @@ struct ElevationProfileView: View {
         availableWidth: CGFloat,
         availableHeight: CGFloat
     ) -> ElevationProfileScale {
+        let viewportChartWidth = max(
+            1,
+            availableWidth - ElevationProfileLayout.leftPad - ElevationProfileLayout.rightPad
+        )
+        let viewportChartHeight = max(
+            1,
+            availableHeight - ElevationProfileLayout.topPad - ElevationProfileLayout.bottomPad
+        )
+
         let totalKm = max(0, trackPoints.last?.cumKm ?? 0)
         let elevationRange = elevationRangeMeters(trackPoints: trackPoints) ?? 0
 
-        let distanceFactor = totalKm > 0
-            ? CGFloat(ElevationProfileMetrics.referenceKmPerViewport / totalKm)
+        let neededHeight = CGFloat(totalKm) * ElevationProfileMetrics.referencePtPerKm
+        let neededWidth = CGFloat(elevationRange / 100) * ElevationProfileMetrics.referencePtPer100m
+
+        let distanceFactor = neededHeight > 0
+            ? viewportChartHeight / neededHeight
             : ElevationProfileScale.standardFactor
-        let elevationFactor = elevationRange > 0
-            ? CGFloat(ElevationProfileMetrics.referenceElevationPerViewport / elevationRange)
+        let elevationFactor = neededWidth > 0
+            ? viewportChartWidth / neededWidth
             : ElevationProfileScale.standardFactor
 
         return ElevationProfileScale(
