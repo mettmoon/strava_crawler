@@ -210,6 +210,7 @@ private struct CourseElevationTab: View {
             let profileSize = ElevationProfileView.preferredSize(
                 trackPoints: course.trackPoints,
                 availableWidth: viewportSize.width,
+                availableHeight: graphViewportHeight(in: viewportSize),
                 scale: profileScale
             )
             let viewportWidth = max(1, viewportSize.width)
@@ -466,7 +467,7 @@ private enum ElevationProfileScaleOption: Double, CaseIterable, Identifiable {
     var id: Double { rawValue }
 
     var factor: CGFloat {
-        CGFloat(rawValue) * ElevationProfileScale.standardFactor
+        CGFloat(rawValue)
     }
 
     var title: String {
