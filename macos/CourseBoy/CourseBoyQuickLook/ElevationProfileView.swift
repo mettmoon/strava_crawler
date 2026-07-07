@@ -243,20 +243,34 @@ struct ElevationProfileView: View {
         let border = Path(roundedRect: chartRect, cornerRadius: 4)
         context.stroke(border, with: .color(.secondary.opacity(0.18)), lineWidth: 1)
 
-        var elevation = ceil(minEle / 100) * 100
-        while elevation < maxEle {
-            let ratio = CGFloat((elevation - minEle) / (maxEle - minEle))
+        let elevationRange = max(0.0001, maxEle - minEle)
+        let mStep = ElevationProfileView.niceStep(
+            span: elevationRange,
+            availableLength: chartRect.width,
+            targetSpacing: ElevationProfileLayout.majorSpacing
+        )
+
+        var elevation = ceil(minEle / mStep) * mStep
+        while elevation < maxEle - 0.0001 {
+            let ratio = CGFloat((elevation - minEle) / elevationRange)
             let x = chartRect.minX + ratio * chartRect.width
             var path = Path()
             path.move(to: CGPoint(x: x, y: chartRect.minY))
             path.addLine(to: CGPoint(x: x, y: chartRect.maxY))
             context.stroke(path, with: .color(.secondary.opacity(0.14)), lineWidth: 0.5)
-            elevation += 100
+            elevation += mStep
         }
 
+        let totalKmSafe = max(0.0001, totalKm)
+        let kmStep = ElevationProfileView.niceStep(
+            span: totalKmSafe,
+            availableLength: chartRect.height,
+            targetSpacing: ElevationProfileLayout.majorSpacing
+        )
+
         var km = 0.0
-        while km <= totalKm + 0.001 {
-            let y = chartRect.minY + CGFloat(km / totalKm) * chartRect.height
+        while km <= totalKmSafe + kmStep * 0.001 {
+            let y = chartRect.minY + CGFloat(km / totalKmSafe) * chartRect.height
             var line = Path()
             line.move(to: CGPoint(x: chartRect.minX, y: y))
             line.addLine(to: CGPoint(x: chartRect.maxX, y: y))
@@ -267,13 +281,35 @@ struct ElevationProfileView: View {
             tick.addLine(to: CGPoint(x: chartRect.minX, y: y))
             context.stroke(tick, with: .color(.secondary.opacity(0.4)), lineWidth: 0.5)
             context.draw(
-                Text(formatTick(km)).font(.caption2).foregroundStyle(.secondary),
+                Text(formatTick(km, step: kmStep)).font(.caption2).foregroundStyle(.secondary),
                 at: CGPoint(x: chartRect.minX - 8, y: y),
                 anchor: .trailing
             )
-            km += 1
+            km += kmStep
         }
 
+    }
+
+    static func niceStep(
+        span: Double,
+        availableLength: CGFloat,
+        targetSpacing: CGFloat
+    ) -> Double {
+        let length = max(1, Double(availableLength))
+        let spacing = max(1, Double(targetSpacing))
+        let rawStep = span * spacing / length
+        guard rawStep > 0, rawStep.isFinite else { return span }
+        let exponent = floor(log10(rawStep))
+        let base = pow(10, exponent)
+        let n = rawStep / base
+        let niceMultiplier: Double
+        switch n {
+        case ..<1.5: niceMultiplier = 1
+        case ..<3:   niceMultiplier = 2
+        case ..<7:   niceMultiplier = 5
+        default:     niceMultiplier = 10
+        }
+        return niceMultiplier * base
     }
 
     private func cueLabelPlacements(
@@ -566,11 +602,16 @@ struct ElevationProfileView: View {
         return "\(trimmed[..<end])..."
     }
 
-    private func formatTick(_ km: Double) -> String {
-        if km < 1 {
-            return String(format: "%.1f", km)
+    private func formatTick(_ km: Double, step: Double) -> String {
+        let fractionDigits: Int
+        if step >= 1 {
+            fractionDigits = 0
+        } else if step >= 0.1 {
+            fractionDigits = 1
+        } else {
+            fractionDigits = 2
         }
-        return String(format: "%.0f", km)
+        return String(format: "%.\(fractionDigits)f", km)
     }
 
     static func elevationBounds(trackPoints: [TrackPoint]) -> (minimum: Double, maximum: Double)? {
@@ -688,4 +729,5 @@ private enum ElevationProfileLayout {
     static let emptyHeight: CGFloat = 160
     static let headerHeight: CGFloat = 28
     static let cueLabelGuideGap: CGFloat = 6
+    static let majorSpacing: CGFloat = 44
 }
