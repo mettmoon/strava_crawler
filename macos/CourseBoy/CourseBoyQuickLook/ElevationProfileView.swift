@@ -139,7 +139,10 @@ struct ElevationProfileView: View {
             height: max(1, size.height - ElevationProfileLayout.topPad - ElevationProfileLayout.bottomPad)
         )
 
-        guard let bounds = ElevationProfileView.elevationBounds(trackPoints: trackPoints) else { return }
+        guard let bounds = ElevationProfileView.elevationBounds(
+            trackPoints: trackPoints,
+            chartWidth: chartRect.width
+        ) else { return }
         let minEle = bounds.minimum
         let maxEle = bounds.maximum
 
@@ -644,6 +647,22 @@ struct ElevationProfileView: View {
         return (minimum: 0, maximum: roundedMaximum)
     }
 
+    static func elevationBounds(
+        trackPoints: [TrackPoint],
+        chartWidth: CGFloat
+    ) -> (minimum: Double, maximum: Double)? {
+        guard let coarse = elevationBounds(trackPoints: trackPoints) else { return nil }
+        let mStep = niceStep(
+            span: max(0.0001, coarse.maximum - coarse.minimum),
+            availableLength: chartWidth,
+            targetSpacing: ElevationProfileLayout.majorSpacing
+        )
+        let elevations = trackPoints.compactMap(\.ele)
+        let rawMax = max(0, elevations.max() ?? 0)
+        let steppedMax = max(mStep, ceil(rawMax / mStep) * mStep)
+        return (minimum: 0, maximum: steppedMax)
+    }
+
     private static func elevationRangeMeters(trackPoints: [TrackPoint]) -> Double? {
         guard let bounds = elevationBounds(trackPoints: trackPoints) else { return nil }
         return bounds.maximum - bounds.minimum
@@ -674,14 +693,16 @@ struct ElevationProfileHeaderView: View {
     }
 
     private func drawHeader(context: GraphicsContext, size: CGSize) {
-        guard let bounds = ElevationProfileView.elevationBounds(trackPoints: trackPoints) else { return }
-
         let chartRect = CGRect(
             x: ElevationProfileLayout.leftPad,
             y: 0,
             width: max(1, contentWidth - ElevationProfileLayout.leftPad - ElevationProfileLayout.rightPad),
             height: size.height
         )
+        guard let bounds = ElevationProfileView.elevationBounds(
+            trackPoints: trackPoints,
+            chartWidth: chartRect.width
+        ) else { return }
 
         func xPosition(_ elevation: Double) -> CGFloat {
             let ratio = CGFloat((elevation - bounds.minimum) / (bounds.maximum - bounds.minimum))
