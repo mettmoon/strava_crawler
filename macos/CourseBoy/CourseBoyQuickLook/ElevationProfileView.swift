@@ -13,8 +13,8 @@ struct ElevationProfileScale: Equatable {
 }
 
 enum ElevationProfileMetrics {
-    static let referencePtPerKm: CGFloat = 30
     static let referencePtPer100m: CGFloat = 50
+    static let referencePtPerKm: CGFloat = referencePtPer100m
 }
 
 struct ElevationProfileView: View {
