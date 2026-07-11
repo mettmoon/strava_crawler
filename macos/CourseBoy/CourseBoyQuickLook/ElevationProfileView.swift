@@ -3,18 +3,11 @@ import SwiftUI
 import UIKit
 #endif
 
-struct ElevationProfileScale: Equatable {
-    var distanceFactor: CGFloat
-    var elevationFactor: CGFloat
-
-    static let standardFactor: CGFloat = 1
-    static let minimumFactor: CGFloat = 0.01
-    static let standard = ElevationProfileScale(distanceFactor: standardFactor, elevationFactor: standardFactor)
-}
-
 enum ElevationProfileMetrics {
-    static let referencePtPer100m: CGFloat = 50
-    static let referencePtPerKm: CGFloat = referencePtPer100m
+    /// Chart density. 100m of elevation and 1km of distance each map to this many pt.
+    /// Adjust to rescale the entire profile proportionally.
+    static let ptPer100m: CGFloat = 50
+    static var ptPerKm: CGFloat { ptPer100m }
 }
 
 struct ElevationProfileView: View {
@@ -35,8 +28,7 @@ struct ElevationProfileView: View {
     static func preferredSize(
         trackPoints: [TrackPoint],
         availableWidth: CGFloat,
-        availableHeight: CGFloat,
-        scale: ElevationProfileScale
+        availableHeight: CGFloat
     ) -> CGSize {
         let availableWidth = max(1, availableWidth)
         let availableHeight = max(1, availableHeight)
@@ -53,14 +45,8 @@ struct ElevationProfileView: View {
         let totalKm = max(0, trackPoints.last?.cumKm ?? 0)
         let elevationRange = elevationRangeMeters(trackPoints: trackPoints) ?? 0
 
-        let dFactor = max(ElevationProfileScale.minimumFactor, scale.distanceFactor)
-        let eFactor = max(ElevationProfileScale.minimumFactor, scale.elevationFactor)
-
-        let ptPerKm = ElevationProfileMetrics.referencePtPerKm * dFactor
-        let ptPer100m = ElevationProfileMetrics.referencePtPer100m * eFactor
-
-        let chartHeight = max(viewportChartHeight, CGFloat(totalKm) * ptPerKm)
-        let chartWidth = max(viewportChartWidth, CGFloat(elevationRange / 100) * ptPer100m)
+        let chartHeight = max(viewportChartHeight, CGFloat(totalKm) * ElevationProfileMetrics.ptPerKm)
+        let chartWidth = max(viewportChartWidth, CGFloat(elevationRange / 100) * ElevationProfileMetrics.ptPer100m)
 
         return CGSize(
             width: chartWidth + ElevationProfileLayout.leftPad + ElevationProfileLayout.rightPad,
@@ -81,39 +67,6 @@ struct ElevationProfileView: View {
         let ratio = min(max(distanceKm / totalKm, 0), 1)
         let chartHeight = max(1, profileHeight - ElevationProfileLayout.topPad - ElevationProfileLayout.bottomPad)
         return ElevationProfileLayout.topPad + CGFloat(ratio) * chartHeight
-    }
-
-    static func fittingScale(
-        trackPoints: [TrackPoint],
-        availableWidth: CGFloat,
-        availableHeight: CGFloat
-    ) -> ElevationProfileScale {
-        let viewportChartWidth = max(
-            1,
-            availableWidth - ElevationProfileLayout.leftPad - ElevationProfileLayout.rightPad
-        )
-        let viewportChartHeight = max(
-            1,
-            availableHeight - ElevationProfileLayout.topPad - ElevationProfileLayout.bottomPad
-        )
-
-        let totalKm = max(0, trackPoints.last?.cumKm ?? 0)
-        let elevationRange = elevationRangeMeters(trackPoints: trackPoints) ?? 0
-
-        let neededHeight = CGFloat(totalKm) * ElevationProfileMetrics.referencePtPerKm
-        let neededWidth = CGFloat(elevationRange / 100) * ElevationProfileMetrics.referencePtPer100m
-
-        let distanceFactor = neededHeight > 0
-            ? viewportChartHeight / neededHeight
-            : ElevationProfileScale.standardFactor
-        let elevationFactor = neededWidth > 0
-            ? viewportChartWidth / neededWidth
-            : ElevationProfileScale.standardFactor
-
-        return ElevationProfileScale(
-            distanceFactor: min(1, max(ElevationProfileScale.minimumFactor, distanceFactor)),
-            elevationFactor: min(1, max(ElevationProfileScale.minimumFactor, elevationFactor))
-        )
     }
 
     var body: some View {
