@@ -73,6 +73,7 @@ public final class TCXCourse {
 
     public let originalData: Data
     public let trackPoints: [TrackPoint]
+    public let trackPointSections: [[TrackPoint]]
     public let courseName: String?
     public let coursePoints: [ParsedCoursePoint]
 
@@ -83,8 +84,10 @@ public final class TCXCourse {
             throw TCXError.noCourse
         }
         self.courseName = TCXCourse.firstElement(in: course, localName: "Name")?.stringValue
-        let pts = TCXCourse.parseTrackpoints(in: course)
+        let sections = TCXCourse.parseTrackpointSections(in: course)
+        let pts = TCXCourse.flatten(sections: sections)
         if pts.isEmpty { throw TCXError.noTrackpoints }
+        self.trackPointSections = sections
         self.trackPoints = pts
         self.coursePoints = TCXCourse.parseCoursePoints(in: course)
     }
@@ -176,7 +179,17 @@ public final class TCXCourse {
         trackPoints: [TrackPoint],
         cuePoints: [CuePointSpec]
     ) throws -> (data: Data, count: Int) {
-        guard !trackPoints.isEmpty else { throw TCXError.noTrackpoints }
+        try buildCourseData(title: title, tracks: [trackPoints], cuePoints: cuePoints)
+    }
+
+    /// 섹션별 Track을 보존하는 코스 TCX 생성.
+    public static func buildCourseData(
+        title: String,
+        tracks: [[TrackPoint]],
+        cuePoints: [CuePointSpec]
+    ) throws -> (data: Data, count: Int) {
+        let nonEmptyTracks = tracks.filter { !$0.isEmpty }
+        guard !nonEmptyTracks.isEmpty else { throw TCXError.noTrackpoints }
 
         let root = nsElement("TrainingCenterDatabase")
         root.addNamespace(XMLNode.namespace(withName: "xsi", stringValue: "http://www.w3.org/2001/XMLSchema-instance") as! XMLNode)
@@ -189,23 +202,25 @@ public final class TCXCourse {
         let course = nsElement("Course")
         course.addChild(nsElement("Name", title.isEmpty ? "Course" : title))
 
-        let track = nsElement("Track")
-        for point in trackPoints {
-            let tp = nsElement("Trackpoint")
-            if let time = point.time, !time.isEmpty {
-                tp.addChild(nsElement("Time", time))
+        for points in nonEmptyTracks {
+            let track = nsElement("Track")
+            for point in points {
+                let tp = nsElement("Trackpoint")
+                if let time = point.time, !time.isEmpty {
+                    tp.addChild(nsElement("Time", time))
+                }
+                let pos = nsElement("Position")
+                pos.addChild(nsElement("LatitudeDegrees", String(format: "%.7f", point.lat)))
+                pos.addChild(nsElement("LongitudeDegrees", String(format: "%.7f", point.lon)))
+                tp.addChild(pos)
+                if let ele = point.ele {
+                    tp.addChild(nsElement("AltitudeMeters", String(format: "%.2f", ele)))
+                }
+                tp.addChild(nsElement("DistanceMeters", String(format: "%.2f", point.cumKm * 1000)))
+                track.addChild(tp)
             }
-            let pos = nsElement("Position")
-            pos.addChild(nsElement("LatitudeDegrees", String(format: "%.7f", point.lat)))
-            pos.addChild(nsElement("LongitudeDegrees", String(format: "%.7f", point.lon)))
-            tp.addChild(pos)
-            if let ele = point.ele {
-                tp.addChild(nsElement("AltitudeMeters", String(format: "%.2f", ele)))
-            }
-            tp.addChild(nsElement("DistanceMeters", String(format: "%.2f", point.cumKm * 1000)))
-            track.addChild(tp)
+            course.addChild(track)
         }
-        course.addChild(track)
 
         let sortedCues = cuePoints.sorted { $0.idx < $1.idx }
         for cue in sortedCues {
@@ -288,10 +303,23 @@ public final class TCXCourse {
     // MARK: - 파싱 유틸
 
     static func parseTrackpoints(in course: XMLElement) -> [TrackPoint] {
+        flatten(sections: parseTrackpointSections(in: course))
+    }
+
+    static func parseTrackpointSections(in course: XMLElement) -> [[TrackPoint]] {
+        let tracks = allElements(in: course, localName: "Track")
+        if tracks.isEmpty {
+            let points = parseSingleTrack(in: course)
+            return points.isEmpty ? [] : [points]
+        }
+        return tracks.map { parseSingleTrack(in: $0) }.filter { !$0.isEmpty }
+    }
+
+    private static func parseSingleTrack(in element: XMLElement) -> [TrackPoint] {
         var pts: [TrackPoint] = []
         var cum = 0.0
         var prev: (Double, Double)?
-        for tp in allElements(in: course, localName: "Trackpoint") {
+        for tp in allElements(in: element, localName: "Trackpoint") {
             var lat: Double?, lon: Double?, ele: Double?, time: String?
             for child in (tp.children ?? []).compactMap({ $0 as? XMLElement }) {
                 switch child.localName {
@@ -314,6 +342,20 @@ public final class TCXCourse {
             prev = (lat, lon)
         }
         return pts
+    }
+
+    private static func flatten(sections: [[TrackPoint]]) -> [TrackPoint] {
+        var result: [TrackPoint] = []
+        var offset = 0.0
+        for section in sections {
+            for point in section {
+                var copy = point
+                copy.cumKm += offset
+                result.append(copy)
+            }
+            offset += section.last?.cumKm ?? 0
+        }
+        return result
     }
 
     static func parseCoursePoints(in course: XMLElement) -> [ParsedCoursePoint] {

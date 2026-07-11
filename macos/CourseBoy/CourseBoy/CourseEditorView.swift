@@ -127,6 +127,7 @@ struct CourseEditorView: View {
                 CourseEditorCuesheetSidebar(
                     draft: draft,
                     selectedCueID: $selectedCueID,
+                    pinnedDistanceKm: $pinnedDistanceKm,
                     onEditCue: { editingCueID = $0 }
                 )
                     .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
@@ -137,7 +138,7 @@ struct CourseEditorView: View {
                             if rangeSelection != nil || pinnedDistanceKm != nil {
                                 VStack(spacing: 0) {
                                     SelectionInspectorStack(
-                                        trackPoints: draft.allTrackPoints,
+                                        trackPoints: draft.allCourseTrackPoints,
                                         rangeSelection: rangeSelection,
                                         pinnedDistanceKm: pinnedDistanceKm,
                                         onClearPin: { pinnedDistanceKm = nil }
@@ -152,7 +153,10 @@ struct CourseEditorView: View {
                                         }
                                         .buttonStyle(.borderedProminent)
                                         .controlSize(.large)
-                                        .disabled(range.lengthKm <= 0 || range.isDragging)
+                                        .disabled(
+                                            range.lengthKm <= 0 || range.isDragging
+                                                || sectionIndex(containing: range) == nil
+                                        )
                                         .padding(12)
                                     }
                                 }
@@ -188,9 +192,21 @@ struct CourseEditorView: View {
                 editingCueID = nil
             }
         }
+        .onChange(of: draft.selectedSectionID) {
+            selectedCueID = nil
+            editingCueID = nil
+        }
+        .onChange(of: draft.sections.map(\.id)) {
+            rangeSelection = nil
+            pinnedDistanceKm = nil
+        }
+        .onChange(of: draft.sections.map(\.distanceKm)) {
+            rangeSelection = nil
+            pinnedDistanceKm = nil
+        }
         .focusedSceneValue(\.courseFileCommandHandler, CourseFileCommandHandler(
             exportTCX: { saveDraftTCX() },
-            canExportTCX: !draft.allTrackPoints.isEmpty && draft.hasValidTitle
+            canExportTCX: !draft.allCourseTrackPoints.isEmpty && draft.hasValidTitle
         ))
         .confirmationDialog("변경 사항을 버리시겠습니까?", isPresented: $showDiscardConfirm, titleVisibility: .visible) {
             Button("변경 사항 버리기", role: .destructive) { closeConfirmed = true }
@@ -231,6 +247,35 @@ struct CourseEditorView: View {
 
     // MARK: - 가운데 컨텐츠 (지도 + 고도그래프)
 
+    private var selectedSectionMapPinKm: Double? {
+        pinnedDistanceKm.flatMap {
+            draft.selectedSectionLocalDistanceKm(forCourseDistanceKm: $0)
+        }
+    }
+
+    private var selectedSectionMapRange: ChartRangeSelection? {
+        guard let rangeSelection,
+              sectionIndex(containing: rangeSelection) == draft.selectedSectionIndex else { return nil }
+        let start = draft.selectedSectionCourseStartKm
+        return ChartRangeSelection(
+            startKm: rangeSelection.startKm - start,
+            endKm: rangeSelection.endKm - start,
+            isDragging: rangeSelection.isDragging
+        )
+    }
+
+    private func sectionIndex(containing range: ChartRangeSelection) -> Int? {
+        guard range.lengthKm > 0 else { return nil }
+        let epsilon = min(0.000_001, range.lengthKm / 2)
+        let startIndex = draft.sectionIndex(
+            containingCourseDistanceKm: range.lowerKm + epsilon
+        )
+        let endIndex = draft.sectionIndex(
+            containingCourseDistanceKm: range.upperKm - epsilon
+        )
+        return startIndex == endIndex ? startIndex : nil
+    }
+
     @ViewBuilder
     private var detailPane: some View {
         VSplitView {
@@ -241,9 +286,9 @@ struct CourseEditorView: View {
                     searchResults: $searchResults,
                     mapViewRef: $mapViewRef,
                     selectedCueID: selectedCueID,
-                    rangeSelection: rangeSelection,
+                    rangeSelection: selectedSectionMapRange,
                     hoverInfo: hoverInfo,
-                    pinnedDistanceKm: pinnedDistanceKm,
+                    pinnedDistanceKm: selectedSectionMapPinKm,
                     mapStyle: mapStyle.wrappedValue,
                     routingProfile: routeProfile.wrappedValue,
                     onSelectCue: { selectedCueID = $0 },
@@ -252,7 +297,9 @@ struct CourseEditorView: View {
                         performSearch(in: rect)
                     },
                     onPinDistance: { km in
-                        pinnedDistanceKm = km
+                        pinnedDistanceKm = draft.courseDistanceKm(
+                            forSelectedSectionLocalDistanceKm: km
+                        )
                     }
                 )
                 MapStylePicker(selection: mapStyle)
@@ -268,7 +315,7 @@ struct CourseEditorView: View {
 
     @ViewBuilder
     private var elevationPane: some View {
-        let pts = draft.allTrackPoints
+        let pts = draft.allCourseTrackPoints
         if pts.isEmpty {
             ContentUnavailableView {
                 Label("고도 데이터 없음", systemImage: "chart.xyaxis.line")
@@ -278,11 +325,12 @@ struct CourseEditorView: View {
         } else {
             ElevationChartView(
                 trackPoints: pts,
-                markers: elevationMarkers(for: pts),
-                focusedDistanceKm: focusedDistanceKm(for: pts),
+                markers: elevationMarkers(),
+                focusedDistanceKm: focusedDistanceKm(),
                 hoverInfo: $hoverInfo,
                 rangeSelection: $rangeSelection,
                 pinnedDistanceKm: $pinnedDistanceKm,
+                highlightedRangeKm: draft.selectedSectionCourseRangeKm,
                 onAddCueAtHover: { km in
                     addCueFromElevation(distanceKm: km, trackPoints: pts)
                 },
@@ -291,11 +339,10 @@ struct CourseEditorView: View {
         }
     }
 
-    private func focusedDistanceKm(for pts: [TrackPoint]) -> Double? {
+    private func focusedDistanceKm() -> Double? {
         guard let id = selectedCueID,
-              let cue = draft.cuePoints.first(where: { $0.id == id }),
-              let idx = Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon) else { return nil }
-        return pts[idx].cumKm
+              let cue = draft.cuePoints.first(where: { $0.id == id }) else { return nil }
+        return draft.selectedSectionCourseStartKm + cue.distanceMeters / 1000
     }
 
     private func addCueFromElevation(distanceKm: Double, trackPoints pts: [TrackPoint]) {
@@ -307,6 +354,11 @@ struct CourseEditorView: View {
             if d < bestDist { bestDist = d; bestIdx = i }
         }
         let snap = pts[bestIdx]
+        guard let sectionIndex = draft.sectionIndex(containingCourseDistanceKm: snap.cumKm) else {
+            NSSound.beep()
+            return
+        }
+        let sectionStartKm = draft.courseStartKm(forSectionAt: sectionIndex)
 
         let alert = NSAlert()
         alert.messageText = "큐시트 추가"
@@ -333,8 +385,9 @@ struct CourseEditorView: View {
             name: nameField.stringValue,
             pointType: selectedValue,
             notes: "",
-            distanceMeters: snap.cumKm * 1000
+            distanceMeters: (snap.cumKm - sectionStartKm) * 1000
         )
+        draft.selectSection(draft.sections[sectionIndex].id)
         draft.appendCuePoint(cue)
     }
 
@@ -346,11 +399,10 @@ struct CourseEditorView: View {
         }
 
         Exporter.saveTCX(filename: title) { options in
-            let cues = applyExportOptions(options, to: draft.cuePoints)
             return try? CourseTCXFileCoder.makeTCXData(
                 title: title,
-                trackPoints: draft.allTrackPoints,
-                cuePoints: cues
+                tracks: draft.allCourseSectionTrackPoints,
+                cuePoints: applyExportOptions(options, to: draft.allCourseCuePoints)
             )
         }
     }
@@ -364,13 +416,12 @@ struct CourseEditorView: View {
         }
     }
 
-    private func elevationMarkers(for pts: [TrackPoint]) -> [ElevationMarker] {
-        draft.cuePoints.compactMap { cue in
-            guard cue.lat != 0 || cue.lon != 0,
-                  let idx = Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon) else { return nil }
+    private func elevationMarkers() -> [ElevationMarker] {
+        draft.allCourseCuePoints.compactMap { cue in
+            guard cue.lat != 0 || cue.lon != 0 else { return nil }
             return ElevationMarker(
                 id: cue.id.uuidString,
-                cumKm: pts[idx].cumKm,
+                cumKm: cue.distanceMeters / 1000,
                 label: cue.name.isEmpty ? cuePointLabel(for: cue.pointType) : cue.name,
                 color: .cyan
             )
@@ -380,14 +431,23 @@ struct CourseEditorView: View {
     // MARK: - 구간 추가 (드래그 → 시작/종료 큐시트)
 
     private func addSegmentFromRange(_ range: ChartRangeSelection) {
-        let pts = draft.allTrackPoints
-        guard let stats = routeRangeStats(trackPoints: pts, range: range) else {
+        guard let sectionIndex = sectionIndex(containing: range) else {
             NSSound.beep(); return
         }
-        guard let s = interpolateTrackPoint(in: pts, atDistanceKm: stats.startKm),
+        let sectionStartKm = draft.courseStartKm(forSectionAt: sectionIndex)
+        let localRange = ChartRangeSelection(
+            startKm: range.startKm - sectionStartKm,
+            endKm: range.endKm - sectionStartKm,
+            isDragging: range.isDragging
+        )
+        let pts = draft.sections[sectionIndex].trackPoints
+        guard let stats = routeRangeStats(trackPoints: pts, range: localRange),
+              let s = interpolateTrackPoint(in: pts, atDistanceKm: stats.startKm),
               let e = interpolateTrackPoint(in: pts, atDistanceKm: stats.endKm) else {
             NSSound.beep(); return
         }
+
+        draft.selectSection(draft.sections[sectionIndex].id)
 
         let avgGrade = stats.averageGradePercent ?? 0
         let lengthKm = stats.lengthKm
@@ -652,11 +712,13 @@ private struct RouteProfilePicker: View {
 private struct CourseEditorCuesheetSidebar: View {
     var draft: CourseEditorDraft
     @Binding var selectedCueID: UUID?
+    @Binding var pinnedDistanceKm: Double?
     var onEditCue: (UUID) -> Void
 
     @State private var showAddSheet = false
     @State private var newName = ""
     @State private var newType = "Straight"
+    @State private var showDeleteSectionConfirm = false
 
     /// distanceMeters 기준 정렬. 동일 거리에서는 추가 순서를 보존.
     private var sortedCues: [CourseCuePoint] {
@@ -668,6 +730,10 @@ private struct CourseEditorCuesheetSidebar: View {
         let elevationProgress = RouteElevationProgress(trackPoints: pts)
 
         VStack(spacing: 0) {
+            sectionList
+
+            Divider()
+
             HStack {
                 Text("큐시트")
                     .font(.subheadline.bold())
@@ -743,6 +809,145 @@ private struct CourseEditorCuesheetSidebar: View {
                     newName = ""; newType = "Straight"
                 }
             )
+        }
+        .confirmationDialog(
+            "선택한 섹션을 삭제하시겠습니까?",
+            isPresented: $showDeleteSectionConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("섹션 삭제", role: .destructive) {
+                draft.deleteSelectedSection()
+                pinnedDistanceKm = nil
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            let section = draft.sections[draft.selectedSectionIndex]
+            Text("경로 \(formatRouteDistance(section.distanceKm))와 큐시트 \(section.cuePoints.count)개가 함께 삭제됩니다.")
+        }
+    }
+
+    private var sectionList: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("섹션")
+                    .font(.subheadline.bold())
+                Text("\(draft.sections.count)개")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Menu {
+                    Button {
+                        if let km = selectedPinnedLocalKm {
+                            _ = draft.splitSelectedSection(atDistanceKm: km)
+                        }
+                    } label: {
+                        Label("고정 지점에서 분할", systemImage: "scissors")
+                    }
+                    .disabled(selectedPinnedLocalKm == nil)
+
+                    Button {
+                        draft.mergeSelectedWithNext()
+                        pinnedDistanceKm = nil
+                    } label: {
+                        Label("다음 섹션과 합치기", systemImage: "arrow.triangle.merge")
+                    }
+                    .disabled(!draft.canMergeSelectedWithNext)
+
+                    Divider()
+
+                    Button(role: .destructive) {
+                        showDeleteSectionConfirm = true
+                    } label: {
+                        Label("섹션 삭제", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+
+                Button {
+                    draft.addSection()
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.borderless)
+                .help("섹션 추가")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(Array(draft.sections.enumerated()), id: \.element.id) { index, section in
+                        Button {
+                            draft.selectSection(section.id)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: draft.selectedSectionID == section.id
+                                      ? "circle.inset.filled" : "circle")
+                                    .foregroundStyle(draft.selectedSectionID == section.id ? .blue : .secondary)
+                                Text("섹션 \(index + 1)")
+                                Spacer()
+                                Text(formatRouteDistance(section.distanceKm))
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                            .contentShape(Rectangle())
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                draft.selectedSectionID == section.id
+                                    ? Color.accentColor.opacity(0.12)
+                                    : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 6)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button {
+                                draft.selectSection(section.id)
+                                if let courseKm = pinnedDistanceKm,
+                                   let km = draft.selectedSectionLocalDistanceKm(
+                                    forCourseDistanceKm: courseKm
+                                   ) {
+                                    _ = draft.splitSelectedSection(atDistanceKm: km)
+                                }
+                            } label: {
+                                Label("고정 지점에서 분할", systemImage: "scissors")
+                            }
+                            .disabled(
+                                draft.selectedSectionID != section.id || selectedPinnedLocalKm == nil
+                            )
+
+                            Button {
+                                draft.selectSection(section.id)
+                                draft.mergeSelectedWithNext()
+                                pinnedDistanceKm = nil
+                            } label: {
+                                Label("다음 섹션과 합치기", systemImage: "arrow.triangle.merge")
+                            }
+                            .disabled(index + 1 >= draft.sections.count)
+
+                            Button(role: .destructive) {
+                                draft.selectSection(section.id)
+                                showDeleteSectionConfirm = true
+                            } label: {
+                                Label("삭제", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.bottom, 6)
+            }
+            .frame(maxHeight: 180)
+        }
+    }
+
+    private var selectedPinnedLocalKm: Double? {
+        pinnedDistanceKm.flatMap {
+            draft.selectedSectionLocalDistanceKm(forCourseDistanceKm: $0)
         }
     }
 
@@ -1039,6 +1244,7 @@ private struct CourseEditorCueInspectorView: View {
         let cues = sortedCues
         let totalKm = pts.last?.cumKm ?? 0
         let elevation = courseElevationStats(pts)
+        let activeSection = draft.sections[draft.selectedSectionIndex]
 
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 4) {
@@ -1057,9 +1263,9 @@ private struct CourseEditorCueInspectorView: View {
 
             section(title: "주행 요약", icon: "speedometer") {
                 infoRow("총 거리", value: formatKm(totalKm))
-                infoRow("획득고도", value: formatEle(elevation.ascent), valueColor: .red)
-                infoRow("누적 하강", value: formatEle(elevation.descent), valueColor: .blue)
-                infoRow("상승 밀도", value: formatElevationDensity(elevation.ascent, totalKm: totalKm))
+                infoRow("획득고도", value: formatEle(activeSection.elevationGainM), valueColor: .red)
+                infoRow("누적 하강", value: formatEle(activeSection.elevationLossM), valueColor: .blue)
+                infoRow("상승 밀도", value: formatElevationDensity(activeSection.elevationGainM, totalKm: totalKm))
             }
 
             section(title: "고도 범위", icon: "mountain.2") {
@@ -1071,8 +1277,9 @@ private struct CourseEditorCueInspectorView: View {
             }
 
             section(title: "경로 구성", icon: "point.3.connected.trianglepath.dotted") {
-                infoRow("경유지", value: formatCount(draft.routePoints.count))
-                infoRow("트랙 구간", value: formatCount(draft.trackSegments.count))
+                infoRow("전체 섹션", value: formatCount(draft.sections.count))
+                infoRow("활성 섹션 경유지", value: formatCount(draft.routePoints.count))
+                infoRow("활성 섹션 트랙 구간", value: formatCount(draft.trackSegments.count))
                 infoRow("트랙 포인트", value: formatCount(pts.count))
                 infoRow("고도 데이터", value: elevation.hasData ? "있음" : "없음")
             }
@@ -1442,8 +1649,15 @@ struct CourseEditMapView: NSViewRepresentable {
 
         func refresh() {
             guard let map = mapView else { return }
-            // signature: routePoints + cuePoints (cue 변경 시도 핀 갱신)
-            let routeSig = draft.routePoints.map { "\($0.lat),\($0.lon)" }.joined(separator: "|")
+            // 모든 섹션 형상과 활성 섹션을 포함한다.
+            let routeSig = draft.sections.map { section in
+                let legs = section.legs.map { leg in
+                    let first = leg.trackPoints.first
+                    let last = leg.trackPoints.last
+                    return "\(leg.kind.rawValue):\(leg.trackPoints.count):\(first?.lat ?? 0),\(first?.lon ?? 0):\(last?.lat ?? 0),\(last?.lon ?? 0)"
+                }.joined(separator: ",")
+                return "\(section.id):\(legs)"
+            }.joined(separator: "|") + "#active=\(draft.selectedSectionID)"
             let cueSig = draft.cuePoints.map { "\($0.id):\($0.lat),\($0.lon),\($0.pointType),\($0.name)" }.joined(separator: "|")
             let sig = routeSig + "##" + cueSig
             guard sig != builtRouteSignature else { return }
@@ -1454,13 +1668,21 @@ struct CourseEditMapView: NSViewRepresentable {
             let cueAnns = map.annotations.compactMap { $0 as? CuePointAnnotation }
             map.removeAnnotations(routeAnns + cueAnns)
 
+            // RoutePoint 핸들은 활성 섹션에만 표시한다.
             for (i, rp) in draft.routePoints.enumerated() {
                 map.addAnnotation(RoutePointAnnotation(routePoint: rp, index: i))
             }
-            for seg in draft.trackSegments {
-                guard seg.count >= 2 else { continue }
-                let coords = seg.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
-                map.addOverlay(SegmentPolyline(coordinates: coords, count: coords.count), level: .aboveRoads)
+            for section in draft.sections {
+                for leg in section.legs {
+                    guard leg.trackPoints.count >= 2 else { continue }
+                    let coords = leg.trackPoints.map {
+                        CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
+                    }
+                    let polyline = SegmentPolyline(coordinates: coords, count: coords.count)
+                    polyline.kind = leg.kind
+                    polyline.isActiveSection = section.id == draft.selectedSectionID
+                    map.addOverlay(polyline, level: .aboveRoads)
+                }
             }
             for cue in draft.cuePoints where cue.lat != 0 || cue.lon != 0 {
                 map.addAnnotation(CuePointAnnotation(cue: cue))
@@ -1474,7 +1696,7 @@ struct CourseEditMapView: NSViewRepresentable {
             pinnedAnnotation = nil
             lastPinnedSignature = ""
 
-            if needsFitOnFirstLoad && !draft.routePoints.isEmpty {
+            if needsFitOnFirstLoad && draft.sections.contains(where: { !$0.routePoints.isEmpty }) {
                 needsFitOnFirstLoad = false
                 fitMap(map: map)
             }
@@ -1614,13 +1836,17 @@ struct CourseEditMapView: NSViewRepresentable {
         }
 
         private func fitMap(map: MKMapView) {
-            // trackSegments의 모든 점을 포함하는 rect로 fit. 없으면 routePoints로 fallback.
+            // 모든 섹션의 점을 포함하는 rect로 fit.
             let allCoords: [CLLocationCoordinate2D] = {
-                let segPts = draft.trackSegments.flatMap { $0 }
+                let segPts = draft.sections.flatMap { section in
+                    section.legs.flatMap(\.trackPoints)
+                }
                 if !segPts.isEmpty {
                     return segPts.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
                 }
-                return draft.routePoints.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+                return draft.sections.flatMap(\.routePoints).map {
+                    CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
+                }
             }()
             guard !allCoords.isEmpty else { return }
 
@@ -1702,10 +1928,20 @@ struct CourseEditMapView: NSViewRepresentable {
 
             let prev = draft.routePoints[prevCount - 1]
             let profile = routingProfile
+            let sectionID = draft.selectedSectionID
             isCalculatingBinding.wrappedValue = true
             Task {
                 let seg = await OSRMRouter.shared.route(from: prev, to: newRP, profile: profile)
                 await MainActor.run {
+                    guard draft.selectedSectionID == sectionID else {
+                        isCalculatingBinding.wrappedValue = false
+                        return
+                    }
+                    guard draft.routePoints.count == prevCount,
+                          draft.routePoints.last?.id == prev.id else {
+                        isCalculatingBinding.wrappedValue = false
+                        return
+                    }
                     draft.appendRoutePoint(newRP, segment: seg)
                     isCalculatingBinding.wrappedValue = false
                     builtRouteSignature = ""; refresh()
@@ -1766,6 +2002,14 @@ struct CourseEditMapView: NSViewRepresentable {
 
             // 경로 위일 때만 큐시트 추가
             if let snap = onRoute {
+                let splitItem = NSMenuItem(title: "여기서 섹션 분할",
+                                           action: #selector(splitSectionFromMenu(_:)), keyEquivalent: "")
+                splitItem.target = self
+                splitItem.representedObject = CueMenuInfo(
+                    snapLat: snap.lat, snapLon: snap.lon, cumKm: snap.cumKm
+                )
+                menu.addItem(splitItem)
+
                 let cueItem = NSMenuItem(title: "큐시트 추가하기",
                                          action: #selector(addCueFromMenu(_:)), keyEquivalent: "")
                 cueItem.target = self
@@ -1824,33 +2068,45 @@ struct CourseEditMapView: NSViewRepresentable {
             let prevRP = idx > 0 ? draft.routePoints[idx - 1] : nil
             let currRP = draft.routePoints[idx]
             let nextRP = idx < draft.routePoints.count - 1 ? draft.routePoints[idx + 1] : nil
+            let sectionID = draft.selectedSectionID
             Task {
                 if let p = prevRP { await OSRMRouter.shared.invalidate(from: p, to: currRP) }
                 if let n = nextRP { await OSRMRouter.shared.invalidate(from: currRP, to: n) }
             }
 
-            draft.removeRoutePoint(at: idx)
-
             // 중간 삭제이면 인접 구간 재계산
-            if idx > 0 && idx < draft.routePoints.count {
-                let prev = draft.routePoints[idx - 1]
-                let next = draft.routePoints[idx]
+            if let prev = prevRP, let next = nextRP {
                 let profile = routingProfile
-                let currentSegments = draft.trackSegments
-                isCalculatingBinding.wrappedValue = true
+                let legs = draft.sections[draft.selectedSectionIndex].legs
+                let joiningKind: CourseLeg.Kind = (
+                    legs[idx - 1].kind == .straight || legs[idx].kind == .straight
+                ) ? .straight : .routed
+                isCalculatingBinding.wrappedValue = joiningKind == .routed
                 Task {
-                    var segs = currentSegments
-                    let seg = await OSRMRouter.shared.route(from: prev, to: next, profile: profile)
+                    let segment = joiningKind == .straight
+                        ? Self.straightSegment(from: prev, to: next)
+                        : await OSRMRouter.shared.route(from: prev, to: next, profile: profile)
                     await MainActor.run {
-                        let insertAt = idx - 1
-                        if insertAt < segs.count { segs.insert(seg, at: insertAt) }
-                        else { segs.append(seg) }
-                        draft.replaceSegments(segs)
+                        guard draft.selectedSectionID == sectionID else {
+                            isCalculatingBinding.wrappedValue = false
+                            return
+                        }
+                        guard draft.routePoints.indices.contains(idx),
+                              draft.routePoints[idx].id == currRP.id else {
+                            isCalculatingBinding.wrappedValue = false
+                            return
+                        }
+                        draft.removeRoutePoint(
+                            at: idx,
+                            joiningSegment: segment,
+                            joiningKind: joiningKind
+                        )
                         isCalculatingBinding.wrappedValue = false
                         builtRouteSignature = ""; refresh()
                     }
                 }
             } else {
+                draft.removeRoutePoint(at: idx)
                 builtRouteSignature = ""; refresh()
             }
         }
@@ -1858,6 +2114,16 @@ struct CourseEditMapView: NSViewRepresentable {
         @objc private func kakaoSearchHere(_ sender: NSMenuItem) {
             guard let map = mapView else { return }
             onSearchInVisibleRect(map.visibleMapRect)
+        }
+
+        @objc private func splitSectionFromMenu(_ sender: NSMenuItem) {
+            guard let info = sender.representedObject as? CueMenuInfo,
+                  draft.splitSelectedSection(atDistanceKm: info.cumKm) else {
+                NSSound.beep()
+                return
+            }
+            builtRouteSignature = ""
+            refresh()
         }
 
         @objc private func openKakaoMap(_ sender: NSMenuItem) {
@@ -2003,32 +2269,56 @@ struct CourseEditMapView: NSViewRepresentable {
 
                 let newRP = CourseRoutePoint(lat: newCoord.latitude, lon: newCoord.longitude)
                 let profile = routingProfile
+                let sectionID = draft.selectedSectionID
                 let routePoints = draft.routePoints
                 let currentSegments = draft.trackSegments
+                let currentLegKinds = draft.sections[draft.selectedSectionIndex].legs.map(\.kind)
                 isCalculatingBinding.wrappedValue = true
                 Task {
                     var segs = currentSegments
                     if idx > 0 && idx - 1 < segs.count {
-                        segs[idx - 1] = await OSRMRouter.shared.route(
-                            from: routePoints[idx - 1],
-                            to: newRP,
-                            profile: profile
-                        )
+                        segs[idx - 1] = currentLegKinds[idx - 1] == .straight
+                            ? Self.straightSegment(from: routePoints[idx - 1], to: newRP)
+                            : await OSRMRouter.shared.route(
+                                from: routePoints[idx - 1], to: newRP, profile: profile
+                            )
                     }
                     if idx < routePoints.count - 1 && idx < segs.count {
-                        segs[idx] = await OSRMRouter.shared.route(
-                            from: newRP,
-                            to: routePoints[idx + 1],
-                            profile: profile
-                        )
+                        segs[idx] = currentLegKinds[idx] == .straight
+                            ? Self.straightSegment(from: newRP, to: routePoints[idx + 1])
+                            : await OSRMRouter.shared.route(
+                                from: newRP, to: routePoints[idx + 1], profile: profile
+                            )
                     }
                     await MainActor.run {
+                        guard draft.selectedSectionID == sectionID else {
+                            isCalculatingBinding.wrappedValue = false
+                            return
+                        }
+                        guard draft.routePoints.indices.contains(idx),
+                              draft.routePoints[idx].id == oldRP.id else {
+                            isCalculatingBinding.wrappedValue = false
+                            return
+                        }
                         draft.moveRoutePoint(at: idx, to: newRP, updatedSegments: segs)
                         isCalculatingBinding.wrappedValue = false
                         builtRouteSignature = ""; refresh()
                     }
                 }
             }
+        }
+
+        private static func straightSegment(
+            from: CourseRoutePoint,
+            to: CourseRoutePoint
+        ) -> [TrackPointCodable] {
+            [
+                TrackPointCodable(lat: from.lat, lon: from.lon, ele: nil, cumKm: 0),
+                TrackPointCodable(
+                    lat: to.lat, lon: to.lon, ele: nil,
+                    cumKm: Geo.haversineKm(from.lat, from.lon, to.lat, to.lon)
+                ),
+            ]
         }
 
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
@@ -2055,8 +2345,16 @@ struct CourseEditMapView: NSViewRepresentable {
             }
             if let poly = overlay as? SegmentPolyline {
                 let r = MKPolylineRenderer(polyline: poly)
-                r.strokeColor = NSColor.systemBlue
-                r.lineWidth = 3
+                if poly.kind == .straight {
+                    r.strokeColor = NSColor.systemOrange
+                    r.lineDashPattern = [7, 5]
+                    r.lineWidth = poly.isActiveSection ? 4 : 3
+                } else {
+                    r.strokeColor = poly.isActiveSection
+                        ? NSColor.systemBlue
+                        : NSColor.secondaryLabelColor.withAlphaComponent(0.55)
+                    r.lineWidth = poly.isActiveSection ? 4 : 2.5
+                }
                 r.lineCap = .round; r.lineJoin = .round
                 return r
             }
@@ -2155,7 +2453,10 @@ final class CuePointAnnotation: MKPointAnnotation {
     }
 }
 
-final class SegmentPolyline: MKPolyline {}
+final class SegmentPolyline: MKPolyline {
+    var kind: CourseLeg.Kind = .routed
+    var isActiveSection = true
+}
 final class CuePolyline: MKPolyline {}
 
 private struct CueMenuInfo {

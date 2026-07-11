@@ -119,6 +119,8 @@ final class HoverMapView: MKMapView {
 
 struct RouteMapView: View {
     let trackPoints: [TrackPoint]
+    /// 비어 있지 않으면 지도 polyline을 섹션 경계에서 끊어 그린다.
+    var sectionTrackPoints: [[TrackPoint]] = []
     var highlightPoints: [TrackPoint] = []
     var cuePoints: [CourseCuePoint] = []
     var focusedCueID: UUID? = nil
@@ -147,6 +149,7 @@ struct RouteMapView: View {
         ZStack(alignment: .topTrailing) {
             RouteMapRepresentable(
                 trackPoints: trackPoints,
+                sectionTrackPoints: sectionTrackPoints,
                 highlightPoints: highlightPoints,
                 cuePoints: cuePoints,
                 focusedCueID: focusedCueID,
@@ -166,6 +169,7 @@ struct RouteMapView: View {
 
 private struct RouteMapRepresentable: NSViewRepresentable {
     let trackPoints: [TrackPoint]
+    var sectionTrackPoints: [[TrackPoint]] = []
     var highlightPoints: [TrackPoint] = []
     var cuePoints: [CourseCuePoint] = []
     var focusedCueID: UUID? = nil
@@ -187,6 +191,11 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         )
     }
 
+    private var effectiveTracks: [[TrackPoint]] {
+        let nonEmpty = sectionTrackPoints.filter { !$0.isEmpty }
+        return nonEmpty.isEmpty ? (trackPoints.isEmpty ? [] : [trackPoints]) : nonEmpty
+    }
+
     static func dismantleNSView(_ map: MKMapView, coordinator: Coordinator) {
         // NSClickGestureRecognizer 는 target(Coordinator) 를 강참조한다.
         // 델리게이트와 콜백을 끊지 않으면 Coordinator/맵이 함께 살아남는다.
@@ -200,7 +209,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             hover.onRouteMouseMoved = nil
             hover.onRouteMouseExited = nil
         }
-        coordinator.mainPolyline = nil
+        coordinator.mainPolylines = []
         coordinator.highlightPolyline = nil
         coordinator.rangePolyline = nil
         coordinator.endpointAnnotations = []
@@ -259,8 +268,14 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         // count + 총거리 + 첫/끝 좌표만으로 트랙 변경을 감지한다.
         // 이전에는 매번 트랙포인트 수만큼 문자열을 만들어 5k+ 포인트에서 큰
         // 할당 비용이 발생했다.
-        let signature = trackSignature(for: trackPoints)
+        let tracks = effectiveTracks
+        let signature = tracks.map(trackSignature(for:)).joined(separator: "#")
         coordinator.trackPoints = trackPoints
+        var pointOffset = 0
+        coordinator.discontinuityAfterIndices = Set(tracks.dropLast().map { points in
+            pointOffset += points.count
+            return pointOffset - 1
+        })
         coordinator.hoverInfo = $hoverInfo
         coordinator.onDeselectFocus = onDeselectFocus
         coordinator.onSelectCue = onSelectCue
@@ -269,7 +284,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         if coordinator.builtPointSignature != signature {
             map.removeOverlays(map.overlays)
             map.removeAnnotations(map.annotations)
-            coordinator.mainPolyline = nil
+            coordinator.mainPolylines = []
             coordinator.builtPointSignature = signature
             coordinator.highlightSignature = []
             coordinator.highlightPolyline = nil
@@ -289,22 +304,31 @@ private struct RouteMapRepresentable: NSViewRepresentable {
                 }
             }
 
-            guard trackPoints.count >= 2 else { return }
+            let drawableTracks = tracks.filter { $0.count >= 2 }
+            guard !drawableTracks.isEmpty,
+                  let firstPoint = tracks.first?.first,
+                  let lastPoint = tracks.last?.last else { return }
 
-            let coords = trackPoints.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
-            let polyline = MKPolyline(coordinates: coords, count: coords.count)
-            map.addOverlay(polyline, level: .aboveRoads)
-            coordinator.mainPolyline = polyline
+            var polylines: [MKPolyline] = []
+            var fitRect = MKMapRect.null
+            for points in drawableTracks {
+                let coords = points.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+                let polyline = MKPolyline(coordinates: coords, count: coords.count)
+                polylines.append(polyline)
+                fitRect = fitRect.union(polyline.boundingMapRect)
+            }
+            map.addOverlays(polylines, level: .aboveRoads)
+            coordinator.mainPolylines = polylines
             let endpointAnnotations = [
-                EndpointAnnotation(kind: .start, point: trackPoints[0]),
-                EndpointAnnotation(kind: .end, point: trackPoints[trackPoints.count - 1]),
+                EndpointAnnotation(kind: .start, point: firstPoint),
+                EndpointAnnotation(kind: .end, point: lastPoint),
             ]
             coordinator.endpointAnnotations = endpointAnnotations
             map.addAnnotations(endpointAnnotations)
 
-            let fitRect = polyline.boundingMapRect.insetBy(
-                dx: -polyline.boundingMapRect.width * 0.1,
-                dy: -polyline.boundingMapRect.height * 0.1
+            fitRect = fitRect.insetBy(
+                dx: -fitRect.width * 0.1,
+                dy: -fitRect.height * 0.1
             )
             if map.frame.size == .zero {
                 DispatchQueue.main.async { map.setVisibleMapRect(fitRect, animated: false) }
@@ -356,12 +380,13 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         var appliedMapStyle: MapStyleOption?
         var builtPointSignature: String = ""
         var highlightSignature: [Double] = []
-        var mainPolyline: MKPolyline?
+        var mainPolylines: [MKPolyline] = []
         var highlightPolyline: HighlightPolyline?
         var endpointAnnotations: [EndpointAnnotation] = []
         var cueAnnotations: [CueAnnotation] = []
         var hoverAnnotation: HoverAnnotation?
         var trackPoints: [TrackPoint] = []
+        var discontinuityAfterIndices: Set<Int> = []
         var hoverInfo: Binding<RouteHoverInfo?>?
         var onDeselectFocus: (() -> Void)?
         var onSelectCue: ((UUID) -> Void)?
@@ -648,6 +673,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             var best: (segmentStartIndex: Int, fraction: Double, screenDistance: CGFloat)?
 
             for i in 0..<(trackPoints.count - 1) {
+                if discontinuityAfterIndices.contains(i) { continue }
                 let a = trackPoints[i]
                 let b = trackPoints[i + 1]
                 let p1 = map.convert(
