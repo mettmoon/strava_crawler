@@ -14,7 +14,10 @@ final class RouteListViewModel {
     private let routeRepository: any RouteRepository
 
     /// route id 별 진행 중인 import Task. deinit 이나 취소 시 중단할 수 있도록 저장.
-    private var importTasks: [String: Task<Void, Never>] = [:]
+    /// 모든 접근은 MainActor 에서 이뤄진다. 다만 deinit 은 nonisolated context 이므로,
+    /// 수명 종료 시 진행 중인 작업을 취소할 수 있도록 격리 검사를 명시적으로 완화한다.
+    @ObservationIgnored
+    nonisolated(unsafe) private var importTasks: [String: Task<Void, Never>] = [:]
 
     init(
         importRouteUseCase: ImportRouteUseCase,
