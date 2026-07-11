@@ -331,7 +331,7 @@ struct CourseEditorView: View {
                 hoverInfo: $hoverInfo,
                 rangeSelection: $rangeSelection,
                 pinnedDistanceKm: $pinnedDistanceKm,
-                highlightedRangeKm: draft.selectedSectionCourseRangeKm,
+                selectedElevationRangeKm: draft.selectedSectionCourseRangeKm,
                 onAddCueAtHover: { km in
                     addCueFromElevation(distanceKm: km, trackPoints: pts)
                 },
