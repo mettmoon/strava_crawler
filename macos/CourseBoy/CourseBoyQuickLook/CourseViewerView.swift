@@ -7,6 +7,7 @@ struct CourseViewerView: View {
     @State private var selectedProfilePoint: CourseProfileSelection?
     @State private var selectedTab: CourseViewerTab = .summary
     @State private var elevationCueScrollRequest: ElevationCueScrollRequest?
+    @State private var elevationHorizontalScrollPosition = 0.0
 
     private var selectedCue: CourseCuePoint? {
         guard let selectedCueID else { return nil }
@@ -40,6 +41,7 @@ struct CourseViewerView: View {
                 selectedCueID: $selectedCueID,
                 selectedProfilePoint: $selectedProfilePoint,
                 cueScrollRequest: $elevationCueScrollRequest,
+                horizontalScrollPosition: $elevationHorizontalScrollPosition,
                 isActive: selectedTab == .elevation
             )
                 .tabItem {
@@ -196,22 +198,16 @@ private struct CourseElevationTab: View {
     @Binding var selectedCueID: UUID?
     @Binding var selectedProfilePoint: CourseProfileSelection?
     @Binding var cueScrollRequest: ElevationCueScrollRequest?
+    @Binding var horizontalScrollPosition: Double
     let isActive: Bool
-
-    @State private var distanceScale: ElevationProfileScaleOption = .standard
-    @State private var elevationScale: ElevationProfileScaleOption = .standard
-    @State private var horizontalScrollPosition = 0.0
-    @State private var fitAllEnabled = false
 
     var body: some View {
         GeometryReader { proxy in
             let viewportSize = proxy.size
-            let profileScale = profileScale(for: viewportSize)
             let profileSize = ElevationProfileView.preferredSize(
                 trackPoints: course.trackPoints,
                 availableWidth: viewportSize.width,
-                availableHeight: graphViewportHeight(in: viewportSize),
-                scale: profileScale
+                availableHeight: graphViewportHeight(in: viewportSize)
             )
             let viewportWidth = max(1, viewportSize.width)
             let maxHorizontalOffset = max(0, profileSize.width - viewportWidth)
@@ -220,13 +216,6 @@ private struct CourseElevationTab: View {
             let profileSelectionForDisplay = selectedProfilePoint ?? selectedCueProfilePoint
 
             VStack(spacing: 0) {
-                HStack {
-                    Spacer()
-                    scaleMenu
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-
                 ElevationProfileHeaderView(
                     trackPoints: course.trackPoints,
                     width: renderWidth,
@@ -303,26 +292,10 @@ private struct CourseElevationTab: View {
         .background(Color(.systemGroupedBackground))
     }
 
-    private func profileScale(for viewportSize: CGSize) -> ElevationProfileScale {
-        if fitAllEnabled {
-            return ElevationProfileView.fittingScale(
-                trackPoints: course.trackPoints,
-                availableWidth: viewportSize.width,
-                availableHeight: graphViewportHeight(in: viewportSize)
-            )
-        }
-
-        return ElevationProfileScale(
-            distanceFactor: distanceScale.factor,
-            elevationFactor: elevationScale.factor
-        )
-    }
-
     private func graphViewportHeight(in viewportSize: CGSize) -> CGFloat {
         max(
             1,
             viewportSize.height
-                - Self.scaleToolbarHeight
                 - ElevationProfileView.headerHeight
                 - Self.graphVerticalPadding
         )
@@ -392,87 +365,7 @@ private struct CourseElevationTab: View {
         "elevation-cue-\(id.uuidString)"
     }
 
-    private var distanceScaleBinding: Binding<ElevationProfileScaleOption> {
-        Binding {
-            distanceScale
-        } set: { option in
-            distanceScale = option
-            fitAllEnabled = false
-        }
-    }
-
-    private var elevationScaleBinding: Binding<ElevationProfileScaleOption> {
-        Binding {
-            elevationScale
-        } set: { option in
-            elevationScale = option
-            fitAllEnabled = false
-        }
-    }
-
-    private var scaleMenu: some View {
-        Menu {
-            Button {
-                fitAllEnabled = true
-                horizontalScrollPosition = 0
-            } label: {
-                Label("전체보기", systemImage: fitAllEnabled ? "checkmark" : "rectangle.expand.vertical")
-            }
-
-            Section("거리") {
-                Picker("거리", selection: distanceScaleBinding) {
-                    ForEach(ElevationProfileScaleOption.allCases) { option in
-                        Text(option.title).tag(option)
-                    }
-                }
-            }
-
-            Section("고도") {
-                Picker("고도", selection: elevationScaleBinding) {
-                    ForEach(ElevationProfileScaleOption.allCases) { option in
-                        Text(option.title).tag(option)
-                    }
-                }
-            }
-
-            Button {
-                distanceScale = .standard
-                elevationScale = .standard
-                horizontalScrollPosition = 0
-                fitAllEnabled = false
-            } label: {
-                Label("기본값", systemImage: "arrow.counterclockwise")
-            }
-        } label: {
-            Image(systemName: "slider.horizontal.3")
-                .font(.body.weight(.semibold))
-                .frame(width: 34, height: 30)
-        }
-        .buttonStyle(.bordered)
-        .accessibilityLabel("스케일 조정")
-    }
-
-    private static let scaleToolbarHeight: CGFloat = 46
     private static let graphVerticalPadding: CGFloat = 24
-}
-
-private enum ElevationProfileScaleOption: Double, CaseIterable, Identifiable {
-    case ten = 0.1
-    case quarter = 0.25
-    case half = 0.5
-    case standard = 1
-    case expanded = 1.5
-    case detailed = 2
-
-    var id: Double { rawValue }
-
-    var factor: CGFloat {
-        CGFloat(rawValue)
-    }
-
-    var title: String {
-        "\(Int(rawValue * 100))%"
-    }
 }
 
 private struct CourseCueSheetTab: View {
