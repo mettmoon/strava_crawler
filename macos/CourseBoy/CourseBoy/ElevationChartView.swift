@@ -18,8 +18,12 @@ struct ElevationChartView: View {
     var highlightedRangeKm: ClosedRange<Double>? = nil
     /// 선택된 거리 구간(km)의 고도 그래프는 기본 주황색으로, 나머지는 비활성 색상으로 그린다.
     var selectedElevationRangeKm: ClosedRange<Double>? = nil
-    /// 호버 위치에서 우클릭 → "웨이포인트 추가" 선택 시 호출. 인자: 누적 거리(km).
+    /// 호버 위치에서 우클릭 → "큐시트 추가하기" 선택 시 호출. 인자: 코스 누적 거리(km).
     var onAddCueAtHover: ((Double) -> Void)? = nil
+    /// 호버 위치에서 우클릭 → "여기서 섹션 분할" 선택 시 호출. 인자: 코스 누적 거리(km).
+    var onSplitSectionAtHover: ((Double) -> Void)? = nil
+    /// 호버 위치에서 우클릭 → "이 위치에서 카카오 검색" 선택 시 호출.
+    var onSearchAtHover: ((RouteHoverInfo) -> Void)? = nil
     /// 차트 배경(아무 곳)을 클릭했을 때 호출. 큐 포커스 해제 등에 사용.
     var onBackgroundClick: (() -> Void)? = nil
 
@@ -164,7 +168,7 @@ struct ElevationChartView: View {
                         .overlay(
                             RightClickCatcher(onRightClick: {
                                 guard let info = hoverInfo, onAddCueAtHover != nil else { return }
-                                showRightClickMenu(distanceKm: info.distanceKm)
+                                showRightClickMenu(info: info)
                             })
                         )
                     }
@@ -928,15 +932,57 @@ struct ElevationChartView: View {
 
     // MARK: - 우클릭 메뉴
 
-    private func showRightClickMenu(distanceKm: Double) {
+    private func showRightClickMenu(info: RouteHoverInfo) {
         guard let onAddCueAtHover else { return }
         let menu = NSMenu()
-        let target = MenuActionTarget { onAddCueAtHover(distanceKm) }
-        let item = NSMenuItem(title: "웨이포인트 추가", action: #selector(MenuActionTarget.fire), keyEquivalent: "")
-        item.target = target
-        menu.addItem(item)
-        // target은 popUpContextMenu 동안 retain되어야 한다.
-        objc_setAssociatedObject(menu, &MenuActionTarget.assocKey, target, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        var targets: [MenuActionTarget] = []
+
+        func addItem(_ title: String, action: @escaping () -> Void) {
+            let target = MenuActionTarget(action)
+            let item = NSMenuItem(
+                title: title,
+                action: #selector(MenuActionTarget.fire),
+                keyEquivalent: ""
+            )
+            item.target = target
+            menu.addItem(item)
+            targets.append(target)
+        }
+
+        if let onSplitSectionAtHover {
+            addItem("여기서 섹션 분할") {
+                onSplitSectionAtHover(info.distanceKm)
+            }
+        }
+        addItem("큐시트 추가하기") {
+            onAddCueAtHover(info.distanceKm)
+        }
+        menu.addItem(.separator())
+
+        addItem("이 위치에서 카카오 검색") {
+            onSearchAtHover?(info)
+        }
+
+        menu.addItem(.separator())
+
+        addItem("카카오맵에서 보기") {
+            NSWorkspace.shared.open(KakaoLocalSearch.webURL(lat: info.lat, lon: info.lon))
+        }
+        addItem("카카오맵 로드뷰에서 보기") {
+            NSWorkspace.shared.open(KakaoLocalSearch.roadvewURL(lat: info.lat, lon: info.lon))
+        }
+
+        menu.addItem(.separator())
+
+        addItem("구글 맵에서 보기") {
+            NSWorkspace.shared.open(GoogleMapsLink.webURL(lat: info.lat, lon: info.lon))
+        }
+        addItem("구글 맵에서 로드뷰 보기") {
+            NSWorkspace.shared.open(GoogleMapsLink.roadviewURL(lat: info.lat, lon: info.lon))
+        }
+
+        // 각 메뉴 항목의 target은 popUpContextMenu 동안 retain되어야 한다.
+        objc_setAssociatedObject(menu, &MenuActionTarget.assocKey, targets, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         if let event = NSApp.currentEvent, let view = event.window?.contentView {
             NSMenu.popUpContextMenu(menu, with: event, for: view)
         }

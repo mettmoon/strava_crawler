@@ -335,6 +335,12 @@ struct CourseEditorView: View {
                 onAddCueAtHover: { km in
                     addCueFromElevation(distanceKm: km, trackPoints: pts)
                 },
+                onSplitSectionAtHover: { km in
+                    splitSectionFromElevation(distanceKm: km)
+                },
+                onSearchAtHover: { _ in
+                    triggerSearch()
+                },
                 onBackgroundClick: { selectedCueID = nil }
             )
         }
@@ -390,6 +396,20 @@ struct CourseEditorView: View {
         )
         draft.selectSection(draft.sections[sectionIndex].id)
         draft.appendCuePoint(cue)
+    }
+
+    private func splitSectionFromElevation(distanceKm: Double) {
+        guard let sectionIndex = draft.sectionIndex(containingCourseDistanceKm: distanceKm) else {
+            NSSound.beep()
+            return
+        }
+        let sectionStartKm = draft.courseStartKm(forSectionAt: sectionIndex)
+        draft.selectSection(draft.sections[sectionIndex].id)
+        guard draft.splitSelectedSection(atDistanceKm: distanceKm - sectionStartKm) else {
+            NSSound.beep()
+            return
+        }
+        pinnedDistanceKm = nil
     }
 
     private func saveDraftTCX() {
