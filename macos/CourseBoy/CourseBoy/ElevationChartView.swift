@@ -16,6 +16,8 @@ struct ElevationChartView: View {
     var pinnedDistanceKm: Binding<Double?>? = nil
     /// 외부(구간 목록 등)에서 강조 표시할 거리 구간(km). 드래그 선택과 달리 인스펙터를 열지 않는다.
     var highlightedRangeKm: ClosedRange<Double>? = nil
+    /// 선택된 거리 구간(km)의 고도 그래프는 기본 주황색으로, 나머지는 비활성 색상으로 그린다.
+    var selectedElevationRangeKm: ClosedRange<Double>? = nil
     /// 호버 위치에서 우클릭 → "웨이포인트 추가" 선택 시 호출. 인자: 누적 거리(km).
     var onAddCueAtHover: ((Double) -> Void)? = nil
     /// 차트 배경(아무 곳)을 클릭했을 때 호출. 큐 포커스 해제 등에 사용.
@@ -125,7 +127,8 @@ struct ElevationChartView: View {
                                       focusedDistanceKm: focusedDistanceKm,
                                       pinnedDistanceKm: pinnedDistanceKm?.wrappedValue,
                                       rangeSelection: rangeSelection?.wrappedValue,
-                                      highlightedRangeKm: highlightedRangeKm)
+                                      highlightedRangeKm: highlightedRangeKm,
+                                      selectedElevationRangeKm: selectedElevationRangeKm)
                         }
                         .frame(width: contentWidth, height: stripH + chartBodyHeight)
                         .overlay(alignment: .leading) {
@@ -349,7 +352,8 @@ struct ElevationChartView: View {
                            focusedDistanceKm: Double?,
                            pinnedDistanceKm: Double?,
                            rangeSelection: ChartRangeSelection?,
-                           highlightedRangeKm: ClosedRange<Double>?) {
+                           highlightedRangeKm: ClosedRange<Double>?,
+                           selectedElevationRangeKm: ClosedRange<Double>?) {
         guard let (minEle, maxEle) = eleRange, maxEle > minEle else { return }
         let eleSpan  = maxEle - minEle
         let bodyTop  = stripH
@@ -377,34 +381,80 @@ struct ElevationChartView: View {
             CGPoint(x: p.x * size.width, y: bodyBot - vPad - p.y * vScale)
         }
         let groupEnds = elevationCache.breakBeforeIndices.sorted() + [normalized.count]
-        var groupStart = 0
-        for groupEnd in groupEnds where groupEnd > groupStart {
-            let firstPt = denormalize(normalized[groupStart])
-            let lastPt = denormalize(normalized[groupEnd - 1])
 
-            var fillPath = Path()
-            fillPath.move(to: CGPoint(x: firstPt.x, y: bodyBot))
-            for index in groupStart ..< groupEnd {
-                fillPath.addLine(to: denormalize(normalized[index]))
-            }
-            fillPath.addLine(to: CGPoint(x: lastPt.x, y: bodyBot))
-            fillPath.closeSubpath()
-            ctx.fill(fillPath, with: .linearGradient(
-                Gradient(colors: [Color.orange.opacity(0.55), Color.orange.opacity(0.12)]),
-                startPoint: CGPoint(x: 0, y: bodyTop),
-                endPoint: CGPoint(x: 0, y: bodyBot)
-            ))
+        func drawElevation(
+            in context: GraphicsContext,
+            fillTop: Color,
+            fillBottom: Color,
+            stroke: Color
+        ) {
+            var groupStart = 0
+            for groupEnd in groupEnds where groupEnd > groupStart {
+                let firstPt = denormalize(normalized[groupStart])
+                let lastPt = denormalize(normalized[groupEnd - 1])
 
-            if groupEnd - groupStart >= 2 {
-                var linePath = Path()
-                linePath.move(to: firstPt)
-                for index in (groupStart + 1) ..< groupEnd {
-                    linePath.addLine(to: denormalize(normalized[index]))
+                var fillPath = Path()
+                fillPath.move(to: CGPoint(x: firstPt.x, y: bodyBot))
+                for index in groupStart ..< groupEnd {
+                    fillPath.addLine(to: denormalize(normalized[index]))
                 }
-                ctx.stroke(linePath, with: .color(.orange),
-                           style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+                fillPath.addLine(to: CGPoint(x: lastPt.x, y: bodyBot))
+                fillPath.closeSubpath()
+                context.fill(fillPath, with: .linearGradient(
+                    Gradient(colors: [fillTop, fillBottom]),
+                    startPoint: CGPoint(x: 0, y: bodyTop),
+                    endPoint: CGPoint(x: 0, y: bodyBot)
+                ))
+
+                if groupEnd - groupStart >= 2 {
+                    var linePath = Path()
+                    linePath.move(to: firstPt)
+                    for index in (groupStart + 1) ..< groupEnd {
+                        linePath.addLine(to: denormalize(normalized[index]))
+                    }
+                    context.stroke(linePath, with: .color(stroke),
+                                   style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+                }
+                groupStart = groupEnd
             }
-            groupStart = groupEnd
+        }
+
+        if selectedElevationRangeKm == nil {
+            drawElevation(
+                in: ctx,
+                fillTop: Color.orange.opacity(0.55),
+                fillBottom: Color.orange.opacity(0.12),
+                stroke: .orange
+            )
+        } else {
+            let inactiveColor = Color(nsColor: NSColor.secondaryLabelColor)
+            drawElevation(
+                in: ctx,
+                fillTop: inactiveColor.opacity(0.28),
+                fillBottom: inactiveColor.opacity(0.06),
+                stroke: inactiveColor.opacity(0.55)
+            )
+        }
+
+        if let selectedElevationRangeKm,
+           selectedElevationRangeKm.upperBound > selectedElevationRangeKm.lowerBound {
+            let x1 = min(max(xPos(selectedElevationRangeKm.lowerBound), 0), size.width)
+            let x2 = min(max(xPos(selectedElevationRangeKm.upperBound), 0), size.width)
+            let clipRect = CGRect(
+                x: min(x1, x2),
+                y: bodyTop,
+                width: abs(x2 - x1),
+                height: bodyH
+            )
+            ctx.drawLayer { highlightedContext in
+                highlightedContext.clip(to: Path(clipRect))
+                drawElevation(
+                    in: highlightedContext,
+                    fillTop: Color.orange.opacity(0.55),
+                    fillBottom: Color.orange.opacity(0.12),
+                    stroke: .orange
+                )
+            }
         }
 
         for breakIndex in elevationCache.breakBeforeIndices where breakIndex < normalized.count {
