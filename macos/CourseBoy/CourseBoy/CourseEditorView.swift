@@ -141,6 +141,7 @@ struct CourseEditorView: View {
                                         trackPoints: draft.allCourseTrackPoints,
                                         rangeSelection: rangeSelection,
                                         pinnedDistanceKm: pinnedDistanceKm,
+                                        onClearRange: { rangeSelection = nil },
                                         onClearPin: { pinnedDistanceKm = nil }
                                     )
                                     if let range = rangeSelection {

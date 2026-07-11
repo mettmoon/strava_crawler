@@ -5,6 +5,7 @@ import CourseBoyKit
 struct RangeStatsInspectorView: View {
     var trackPoints: [TrackPoint]
     var range: ChartRangeSelection
+    var onClear: (() -> Void)? = nil
 
     private var stats: RouteRangeStats? {
         routeRangeStats(trackPoints: trackPoints, range: range)
@@ -58,9 +59,22 @@ struct RangeStatsInspectorView: View {
     @ViewBuilder
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label("선택 구간", systemImage: "selection.pin.in.out")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
+            HStack {
+                Label("선택 구간", systemImage: "selection.pin.in.out")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if let onClear {
+                    Button {
+                        onClear()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("선택 해제")
+                }
+            }
             Text(range.isDragging ? "선택 중…" : "선택 완료")
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(range.isDragging ? .secondary : .primary)
