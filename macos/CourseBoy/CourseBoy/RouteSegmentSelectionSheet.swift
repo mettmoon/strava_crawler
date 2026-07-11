@@ -37,6 +37,8 @@ struct RouteSegmentSelectionSheet: View {
 struct RouteCourseBuilderSidebar: View {
     let route: Route
     @Binding var selectedSegmentIDs: Set<String>
+    /// 체크박스와 별개로 "행 선택"으로 강조 표시할 세그먼트. 지도/고도표 하이라이트에 사용.
+    var highlightedSegmentID: Binding<String?> = .constant(nil)
     var createButtonTitle = "코스 만들기"
     var createDisabled = false
     var onCreate: () -> Void
@@ -134,9 +136,8 @@ struct RouteCourseBuilderSidebar: View {
                 Text("이 경로에서 가져온 구간이 없습니다.")
             }
         } else {
-            List {
-                ForEach(route.segments.indices, id: \.self) { index in
-                    let segment = route.segments[index]
+            List(selection: highlightedSegmentID) {
+                ForEach(route.segments, id: \.segmentID) { segment in
                     SegmentSelectionRow(
                         segment: segment,
                         isSelected: Binding(
@@ -144,6 +145,7 @@ struct RouteCourseBuilderSidebar: View {
                             set: { setSegment(segment, selected: $0) }
                         )
                     )
+                    .tag(segment.segmentID)
                 }
             }
         }
@@ -274,35 +276,50 @@ private struct SegmentSelectionRow: View {
     @Binding var isSelected: Bool
 
     var body: some View {
-        Toggle(isOn: $isSelected) {
-            HStack(spacing: 12) {
+        HStack(spacing: 12) {
+            Toggle("", isOn: $isSelected)
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+
+            VStack(alignment: .trailing, spacing: 2) {
                 Text(segment.order.map(String.init) ?? "-")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
-                    .frame(width: 30, alignment: .trailing)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(segment.name)
-                        .lineLimit(1)
-                    HStack(spacing: 8) {
-                        Text(segment.distanceText ?? "-")
-                        Text(gradeText)
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if let startText = startKmText {
+                    Text(startText)
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
                 }
-
-                Spacer()
-
-                Text(kindText)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(kindColor)
-                    .frame(minWidth: 56, alignment: .trailing)
             }
-            .contentShape(Rectangle())
+            .frame(width: 44, alignment: .trailing)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(segment.name)
+                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    Text(segment.distanceText ?? "-")
+                    Text(gradeText)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Text(kindText)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(kindColor)
+                .frame(minWidth: 56, alignment: .trailing)
         }
-        .toggleStyle(.checkbox)
+        .contentShape(Rectangle())
         .padding(.vertical, 5)
+    }
+
+    private var startKmText: String? {
+        guard let km = segment.startKm else { return nil }
+        return km < 1
+            ? String(format: "%.2fkm", km)
+            : String(format: "%.1fkm", km)
     }
 
     private var gradeText: String {

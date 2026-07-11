@@ -14,6 +14,8 @@ struct ElevationChartView: View {
     var rangeSelection: Binding<ChartRangeSelection?>? = nil
     /// 그래프 클릭으로 지정한 임시 선택 위치(km). nil이면 표시되지 않는다.
     var pinnedDistanceKm: Binding<Double?>? = nil
+    /// 외부(구간 목록 등)에서 강조 표시할 거리 구간(km). 드래그 선택과 달리 인스펙터를 열지 않는다.
+    var highlightedRangeKm: ClosedRange<Double>? = nil
     /// 호버 위치에서 우클릭 → "웨이포인트 추가" 선택 시 호출. 인자: 누적 거리(km).
     var onAddCueAtHover: ((Double) -> Void)? = nil
     /// 차트 배경(아무 곳)을 클릭했을 때 호출. 큐 포커스 해제 등에 사용.
@@ -103,7 +105,8 @@ struct ElevationChartView: View {
                                       hoverInfo: hoverInfo,
                                       focusedDistanceKm: focusedDistanceKm,
                                       pinnedDistanceKm: pinnedDistanceKm?.wrappedValue,
-                                      rangeSelection: rangeSelection?.wrappedValue)
+                                      rangeSelection: rangeSelection?.wrappedValue,
+                                      highlightedRangeKm: highlightedRangeKm)
                         }
                         .frame(width: contentWidth, height: stripH + chartBodyHeight)
                         .overlay(alignment: .leading) {
@@ -326,7 +329,8 @@ struct ElevationChartView: View {
                            hoverInfo: RouteHoverInfo?,
                            focusedDistanceKm: Double?,
                            pinnedDistanceKm: Double?,
-                           rangeSelection: ChartRangeSelection?) {
+                           rangeSelection: ChartRangeSelection?,
+                           highlightedRangeKm: ClosedRange<Double>?) {
         guard let (minEle, maxEle) = eleRange, maxEle > minEle else { return }
         let eleSpan  = maxEle - minEle
         let bodyTop  = stripH
@@ -423,6 +427,23 @@ struct ElevationChartView: View {
             div.addLine(to: CGPoint(x: size.width, y: bodyTop - 0.5))
             ctx.stroke(div, with: .color(.secondary.opacity(0.2)),
                        style: StrokeStyle(lineWidth: 0.5))
+        }
+
+        // ── 외부에서 지정한 강조 구간 (구간 목록 선택) ──────────
+        if let highlightedRangeKm, highlightedRangeKm.upperBound > highlightedRangeKm.lowerBound {
+            let x1 = min(max(xPos(highlightedRangeKm.lowerBound), 0), size.width)
+            let x2 = min(max(xPos(highlightedRangeKm.upperBound), 0), size.width)
+            let bandColor = Color.cyan
+            let bandRect = CGRect(x: min(x1, x2), y: bodyTop,
+                                  width: abs(x2 - x1), height: bodyBot - bodyTop)
+            ctx.fill(Path(bandRect), with: .color(bandColor.opacity(0.18)))
+            for x in [x1, x2] {
+                var line = Path()
+                line.move(to: CGPoint(x: x, y: bodyTop))
+                line.addLine(to: CGPoint(x: x, y: bodyBot))
+                ctx.stroke(line, with: .color(bandColor.opacity(0.85)),
+                           style: StrokeStyle(lineWidth: 1.2))
+            }
         }
 
         // ── 마커 ──────────────────────────────────────────────

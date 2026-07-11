@@ -22,6 +22,7 @@ struct RouteWorkspaceView: View {
     @State private var pinnedDistanceKm: Double?
     @State private var selectedSegmentRouteID: String?
     @State private var selectedSegmentIDs: Set<String> = []
+    @State private var highlightedSegmentID: String?
 
     private var route: Route? {
         guard let id = routeID else { return nil }
@@ -87,6 +88,7 @@ struct RouteWorkspaceView: View {
             RouteCourseBuilderSidebar(
                 route: route,
                 selectedSegmentIDs: $selectedSegmentIDs,
+                highlightedSegmentID: $highlightedSegmentID,
                 createDisabled: parsedCourse == nil,
                 onCreate: {
                     makeCourseFromCurrentSelection(route: route)
@@ -123,6 +125,7 @@ struct RouteWorkspaceView: View {
             syncSegmentSelection(for: route)
             pinnedDistanceKm = nil
             rangeSelection = nil
+            highlightedSegmentID = nil
         }
         .onChange(of: route.segments.map(\.segmentID)) { _, _ in
             syncSegmentSelection(for: route)
@@ -139,10 +142,13 @@ struct RouteWorkspaceView: View {
                 Text("경로가 처리되면 지도가 표시됩니다.")
             }
         } else {
+            let highlightSegment = highlightedSegment
+            let sidebarHighlightPoints = highlightSegment.map { sliceTrackPoints(pts, for: $0) } ?? []
+            let mapHighlight = sidebarHighlightPoints.isEmpty ? highlightPoints : sidebarHighlightPoints
             VStack(spacing: 0) {
                 RouteMapView(
                     trackPoints: pts,
-                    highlightPoints: highlightPoints,
+                    highlightPoints: mapHighlight,
                     cuePoints: cuePoints(for: pts),
                     hoverInfo: $routeHoverInfo,
                     rangeSelection: rangeSelection,
@@ -157,10 +163,29 @@ struct RouteWorkspaceView: View {
                     markers: markers(for: pts),
                     hoverInfo: $routeHoverInfo,
                     rangeSelection: $rangeSelection,
-                    pinnedDistanceKm: $pinnedDistanceKm
+                    pinnedDistanceKm: $pinnedDistanceKm,
+                    highlightedRangeKm: highlightedRangeKm(for: sidebarHighlightPoints)
                 )
             }
         }
+    }
+
+    private var highlightedSegment: SegmentInfo? {
+        guard let id = highlightedSegmentID else { return nil }
+        return route?.segments.first { $0.segmentID == id }
+    }
+
+    private func sliceTrackPoints(_ pts: [TrackPoint], for seg: SegmentInfo) -> [TrackPoint] {
+        guard let sp = seg.startPoint, let ep = seg.endPoint else { return [] }
+        let startIdx = Geo.nearestIndex(pts, lat: sp[0], lon: sp[1]) ?? 0
+        let endIdx = Geo.nearestIndex(pts, lat: ep[0], lon: ep[1], startIdx: startIdx + 1) ?? (pts.count - 1)
+        guard startIdx < endIdx else { return [] }
+        return Array(pts[startIdx...endIdx])
+    }
+
+    private func highlightedRangeKm(for slice: [TrackPoint]) -> ClosedRange<Double>? {
+        guard let first = slice.first, let last = slice.last, last.cumKm > first.cumKm else { return nil }
+        return first.cumKm...last.cumKm
     }
 
     // MARK: - Cue / Marker
