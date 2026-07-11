@@ -6,13 +6,18 @@ struct SelectionInspectorStack: View {
     var trackPoints: [TrackPoint]
     var rangeSelection: ChartRangeSelection?
     var pinnedDistanceKm: Double?
+    var onClearRange: (() -> Void)? = nil
     var onClearPin: (() -> Void)? = nil
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
                 if let range = rangeSelection {
-                    RangeStatsInspectorView(trackPoints: trackPoints, range: range).content
+                    RangeStatsInspectorView(
+                        trackPoints: trackPoints,
+                        range: range,
+                        onClear: onClearRange
+                    ).content
                 }
                 if rangeSelection != nil, pinnedDistanceKm != nil {
                     Divider().padding(.horizontal, 12)
