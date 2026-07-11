@@ -102,6 +102,7 @@ struct CourseWorkspaceView: View {
             VStack(spacing: 0) {
                 RouteMapView(
                     trackPoints: pts,
+                    sectionTrackPoints: course.adjustedSectionTrackPoints,
                     highlightPoints: highlightPoints,
                     cuePoints: course.cuePoints,
                     focusedCueID: selectedCueID,

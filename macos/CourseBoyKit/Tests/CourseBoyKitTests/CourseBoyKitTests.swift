@@ -184,6 +184,35 @@ final class CuesheetIntegrationTests: XCTestCase {
         XCTAssertEqual(parsed.coursePoints[0].pointType, "Summit")
         XCTAssertEqual(parsed.coursePoints[0].notes, "manual")
     }
+
+    func testBuildCourseDataPreservesMultipleTracksWithoutGapDistance() throws {
+        let first = [
+            TrackPoint(lat: 37.0, lon: 127.0, ele: 10, time: nil, cumKm: 0),
+            TrackPoint(lat: 37.01, lon: 127.01, ele: 20, time: nil, cumKm: 1.42),
+        ]
+        let second = [
+            TrackPoint(lat: 38.0, lon: 128.0, ele: 30, time: nil, cumKm: 1.42),
+            TrackPoint(lat: 38.01, lon: 128.01, ele: 40, time: nil, cumKm: 2.83),
+        ]
+
+        let built = try TCXCourse.buildCourseData(
+            title: "Sectioned Course",
+            tracks: [first, second],
+            cuePoints: []
+        )
+        let parsed = try TCXCourse(data: built.data)
+
+        XCTAssertEqual(parsed.trackPointSections.count, 2)
+        XCTAssertEqual(parsed.trackPointSections.map(\.count), [2, 2])
+        XCTAssertEqual(parsed.trackPoints.count, 4)
+        XCTAssertEqual(parsed.trackPoints.last?.cumKm ?? 0, 2.83, accuracy: 0.02)
+
+        let doc = try XMLDocument(data: built.data)
+        let tracks = TCXCourse.allElements(
+            in: try XCTUnwrap(doc.rootElement()), localName: "Track"
+        )
+        XCTAssertEqual(tracks.count, 2)
+    }
 }
 
 final class MyRoutesTests: XCTestCase {

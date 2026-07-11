@@ -38,29 +38,48 @@ struct ElevationChartView: View {
         /// 정규화(0~1) 좌표. size, eleRange 가 바뀌어도 signature 는 유지되므로
         /// 실제 그리기 시 size 로 곱해서 재사용한다.
         var normalized: [CGPoint] = []
+        var breakBeforeIndices: Set<Int> = []
     }
 
     private func normalizedElevationPoints(minEle: Double, eleSpan: Double) -> [CGPoint] {
         // trackPoints.count + 처음/끝 좌표 + eleRange 로 시그니처.
+        let boundaryCount = zip(trackPoints, trackPoints.dropFirst()).reduce(0) { count, pair in
+            let isDifferentLocation = pair.0.lat != pair.1.lat || pair.0.lon != pair.1.lon
+            return count + (pair.1.cumKm <= pair.0.cumKm + 0.000_000_1 && isDifferentLocation ? 1 : 0)
+        }
         let sig = String(
-            format: "%d|%.4f|%.4f|%.2f|%.2f",
+            format: "%d|%.4f|%.4f|%.2f|%.2f|%d",
             trackPoints.count,
             trackPoints.first?.cumKm ?? 0,
             trackPoints.last?.cumKm ?? 0,
-            minEle, eleSpan
+            minEle, eleSpan, boundaryCount
         )
         if elevationCache.signature == sig {
             return elevationCache.normalized
         }
         var result: [CGPoint] = []
         result.reserveCapacity(trackPoints.count)
-        for tp in trackPoints {
+        var breaks: Set<Int> = []
+        var pendingBreak = false
+        for (index, tp) in trackPoints.enumerated() {
+            if index > 0 {
+                let previous = trackPoints[index - 1]
+                let isDifferentLocation = previous.lat != tp.lat || previous.lon != tp.lon
+                if tp.cumKm <= previous.cumKm + 0.000_000_1, isDifferentLocation {
+                    pendingBreak = true
+                }
+            }
             guard let e = tp.ele, totalKm > 0 else { continue }
+            if pendingBreak, !result.isEmpty {
+                breaks.insert(result.count)
+                pendingBreak = false
+            }
             let nx = tp.cumKm / totalKm
             let ny = (e - minEle) / eleSpan
             result.append(CGPoint(x: nx, y: ny))
         }
         elevationCache.normalized = result
+        elevationCache.breakBeforeIndices = breaks
         elevationCache.signature = sig
         return result
     }
@@ -357,30 +376,45 @@ struct ElevationChartView: View {
         func denormalize(_ p: CGPoint) -> CGPoint {
             CGPoint(x: p.x * size.width, y: bodyBot - vPad - p.y * vScale)
         }
-        let firstPt = denormalize(normalized[0])
-        let lastPt = denormalize(normalized.last!)
+        let groupEnds = elevationCache.breakBeforeIndices.sorted() + [normalized.count]
+        var groupStart = 0
+        for groupEnd in groupEnds where groupEnd > groupStart {
+            let firstPt = denormalize(normalized[groupStart])
+            let lastPt = denormalize(normalized[groupEnd - 1])
 
-        var fillPath = Path()
-        fillPath.move(to: CGPoint(x: firstPt.x, y: bodyBot))
-        for p in normalized {
-            fillPath.addLine(to: denormalize(p))
+            var fillPath = Path()
+            fillPath.move(to: CGPoint(x: firstPt.x, y: bodyBot))
+            for index in groupStart ..< groupEnd {
+                fillPath.addLine(to: denormalize(normalized[index]))
+            }
+            fillPath.addLine(to: CGPoint(x: lastPt.x, y: bodyBot))
+            fillPath.closeSubpath()
+            ctx.fill(fillPath, with: .linearGradient(
+                Gradient(colors: [Color.orange.opacity(0.55), Color.orange.opacity(0.12)]),
+                startPoint: CGPoint(x: 0, y: bodyTop),
+                endPoint: CGPoint(x: 0, y: bodyBot)
+            ))
+
+            if groupEnd - groupStart >= 2 {
+                var linePath = Path()
+                linePath.move(to: firstPt)
+                for index in (groupStart + 1) ..< groupEnd {
+                    linePath.addLine(to: denormalize(normalized[index]))
+                }
+                ctx.stroke(linePath, with: .color(.orange),
+                           style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+            }
+            groupStart = groupEnd
         }
-        fillPath.addLine(to: CGPoint(x: lastPt.x, y: bodyBot))
-        fillPath.closeSubpath()
 
-        ctx.fill(fillPath, with: .linearGradient(
-            Gradient(colors: [Color.orange.opacity(0.55), Color.orange.opacity(0.12)]),
-            startPoint: CGPoint(x: 0, y: bodyTop),
-            endPoint: CGPoint(x: 0, y: bodyBot)
-        ))
-
-        var linePath = Path()
-        linePath.move(to: firstPt)
-        for i in 1..<normalized.count {
-            linePath.addLine(to: denormalize(normalized[i]))
+        for breakIndex in elevationCache.breakBeforeIndices where breakIndex < normalized.count {
+            let x = denormalize(normalized[breakIndex]).x
+            var divider = Path()
+            divider.move(to: CGPoint(x: x, y: bodyTop))
+            divider.addLine(to: CGPoint(x: x, y: bodyBot))
+            ctx.stroke(divider, with: .color(.secondary.opacity(0.45)),
+                       style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
         }
-        ctx.stroke(linePath, with: .color(.orange),
-                   style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
 
         // ── 거리 눈금 ─────────────────────────────────────────
         // 픽셀/km → 눈금 간격 선택 (눈금 간격이 최소 50px 이상이 되도록)

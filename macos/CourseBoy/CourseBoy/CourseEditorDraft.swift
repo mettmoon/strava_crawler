@@ -6,10 +6,17 @@ import CourseBoyKit
 /// 모든 변경은 snapshot 기반 undo/redo를 지원한다.
 @Observable
 final class CourseEditorDraft {
-    var routePoints: [CourseRoutePoint]
-    var trackSegments: [[TrackPointCodable]]
-    var cuePoints: [CourseCuePoint]
+    var sections: [CourseSection]
+    var selectedSectionID: UUID
     var title: String
+
+    var selectedSectionIndex: Int {
+        sections.firstIndex { $0.id == selectedSectionID } ?? 0
+    }
+
+    var routePoints: [CourseRoutePoint] { sections[selectedSectionIndex].routePoints }
+    var trackSegments: [[TrackPointCodable]] { sections[selectedSectionIndex].legs.map(\.trackPoints) }
+    var cuePoints: [CourseCuePoint] { sections[selectedSectionIndex].cuePoints }
 
     let undoManager = UndoManager()
 
@@ -25,15 +32,18 @@ final class CourseEditorDraft {
     }
 
     init(from course: CourseRecord) {
-        routePoints = course.routePoints
-        trackSegments = course.trackSegments
-        cuePoints = course.cuePoints.sorted { $0.distanceMeters < $1.distanceMeters }
+        var initialSections = course.sections.isEmpty ? [CourseSection()] : course.sections
+        for index in initialSections.indices {
+            initialSections[index].cuePoints.sort { $0.distanceMeters < $1.distanceMeters }
+        }
+        let initialSectionID = initialSections[0].id
+        sections = initialSections
+        selectedSectionID = initialSectionID
         title = course.title
         initialSnapshot = Snapshot(
             title: course.title,
-            routePoints: course.routePoints,
-            trackSegments: course.trackSegments,
-            cuePoints: course.cuePoints.sorted { $0.distanceMeters < $1.distanceMeters }
+            sections: initialSections,
+            selectedSectionID: initialSectionID
         )
 
         // UndoManager 변경 시 undoCount를 갱신해 SwiftUI View가 재렌더링되도록 한다.
@@ -58,7 +68,7 @@ final class CourseEditorDraft {
     /// 매 SwiftUI body 평가마다 재계산되면 5k+ 포인트에서 심각한 낭비.
     /// trackSegments 시그니처가 바뀔 때만 재계산한다.
     var allTrackPoints: [TrackPoint] {
-        let sig = Self.trackSegmentsSignature(trackSegments)
+        let sig = selectedSectionID.uuidString + "#" + Self.trackSegmentsSignature(trackSegments)
         if sig == _allTrackPointsSignature {
             return _allTrackPointsCache
         }
@@ -103,9 +113,7 @@ final class CourseEditorDraft {
 
     /// 현재 draft 상태를 문서 모델에 반영한다.
     func commit(to course: CourseRecord) {
-        course.routePoints = routePoints
-        course.trackSegments = trackSegments
-        course.cuePoints = cuePoints
+        course.sections = sections
         course.title = normalizedTitle
     }
 
@@ -118,27 +126,27 @@ final class CourseEditorDraft {
     }
 
     var hasChanges: Bool {
-        takeSnapshot() != initialSnapshot
+        title != initialSnapshot.title || sections != initialSnapshot.sections
     }
 
     // MARK: - Snapshot undo
 
     private struct Snapshot: Equatable {
         let title: String
-        let routePoints: [CourseRoutePoint]
-        let trackSegments: [[TrackPointCodable]]
-        let cuePoints: [CourseCuePoint]
+        let sections: [CourseSection]
+        let selectedSectionID: UUID
     }
 
     private func takeSnapshot() -> Snapshot {
-        Snapshot(title: title, routePoints: routePoints, trackSegments: trackSegments, cuePoints: cuePoints)
+        Snapshot(title: title, sections: sections, selectedSectionID: selectedSectionID)
     }
 
     private func restore(_ s: Snapshot) {
         title = s.title
-        routePoints = s.routePoints
-        trackSegments = s.trackSegments
-        cuePoints = s.cuePoints
+        sections = s.sections
+        selectedSectionID = sections.contains { $0.id == s.selectedSectionID }
+            ? s.selectedSectionID
+            : sections[0].id
     }
 
     /// 변경 전 snapshot을 받아 undo/redo 쌍을 등록한다.
@@ -172,46 +180,64 @@ final class CourseEditorDraft {
 
     func appendRoutePoint(_ rp: CourseRoutePoint) {
         let old = takeSnapshot()
-        routePoints.append(rp)
+        sections[selectedSectionIndex].routePoints.append(rp)
         registerUndo(before: old, actionName: "RoutePoint 추가")
     }
 
     func appendLastSegment(_ seg: [TrackPointCodable]) {
         let old = takeSnapshot()
-        trackSegments.append(seg)
+        sections[selectedSectionIndex].legs.append(CourseLeg(kind: .routed, trackPoints: seg))
         registerUndo(before: old, actionName: "경로 추가")
     }
 
     /// RoutePoint 추가 + 구간을 하나의 undo 작업으로 묶는다.
     func appendRoutePoint(_ rp: CourseRoutePoint, segment: [TrackPointCodable]) {
         let old = takeSnapshot()
-        routePoints.append(rp)
-        trackSegments.append(segment)
+        sections[selectedSectionIndex].routePoints.append(rp)
+        sections[selectedSectionIndex].legs.append(CourseLeg(kind: .routed, trackPoints: segment))
         registerUndo(before: old, actionName: "RoutePoint 추가")
     }
 
-    func removeRoutePoint(at idx: Int) {
+    func removeRoutePoint(
+        at idx: Int,
+        joiningSegment: [TrackPointCodable]? = nil,
+        joiningKind: CourseLeg.Kind = .routed
+    ) {
         let old = takeSnapshot()
-        routePoints.remove(at: idx)
+        let originalRoutePointCount = routePoints.count
+        let wasMiddlePoint = idx > 0 && idx < originalRoutePointCount - 1
+        sections[selectedSectionIndex].routePoints.remove(at: idx)
         if routePoints.count <= 1 {
-            trackSegments = []
+            sections[selectedSectionIndex].legs = []
+        } else if wasMiddlePoint {
+            // 양쪽 leg를 제거하고 새 연결 leg 하나로 대체한다.
+            sections[selectedSectionIndex].legs.remove(at: idx)
+            sections[selectedSectionIndex].legs.remove(at: idx - 1)
+            if let joiningSegment {
+                sections[selectedSectionIndex].legs.insert(
+                    CourseLeg(kind: joiningKind, trackPoints: joiningSegment),
+                    at: idx - 1
+                )
+            }
         } else {
             let segIdx = max(0, idx - 1)
-            if segIdx < trackSegments.count { trackSegments.remove(at: segIdx) }
+            if segIdx < sections[selectedSectionIndex].legs.count {
+                sections[selectedSectionIndex].legs.remove(at: segIdx)
+            }
         }
         registerUndo(before: old, actionName: "RoutePoint 삭제")
     }
 
     func moveRoutePoint(at idx: Int, to newRP: CourseRoutePoint, updatedSegments: [[TrackPointCodable]]) {
         let old = takeSnapshot()
-        routePoints[idx] = newRP
-        trackSegments = updatedSegments
+        sections[selectedSectionIndex].routePoints[idx] = newRP
+        replaceLegTrackPoints(updatedSegments)
         registerUndo(before: old, actionName: "RoutePoint 이동")
     }
 
     func replaceSegments(_ newSegments: [[TrackPointCodable]]) {
         let old = takeSnapshot()
-        trackSegments = newSegments
+        replaceLegTrackPoints(newSegments)
         registerUndo(before: old, actionName: "경로 재계산")
     }
 
@@ -219,22 +245,340 @@ final class CourseEditorDraft {
 
     func appendCuePoint(_ cue: CourseCuePoint) {
         let old = takeSnapshot()
-        cuePoints.append(cue)
-        cuePoints.sort { $0.distanceMeters < $1.distanceMeters }
+        sections[selectedSectionIndex].cuePoints.append(cue)
+        sections[selectedSectionIndex].cuePoints.sort { $0.distanceMeters < $1.distanceMeters }
         registerUndo(before: old, actionName: "큐시트 추가")
     }
 
     func removeCuePoints(at offsets: IndexSet) {
         let old = takeSnapshot()
-        cuePoints.remove(atOffsets: offsets)
+        sections[selectedSectionIndex].cuePoints.remove(atOffsets: offsets)
         registerUndo(before: old, actionName: "큐시트 삭제")
     }
 
     func updateCuePoint(_ cue: CourseCuePoint) {
         guard let idx = cuePoints.firstIndex(where: { $0.id == cue.id }) else { return }
         let old = takeSnapshot()
-        cuePoints[idx] = cue
-        cuePoints.sort { $0.distanceMeters < $1.distanceMeters }
+        sections[selectedSectionIndex].cuePoints[idx] = cue
+        sections[selectedSectionIndex].cuePoints.sort { $0.distanceMeters < $1.distanceMeters }
         registerUndo(before: old, actionName: "큐시트 수정")
+    }
+
+    // MARK: - 섹션 변경
+
+    func selectSection(_ id: UUID) {
+        guard sections.contains(where: { $0.id == id }) else { return }
+        selectedSectionID = id
+    }
+
+    func addSection() {
+        let old = takeSnapshot()
+        let newSection = CourseSection()
+        let insertIndex = selectedSectionIndex + 1
+        sections.insert(newSection, at: insertIndex)
+        selectedSectionID = newSection.id
+        registerUndo(before: old, actionName: "섹션 추가")
+    }
+
+    func deleteSelectedSection() {
+        let old = takeSnapshot()
+        let index = selectedSectionIndex
+        if sections.count == 1 {
+            let empty = CourseSection(id: sections[0].id)
+            sections = [empty]
+            selectedSectionID = empty.id
+        } else {
+            sections.remove(at: index)
+            selectedSectionID = sections[min(index, sections.count - 1)].id
+        }
+        registerUndo(before: old, actionName: "섹션 삭제")
+    }
+
+    var canMergeSelectedWithNext: Bool { selectedSectionIndex + 1 < sections.count }
+
+    var selectedSectionCourseStartKm: Double {
+        sections.prefix(selectedSectionIndex).reduce(0) { $0 + $1.distanceKm }
+    }
+
+    var selectedSectionCourseRangeKm: ClosedRange<Double> {
+        let start = selectedSectionCourseStartKm
+        return start ... (start + sections[selectedSectionIndex].distanceKm)
+    }
+
+    func courseStartKm(forSectionAt index: Int) -> Double {
+        guard index > 0 else { return 0 }
+        return sections.prefix(index).reduce(0) { $0 + $1.distanceKm }
+    }
+
+    func sectionIndex(containingCourseDistanceKm distanceKm: Double) -> Int? {
+        guard distanceKm >= 0, !sections.isEmpty else { return nil }
+        var start = 0.0
+        for index in sections.indices {
+            let end = start + sections[index].distanceKm
+            if distanceKm >= start,
+               distanceKm < end || (index == sections.count - 1 && distanceKm <= end) {
+                return index
+            }
+            start = end
+        }
+        return nil
+    }
+
+    func selectedSectionLocalDistanceKm(forCourseDistanceKm distanceKm: Double) -> Double? {
+        let range = selectedSectionCourseRangeKm
+        guard distanceKm >= range.lowerBound - 0.000_001,
+              distanceKm <= range.upperBound + 0.000_001 else { return nil }
+        return min(max(distanceKm - range.lowerBound, 0), range.upperBound - range.lowerBound)
+    }
+
+    func courseDistanceKm(forSelectedSectionLocalDistanceKm distanceKm: Double) -> Double {
+        selectedSectionCourseStartKm + distanceKm
+    }
+
+    func mergeSelectedWithNext() {
+        guard canMergeSelectedWithNext else { return }
+        let old = takeSnapshot()
+        let index = selectedSectionIndex
+        var left = sections[index]
+        let right = sections[index + 1]
+
+        if left.routePoints.isEmpty {
+            left.routePoints = right.routePoints
+            left.legs = right.legs
+            left.cuePoints = right.cuePoints
+        } else if !right.routePoints.isEmpty {
+            let leftDistanceMeters = left.distanceKm * 1000
+            let from = left.routePoints[left.routePoints.count - 1]
+            let to = right.routePoints[0]
+            let bridgeDistanceKm = Geo.haversineKm(from.lat, from.lon, to.lat, to.lon)
+            let bridge = CourseLeg(
+                kind: .straight,
+                trackPoints: [
+                    TrackPointCodable(
+                        lat: from.lat, lon: from.lon,
+                        ele: left.trackPoints.last?.ele,
+                        cumKm: 0
+                    ),
+                    TrackPointCodable(
+                        lat: to.lat, lon: to.lon,
+                        ele: right.trackPoints.first?.ele,
+                        cumKm: bridgeDistanceKm
+                    ),
+                ]
+            )
+            left.routePoints.append(contentsOf: right.routePoints)
+            left.legs.append(bridge)
+            left.legs.append(contentsOf: right.legs)
+            let cueOffset = leftDistanceMeters + bridgeDistanceKm * 1000
+            left.cuePoints.append(contentsOf: right.cuePoints.map { cue in
+                var copy = cue
+                copy.distanceMeters += cueOffset
+                return copy
+            })
+            left.cuePoints.sort { $0.distanceMeters < $1.distanceMeters }
+        }
+
+        sections[index] = left
+        sections.remove(at: index + 1)
+        selectedSectionID = left.id
+        registerUndo(before: old, actionName: "섹션 합치기")
+    }
+
+    /// 활성 섹션을 지정한 로컬 누적 거리에서 둘로 나눈다.
+    @discardableResult
+    func splitSelectedSection(atDistanceKm distanceKm: Double) -> Bool {
+        let index = selectedSectionIndex
+        let section = sections[index]
+        let epsilon = 0.000_001
+        guard section.routePoints.count >= 2,
+              distanceKm > epsilon,
+              distanceKm < section.distanceKm - epsilon else { return false }
+
+        var legStartKm = 0.0
+        for legIndex in section.legs.indices {
+            let leg = section.legs[legIndex]
+            let legDistanceKm = Self.distanceKm(of: leg.trackPoints)
+            let legEndKm = legStartKm + legDistanceKm
+
+            if abs(distanceKm - legStartKm) <= epsilon, legIndex > 0 {
+                split(section: section, sectionIndex: index, atRoutePoint: legIndex, distanceKm: distanceKm)
+                return true
+            }
+            if abs(distanceKm - legEndKm) <= epsilon, legIndex + 1 < section.routePoints.count - 1 {
+                split(section: section, sectionIndex: index, atRoutePoint: legIndex + 1, distanceKm: distanceKm)
+                return true
+            }
+            if distanceKm > legStartKm, distanceKm < legEndKm,
+               let splitLegs = Self.split(leg: leg, atDistanceKm: distanceKm - legStartKm) {
+                let old = takeSnapshot()
+                let splitPoint = splitLegs.point
+                let leftRoutePoint = CourseRoutePoint(lat: splitPoint.lat, lon: splitPoint.lon)
+                let rightRoutePoint = CourseRoutePoint(lat: splitPoint.lat, lon: splitPoint.lon)
+
+                let left = CourseSection(
+                    id: section.id,
+                    routePoints: Array(section.routePoints.prefix(legIndex + 1)) + [leftRoutePoint],
+                    legs: Array(section.legs.prefix(legIndex)) + [splitLegs.left],
+                    cuePoints: section.cuePoints.filter { $0.distanceMeters < distanceKm * 1000 }
+                )
+                let right = CourseSection(
+                    routePoints: [rightRoutePoint] + Array(section.routePoints.suffix(from: legIndex + 1)),
+                    legs: [splitLegs.right] + Array(section.legs.suffix(from: legIndex + 1)),
+                    cuePoints: shiftedRightCues(section.cuePoints, splitMeters: distanceKm * 1000)
+                )
+                sections[index] = left
+                sections.insert(right, at: index + 1)
+                selectedSectionID = right.id
+                registerUndo(before: old, actionName: "섹션 분할")
+                return true
+            }
+            legStartKm = legEndKm
+        }
+        return false
+    }
+
+    var allCourseTrackPoints: [TrackPoint] {
+        var result: [TrackPoint] = []
+        var offset = 0.0
+        for section in sections {
+            for point in section.trackPoints {
+                result.append(TrackPoint(
+                    lat: point.lat, lon: point.lon, ele: point.ele, time: point.time,
+                    cumKm: offset + point.cumKm
+                ))
+            }
+            offset += section.distanceKm
+        }
+        return result
+    }
+
+    var allCourseSectionTrackPoints: [[TrackPoint]] {
+        var offset = 0.0
+        return sections.map { section in
+            let points = section.trackPoints.map { point in
+                TrackPoint(
+                    lat: point.lat, lon: point.lon, ele: point.ele, time: point.time,
+                    cumKm: offset + point.cumKm
+                )
+            }
+            offset += section.distanceKm
+            return points
+        }
+    }
+
+    var allCourseCuePoints: [CourseCuePoint] {
+        var result: [CourseCuePoint] = []
+        var offsetMeters = 0.0
+        for section in sections {
+            result.append(contentsOf: section.cuePoints.map { cue in
+                var copy = cue
+                copy.distanceMeters += offsetMeters
+                return copy
+            })
+            offsetMeters += section.distanceKm * 1000
+        }
+        return result.sorted { $0.distanceMeters < $1.distanceMeters }
+    }
+
+    private func replaceLegTrackPoints(_ points: [[TrackPointCodable]]) {
+        var legs = sections[selectedSectionIndex].legs
+        if legs.count == points.count {
+            for index in points.indices { legs[index].trackPoints = points[index] }
+        } else {
+            legs = points.map { CourseLeg(kind: .routed, trackPoints: $0) }
+        }
+        sections[selectedSectionIndex].legs = legs
+    }
+
+    private func split(
+        section: CourseSection,
+        sectionIndex: Int,
+        atRoutePoint routePointIndex: Int,
+        distanceKm: Double
+    ) {
+        let old = takeSnapshot()
+        var rightStart = section.routePoints[routePointIndex]
+        rightStart.id = UUID()
+        let left = CourseSection(
+            id: section.id,
+            routePoints: Array(section.routePoints.prefix(routePointIndex + 1)),
+            legs: Array(section.legs.prefix(routePointIndex)),
+            cuePoints: section.cuePoints.filter { $0.distanceMeters < distanceKm * 1000 }
+        )
+        let right = CourseSection(
+            routePoints: [rightStart] + Array(section.routePoints.suffix(from: routePointIndex + 1)),
+            legs: Array(section.legs.suffix(from: routePointIndex)),
+            cuePoints: shiftedRightCues(section.cuePoints, splitMeters: distanceKm * 1000)
+        )
+        sections[sectionIndex] = left
+        sections.insert(right, at: sectionIndex + 1)
+        selectedSectionID = right.id
+        registerUndo(before: old, actionName: "섹션 분할")
+    }
+
+    private func shiftedRightCues(_ cues: [CourseCuePoint], splitMeters: Double) -> [CourseCuePoint] {
+        cues.filter { $0.distanceMeters >= splitMeters }.map { cue in
+            var copy = cue
+            copy.distanceMeters -= splitMeters
+            return copy
+        }
+    }
+
+    private static func distanceKm(of points: [TrackPointCodable]) -> Double {
+        guard points.count > 1 else { return 0 }
+        return (1 ..< points.count).reduce(0) { distance, index in
+            let previous = points[index - 1]
+            let current = points[index]
+            return distance + Geo.haversineKm(previous.lat, previous.lon, current.lat, current.lon)
+        }
+    }
+
+    private static func split(
+        leg: CourseLeg,
+        atDistanceKm targetKm: Double
+    ) -> (left: CourseLeg, right: CourseLeg, point: TrackPointCodable)? {
+        let points = leg.trackPoints
+        guard points.count >= 2 else { return nil }
+        var distance = 0.0
+        for index in 1 ..< points.count {
+            let previous = points[index - 1]
+            let current = points[index]
+            let segmentDistance = Geo.haversineKm(previous.lat, previous.lon, current.lat, current.lon)
+            guard segmentDistance > 0 else { continue }
+            if distance + segmentDistance >= targetKm {
+                let fraction = min(1, max(0, (targetKm - distance) / segmentDistance))
+                let elevation: Double? = {
+                    guard let a = previous.ele, let b = current.ele else { return previous.ele ?? current.ele }
+                    return a + (b - a) * fraction
+                }()
+                let point = TrackPointCodable(
+                    lat: previous.lat + (current.lat - previous.lat) * fraction,
+                    lon: previous.lon + (current.lon - previous.lon) * fraction,
+                    ele: elevation,
+                    cumKm: targetKm
+                )
+                let leftPoints: [TrackPointCodable]
+                let rightPoints: [TrackPointCodable]
+                if fraction >= 1 - 0.000_000_001 {
+                    leftPoints = Array(points.prefix(index + 1))
+                    rightPoints = Array(points.suffix(from: index)).enumerated().map { offset, value in
+                        var copy = value
+                        if offset == 0 { copy.cumKm = 0 }
+                        return copy
+                    }
+                } else {
+                    leftPoints = Array(points.prefix(index)) + [point]
+                    rightPoints = [TrackPointCodable(lat: point.lat, lon: point.lon, ele: point.ele, cumKm: 0)]
+                        + Array(points.suffix(from: index))
+                }
+                return (
+                    CourseLeg(kind: leg.kind, trackPoints: leftPoints),
+                    CourseLeg(kind: leg.kind, trackPoints: rightPoints),
+                    point
+                )
+            }
+            distance += segmentDistance
+        }
+        return nil
     }
 }

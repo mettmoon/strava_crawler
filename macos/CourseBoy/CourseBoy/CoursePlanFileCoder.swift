@@ -18,7 +18,8 @@ enum CoursePlanFileError: Error, LocalizedError {
 }
 
 enum CoursePlanFileCoder {
-    private static let currentVersion = "1"
+    private static let currentVersion = "2"
+    private static let supportedVersions: Set<String> = ["1", "2"]
 
     static func makeRecord(from data: Data) throws -> CourseRecord {
         let doc = try XMLDocument(data: data)
@@ -27,7 +28,7 @@ enum CoursePlanFileCoder {
         }
 
         let version = root.attribute(forName: "version")?.stringValue ?? "1"
-        guard version == currentVersion else {
+        guard supportedVersions.contains(version) else {
             throw CoursePlanFileError.unsupportedVersion(version)
         }
 
@@ -39,41 +40,16 @@ enum CoursePlanFileCoder {
         course.sourceRouteID = nonEmpty(textChild(of: metadata, named: "SourceRouteID"))
         course.sourceFilePath = nonEmpty(textChild(of: metadata, named: "SourceFilePath"))
 
-        if let routePoints = firstChild(of: root, named: "RoutePoints") {
-            course.routePoints = children(of: routePoints, named: "RoutePoint").map { element in
-                CourseRoutePoint(
-                    id: uuidAttribute(of: element, named: "id") ?? UUID(),
-                    lat: doubleAttribute(of: element, named: "lat") ?? 0,
-                    lon: doubleAttribute(of: element, named: "lon") ?? 0
-                )
-            }
-        }
-
-        if let trackSegments = firstChild(of: root, named: "TrackSegments") {
-            course.trackSegments = children(of: trackSegments, named: "TrackSegment").map { segment in
-                children(of: segment, named: "TrackPoint").map { point in
-                    TrackPointCodable(
-                        lat: doubleAttribute(of: point, named: "lat") ?? 0,
-                        lon: doubleAttribute(of: point, named: "lon") ?? 0,
-                        ele: doubleAttribute(of: point, named: "ele"),
-                        cumKm: doubleAttribute(of: point, named: "cumKm") ?? 0
-                    )
-                }
-            }
-        }
-
-        if let cuePoints = firstChild(of: root, named: "CuePoints") {
-            course.cuePoints = children(of: cuePoints, named: "CuePoint").map { element in
-                CourseCuePoint(
-                    id: uuidAttribute(of: element, named: "id") ?? UUID(),
-                    lat: doubleAttribute(of: element, named: "lat") ?? 0,
-                    lon: doubleAttribute(of: element, named: "lon") ?? 0,
-                    name: textChild(of: element, named: "Name") ?? "",
-                    pointType: element.attribute(forName: "pointType")?.stringValue ?? "Straight",
-                    notes: textChild(of: element, named: "Notes") ?? "",
-                    distanceMeters: doubleAttribute(of: element, named: "distanceMeters") ?? 0
-                )
-            }
+        if version == "2", let sections = firstChild(of: root, named: "Sections") {
+            course.sections = children(of: sections, named: "Section").map(parseSection)
+            if course.sections.isEmpty { course.sections = [CourseSection()] }
+        } else {
+            // v1은 코스 전체를 섹션 하나로 감싸서 읽는다.
+            let routePoints = parseRoutePoints(firstChild(of: root, named: "RoutePoints"))
+            let legs = children(of: firstChild(of: root, named: "TrackSegments"), named: "TrackSegment")
+                .map { CourseLeg(kind: .routed, trackPoints: parseTrackPoints($0)) }
+            let cuePoints = parseCuePoints(firstChild(of: root, named: "CuePoints"))
+            course.sections = [CourseSection(routePoints: routePoints, legs: legs, cuePoints: cuePoints)]
         }
 
         return course
@@ -95,51 +71,117 @@ enum CoursePlanFileCoder {
         }
         root.addChild(metadata)
 
-        let routePoints = XMLElement(name: "RoutePoints")
-        for point in course.routePoints {
-            let element = XMLElement(name: "RoutePoint")
-            element.addAttribute(attribute("id", point.id.uuidString))
-            element.addAttribute(attribute("lat", decimal(point.lat, places: 7)))
-            element.addAttribute(attribute("lon", decimal(point.lon, places: 7)))
-            routePoints.addChild(element)
-        }
-        root.addChild(routePoints)
+        let sections = XMLElement(name: "Sections")
+        for section in course.sections {
+            let sectionElement = XMLElement(name: "Section")
+            sectionElement.addAttribute(attribute("id", section.id.uuidString))
 
-        let trackSegments = XMLElement(name: "TrackSegments")
-        for segment in course.trackSegments {
-            let segmentElement = XMLElement(name: "TrackSegment")
-            for point in segment {
-                let element = XMLElement(name: "TrackPoint")
+            let routePoints = XMLElement(name: "RoutePoints")
+            for point in section.routePoints {
+                let element = XMLElement(name: "RoutePoint")
+                element.addAttribute(attribute("id", point.id.uuidString))
                 element.addAttribute(attribute("lat", decimal(point.lat, places: 7)))
                 element.addAttribute(attribute("lon", decimal(point.lon, places: 7)))
-                if let ele = point.ele {
-                    element.addAttribute(attribute("ele", decimal(ele, places: 2)))
-                }
-                element.addAttribute(attribute("cumKm", decimal(point.cumKm, places: 6)))
-                segmentElement.addChild(element)
+                routePoints.addChild(element)
             }
-            trackSegments.addChild(segmentElement)
-        }
-        root.addChild(trackSegments)
+            sectionElement.addChild(routePoints)
 
-        let cuePoints = XMLElement(name: "CuePoints")
-        for cue in course.cuePoints {
-            let element = XMLElement(name: "CuePoint")
-            element.addAttribute(attribute("id", cue.id.uuidString))
-            element.addAttribute(attribute("lat", decimal(cue.lat, places: 7)))
-            element.addAttribute(attribute("lon", decimal(cue.lon, places: 7)))
-            element.addAttribute(attribute("pointType", cue.pointType))
-            element.addAttribute(attribute("distanceMeters", decimal(cue.distanceMeters, places: 2)))
-            element.addChild(textElement("Name", cue.name))
-            element.addChild(textElement("Notes", cue.notes))
-            cuePoints.addChild(element)
+            let legs = XMLElement(name: "Legs")
+            for leg in section.legs {
+                let legElement = XMLElement(name: "Leg")
+                legElement.addAttribute(attribute("id", leg.id.uuidString))
+                legElement.addAttribute(attribute("kind", leg.kind.rawValue))
+                appendTrackPoints(leg.trackPoints, to: legElement)
+                legs.addChild(legElement)
+            }
+            sectionElement.addChild(legs)
+
+            let cuePoints = XMLElement(name: "CuePoints")
+            for cue in section.cuePoints {
+                let element = XMLElement(name: "CuePoint")
+                element.addAttribute(attribute("id", cue.id.uuidString))
+                element.addAttribute(attribute("lat", decimal(cue.lat, places: 7)))
+                element.addAttribute(attribute("lon", decimal(cue.lon, places: 7)))
+                element.addAttribute(attribute("pointType", cue.pointType))
+                element.addAttribute(attribute("distanceMeters", decimal(cue.distanceMeters, places: 2)))
+                element.addChild(textElement("Name", cue.name))
+                element.addChild(textElement("Notes", cue.notes))
+                cuePoints.addChild(element)
+            }
+            sectionElement.addChild(cuePoints)
+            sections.addChild(sectionElement)
         }
-        root.addChild(cuePoints)
+        root.addChild(sections)
 
         let doc = XMLDocument(rootElement: root)
         doc.characterEncoding = "UTF-8"
         doc.version = "1.0"
         return doc.xmlData(options: [.nodePrettyPrint])
+    }
+
+    private static func parseSection(_ element: XMLElement) -> CourseSection {
+        let routePoints = parseRoutePoints(firstChild(of: element, named: "RoutePoints"))
+        let legs = children(of: firstChild(of: element, named: "Legs"), named: "Leg").map { leg in
+            CourseLeg(
+                id: uuidAttribute(of: leg, named: "id") ?? UUID(),
+                kind: CourseLeg.Kind(rawValue: leg.attribute(forName: "kind")?.stringValue ?? "") ?? .routed,
+                trackPoints: parseTrackPoints(leg)
+            )
+        }
+        return CourseSection(
+            id: uuidAttribute(of: element, named: "id") ?? UUID(),
+            routePoints: routePoints,
+            legs: legs,
+            cuePoints: parseCuePoints(firstChild(of: element, named: "CuePoints"))
+        )
+    }
+
+    private static func parseRoutePoints(_ element: XMLElement?) -> [CourseRoutePoint] {
+        children(of: element, named: "RoutePoint").map { point in
+            CourseRoutePoint(
+                id: uuidAttribute(of: point, named: "id") ?? UUID(),
+                lat: doubleAttribute(of: point, named: "lat") ?? 0,
+                lon: doubleAttribute(of: point, named: "lon") ?? 0
+            )
+        }
+    }
+
+    private static func parseTrackPoints(_ element: XMLElement?) -> [TrackPointCodable] {
+        children(of: element, named: "TrackPoint").map { point in
+            TrackPointCodable(
+                lat: doubleAttribute(of: point, named: "lat") ?? 0,
+                lon: doubleAttribute(of: point, named: "lon") ?? 0,
+                ele: doubleAttribute(of: point, named: "ele"),
+                cumKm: doubleAttribute(of: point, named: "cumKm") ?? 0
+            )
+        }
+    }
+
+    private static func parseCuePoints(_ element: XMLElement?) -> [CourseCuePoint] {
+        children(of: element, named: "CuePoint").map { cue in
+            CourseCuePoint(
+                id: uuidAttribute(of: cue, named: "id") ?? UUID(),
+                lat: doubleAttribute(of: cue, named: "lat") ?? 0,
+                lon: doubleAttribute(of: cue, named: "lon") ?? 0,
+                name: textChild(of: cue, named: "Name") ?? "",
+                pointType: cue.attribute(forName: "pointType")?.stringValue ?? "Straight",
+                notes: textChild(of: cue, named: "Notes") ?? "",
+                distanceMeters: doubleAttribute(of: cue, named: "distanceMeters") ?? 0
+            )
+        }
+    }
+
+    private static func appendTrackPoints(_ points: [TrackPointCodable], to parent: XMLElement) {
+        for point in points {
+            let element = XMLElement(name: "TrackPoint")
+            element.addAttribute(attribute("lat", decimal(point.lat, places: 7)))
+            element.addAttribute(attribute("lon", decimal(point.lon, places: 7)))
+            if let ele = point.ele {
+                element.addAttribute(attribute("ele", decimal(ele, places: 2)))
+            }
+            element.addAttribute(attribute("cumKm", decimal(point.cumKm, places: 6)))
+            parent.addChild(element)
+        }
     }
 
     private static func textElement(_ name: String, _ value: String) -> XMLElement {

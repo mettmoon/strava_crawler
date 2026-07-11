@@ -19,32 +19,56 @@ enum CourseGPXFileCoder {
     static func makeRecord(from data: Data, fallbackTitle: String, sourceFilePath: String? = nil) throws -> CourseRecord {
         let gpxCourse = try ParsedGPXCourse(data: data)
         let title = normalizedTitle(gpxCourse.title, fallback: fallbackTitle)
-        let trackPoints = gpxCourse.trackPoints
-
         let course = CourseRecord(title: title, sourceFilePath: sourceFilePath)
-        if let first = trackPoints.first, let last = trackPoints.last {
-            course.routePoints = [
-                CourseRoutePoint(lat: first.lat, lon: first.lon),
-                CourseRoutePoint(lat: last.lat, lon: last.lon),
-            ]
-            course.trackSegments = [trackPoints.map(TrackPointCodable.init)]
+        course.sections = gpxCourse.trackPointSections.compactMap { points in
+            guard let first = points.first, let last = points.last else { return nil }
+            return CourseSection(
+                routePoints: [
+                    CourseRoutePoint(lat: first.lat, lon: first.lon),
+                    CourseRoutePoint(lat: last.lat, lon: last.lon),
+                ],
+                legs: [CourseLeg(kind: .routed, trackPoints: points.map(TrackPointCodable.init))]
+            )
         }
+        if course.sections.isEmpty { course.sections = [CourseSection()] }
 
-        course.cuePoints = gpxCourse.cuePoints.map { point in
-            let nearestIndex = Geo.nearestIndex(trackPoints, lat: point.lat, lon: point.lon)
-            let distanceMeters = nearestIndex.map { trackPoints[$0].cumKm * 1000 } ?? 0
-            return CourseCuePoint(
+        for point in gpxCourse.cuePoints {
+            guard let match = nearestSectionMatch(
+                in: gpxCourse.trackPointSections, lat: point.lat, lon: point.lon
+            ) else { continue }
+            course.sections[match.sectionIndex].cuePoints.append(CourseCuePoint(
                 lat: point.lat,
                 lon: point.lon,
                 name: point.name,
                 pointType: point.pointType,
                 notes: point.notes,
-                distanceMeters: distanceMeters
-            )
+                distanceMeters: match.point.cumKm * 1000
+            ))
         }
-        .sorted { $0.distanceMeters < $1.distanceMeters }
+        for index in course.sections.indices {
+            course.sections[index].cuePoints.sort { $0.distanceMeters < $1.distanceMeters }
+        }
 
         return course
+    }
+
+    private static func nearestSectionMatch(
+        in sections: [[TrackPoint]],
+        lat: Double,
+        lon: Double
+    ) -> (sectionIndex: Int, point: TrackPoint)? {
+        var best: (sectionIndex: Int, point: TrackPoint)?
+        var bestDistance = Double.infinity
+        for (sectionIndex, points) in sections.enumerated() {
+            guard let pointIndex = Geo.nearestIndex(points, lat: lat, lon: lon) else { continue }
+            let point = points[pointIndex]
+            let distance = Geo.haversineKm(lat, lon, point.lat, point.lon)
+            if distance < bestDistance {
+                bestDistance = distance
+                best = (sectionIndex, point)
+            }
+        }
+        return best
     }
 
     private static func normalizedTitle(_ title: String?, fallback: String) -> String {
@@ -66,6 +90,7 @@ private struct ParsedGPXCourse {
 
     let title: String?
     let trackPoints: [TrackPoint]
+    let trackPointSections: [[TrackPoint]]
     let cuePoints: [CuePoint]
 
     init(data: Data) throws {
@@ -76,10 +101,11 @@ private struct ParsedGPXCourse {
         }
 
         title = Self.parseTitle(in: root)
-        let rawTrackPoints = Self.parseTrackPointCandidates(in: root)
-        guard !rawTrackPoints.isEmpty else { throw CourseGPXFileError.noTrackpoints }
+        let rawSections = Self.parseTrackPointCandidateSections(in: root)
+        guard !rawSections.isEmpty else { throw CourseGPXFileError.noTrackpoints }
 
-        trackPoints = Self.trackPoints(from: rawTrackPoints)
+        trackPointSections = rawSections.map(Self.trackPoints(from:))
+        trackPoints = Self.flatten(trackPointSections)
         cuePoints = Self.parseCuePoints(in: root)
     }
 
@@ -105,27 +131,30 @@ private struct ParsedGPXCourse {
         return firstNonEmpty(trackName, routeName, metadataName)
     }
 
-    private static func parseTrackPointCandidates(in root: XMLElement) -> [PointCandidate] {
-        var points: [PointCandidate] = []
+    private static func parseTrackPointCandidateSections(in root: XMLElement) -> [[PointCandidate]] {
+        var result: [[PointCandidate]] = []
 
         for track in allElements(in: root, localName: "trk") {
             let segments = directChildren(of: track, named: "trkseg")
             if segments.isEmpty {
-                points.append(contentsOf: allElements(in: track, localName: "trkpt").compactMap(parsePoint))
+                let points = allElements(in: track, localName: "trkpt").compactMap(parsePoint)
+                if !points.isEmpty { result.append(points) }
             } else {
                 for segment in segments {
-                    points.append(contentsOf: directChildren(of: segment, named: "trkpt").compactMap(parsePoint))
+                    let points = directChildren(of: segment, named: "trkpt").compactMap(parsePoint)
+                    if !points.isEmpty { result.append(points) }
                 }
             }
         }
 
-        if points.isEmpty {
+        if result.isEmpty {
             for route in allElements(in: root, localName: "rte") {
-                points.append(contentsOf: directChildren(of: route, named: "rtept").compactMap(parsePoint))
+                let points = directChildren(of: route, named: "rtept").compactMap(parsePoint)
+                if !points.isEmpty { result.append(points) }
             }
         }
 
-        return points
+        return result
     }
 
     private static func trackPoints(from candidates: [PointCandidate]) -> [TrackPoint] {
@@ -147,6 +176,21 @@ private struct ParsedGPXCourse {
             previous = point
         }
 
+        return result
+    }
+
+    private static func flatten(_ sections: [[TrackPoint]]) -> [TrackPoint] {
+        var result: [TrackPoint] = []
+        var offset = 0.0
+        for section in sections {
+            result.append(contentsOf: section.map { point in
+                TrackPoint(
+                    lat: point.lat, lon: point.lon, ele: point.ele, time: point.time,
+                    cumKm: offset + point.cumKm
+                )
+            })
+            offset += section.last?.cumKm ?? 0
+        }
         return result
     }
 

@@ -161,9 +161,9 @@ struct CourseCueInspectorView: View {
 
             section(title: "주행 요약", icon: "speedometer") {
                 infoRow("총 거리", value: formatKm(totalKm))
-                infoRow("획득고도", value: formatEle(elevation.ascent), valueColor: .red)
-                infoRow("누적 하강", value: formatEle(elevation.descent), valueColor: .blue)
-                infoRow("상승 밀도", value: formatElevationDensity(elevation.ascent, totalKm: totalKm))
+                infoRow("획득고도", value: formatEle(course.totalElevationGainM), valueColor: .red)
+                infoRow("누적 하강", value: formatEle(course.totalElevationLossM), valueColor: .blue)
+                infoRow("상승 밀도", value: formatElevationDensity(course.totalElevationGainM, totalKm: totalKm))
             }
 
             section(title: "고도 범위", icon: "mountain.2") {
@@ -175,6 +175,7 @@ struct CourseCueInspectorView: View {
             }
 
             section(title: "경로 구성", icon: "point.3.connected.trianglepath.dotted") {
+                infoRow("섹션", value: formatCount(course.sections.count))
                 infoRow("경유지", value: formatCount(course.routePoints.count))
                 infoRow("트랙 구간", value: formatCount(course.trackSegments.count))
                 infoRow("트랙 포인트", value: formatCount(pts.count))
