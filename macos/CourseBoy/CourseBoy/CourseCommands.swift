@@ -10,6 +10,13 @@ struct CourseCommands: Commands {
             }
             .disabled(handler == nil)
             .keyboardShortcut("E", modifiers: [.command])
+
+            Divider()
+
+            Button("구간정보 복사하기") {
+                handler?.copySegmentInfo()
+            }
+            .disabled(handler?.canCopySegmentInfo != true)
         }
     }
 }

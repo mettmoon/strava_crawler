@@ -159,8 +159,20 @@ struct CourseWorkspaceView: View {
 
     private func makeHandler() -> CourseCommandHandler? {
         return CourseCommandHandler(
-            edit: onEdit
+            edit: onEdit,
+            copySegmentInfo: { copySegmentInfoToPasteboard(course) },
+            canCopySegmentInfo: !course.segmentSnapshots.isEmpty
         )
+    }
+
+    private func copySegmentInfoToPasteboard(_ course: CourseRecord) {
+        let text = course.segmentClipboardText
+        guard !text.isEmpty else { NSSound.beep(); return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        if !pasteboard.setString(text, forType: .string) {
+            NSSound.beep()
+        }
     }
 
     private func makeFileHandler() -> CourseFileCommandHandler? {

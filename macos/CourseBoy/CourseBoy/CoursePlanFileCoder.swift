@@ -18,8 +18,8 @@ enum CoursePlanFileError: Error, LocalizedError {
 }
 
 enum CoursePlanFileCoder {
-    private static let currentVersion = "2"
-    private static let supportedVersions: Set<String> = ["1", "2"]
+    private static let currentVersion = "3"
+    private static let supportedVersions: Set<String> = ["1", "2", "3"]
 
     static func makeRecord(from data: Data) throws -> CourseRecord {
         let doc = try XMLDocument(data: data)
@@ -39,8 +39,9 @@ enum CoursePlanFileCoder {
         course.createdAt = dateChild(of: metadata, named: "CreatedAt") ?? Date()
         course.sourceRouteID = nonEmpty(textChild(of: metadata, named: "SourceRouteID"))
         course.sourceFilePath = nonEmpty(textChild(of: metadata, named: "SourceFilePath"))
+        course.segmentSnapshots = parseSegmentSnapshots(firstChild(of: root, named: "Segments"))
 
-        if version == "2", let sections = firstChild(of: root, named: "Sections") {
+        if version != "1", let sections = firstChild(of: root, named: "Sections") {
             course.sections = children(of: sections, named: "Section").map(parseSection)
             if course.sections.isEmpty { course.sections = [CourseSection()] }
         } else {
@@ -70,6 +71,24 @@ enum CoursePlanFileCoder {
             metadata.addChild(textElement("SourceFilePath", sourceFilePath))
         }
         root.addChild(metadata)
+
+        if !course.segmentSnapshots.isEmpty {
+            let segments = XMLElement(name: "Segments")
+            for segment in course.segmentSnapshots {
+                let element = XMLElement(name: "Segment")
+                element.addAttribute(attribute("id", segment.segmentID))
+                element.addChild(textElement("Title", segment.title))
+                if let distanceMeters = segment.distanceMeters {
+                    element.addChild(textElement("DistanceMeters", decimal(distanceMeters, places: 6)))
+                }
+                if let averageGradePercent = segment.averageGradePercent {
+                    element.addChild(textElement("AverageGradePercent", decimal(averageGradePercent, places: 6)))
+                }
+                element.addChild(textElement("Classification", segment.classification))
+                segments.addChild(element)
+            }
+            root.addChild(segments)
+        }
 
         let sections = XMLElement(name: "Sections")
         for section in course.sections {
@@ -167,6 +186,19 @@ enum CoursePlanFileCoder {
                 pointType: cue.attribute(forName: "pointType")?.stringValue ?? "Straight",
                 notes: textChild(of: cue, named: "Notes") ?? "",
                 distanceMeters: doubleAttribute(of: cue, named: "distanceMeters") ?? 0
+            )
+        }
+    }
+
+    private static func parseSegmentSnapshots(_ element: XMLElement?) -> [CourseSegmentSnapshot] {
+        children(of: element, named: "Segment").compactMap { segment in
+            guard let segmentID = nonEmpty(segment.attribute(forName: "id")?.stringValue) else { return nil }
+            return CourseSegmentSnapshot(
+                segmentID: segmentID,
+                title: nonEmpty(textChild(of: segment, named: "Title")) ?? "Segment",
+                distanceMeters: textChild(of: segment, named: "DistanceMeters").flatMap(Double.init),
+                averageGradePercent: textChild(of: segment, named: "AverageGradePercent").flatMap(Double.init),
+                classification: nonEmpty(textChild(of: segment, named: "Classification")) ?? "평지"
             )
         }
     }

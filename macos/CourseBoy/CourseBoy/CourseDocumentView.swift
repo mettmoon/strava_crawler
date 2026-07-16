@@ -40,6 +40,24 @@ struct CourseDocumentView: View {
         .sheet(isPresented: $showing3D) {
             Course3DPreview(course: document.course)
         }
+        .focusedSceneValue(
+            \.courseCommandHandler,
+            CourseCommandHandler(
+                edit: { isEditing = true },
+                copySegmentInfo: { copySegmentInfoToPasteboard() },
+                canCopySegmentInfo: !document.course.segmentSnapshots.isEmpty
+            )
+        )
+    }
+
+    private func copySegmentInfoToPasteboard() {
+        let text = document.course.segmentClipboardText
+        guard !text.isEmpty else { NSSound.beep(); return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        if !pasteboard.setString(text, forType: .string) {
+            NSSound.beep()
+        }
     }
 
     private func registerRecentCourseIfNeeded() {
