@@ -43,6 +43,86 @@ struct CourseCuePoint: Codable, Identifiable, Sendable, Equatable {
     }
 }
 
+// MARK: - CourseSegmentSnapshot
+
+/// 코스를 만들 때 선택한 Strava 구간의 복사용 메타데이터 스냅샷.
+/// 좌표/고도 스트림은 제외해 CSB 파일 크기가 불필요하게 커지지 않도록 한다.
+struct CourseSegmentSnapshot: Codable, Identifiable, Sendable, Equatable {
+    var segmentID: String
+    var title: String
+    var distanceMeters: Double?
+    var averageGradePercent: Double?
+    var classification: String
+
+    var id: String { segmentID }
+
+    init(
+        segmentID: String,
+        title: String,
+        distanceMeters: Double?,
+        averageGradePercent: Double?,
+        classification: String
+    ) {
+        self.segmentID = segmentID
+        self.title = title
+        self.distanceMeters = distanceMeters
+        self.averageGradePercent = averageGradePercent
+        self.classification = classification
+    }
+
+    init(segment: SegmentInfo) {
+        segmentID = segment.segmentID
+        let trimmedTitle = segment.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        title = trimmedTitle.isEmpty ? "Segment" : trimmedTitle
+        distanceMeters = segment.distanceMeters
+            ?? segment.distanceKm.map { $0 * 1_000 }
+            ?? Self.parseDistanceMeters(segment.distanceText)
+        averageGradePercent = Self.firstNumber(in: segment.avgGrade)
+
+        if let category = Classification.normalizeClimbCategory(segment.climbCategory) {
+            classification = category == "HC" ? "HC" : "Cat \(category)"
+        } else {
+            switch Classification.gradeClass(segment.avgGrade) {
+            case .up: classification = "오르막"
+            case .flat: classification = "평지"
+            case .down: classification = "내리막"
+            }
+        }
+    }
+
+    var clipboardText: String {
+        let distance = distanceMeters.map { Self.formatDecimal(max(0, $0) / 1_000, maximumFractionDigits: 2) } ?? "-"
+        let grade = averageGradePercent.map {
+            String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), $0)
+        } ?? "-"
+        return "\(title)(\(classification))\n\(distance)km, \(grade)%\nhttps://www.strava.com/segments/\(segmentID)"
+    }
+
+    private static func parseDistanceMeters(_ text: String?) -> Double? {
+        guard let text, let value = firstNumber(in: text) else { return nil }
+        return text.lowercased().contains("km") ? value * 1_000 : value
+    }
+
+    private static func firstNumber(in text: String?) -> Double? {
+        guard let text,
+              let range = text.range(of: #"-?\d+(?:\.\d+)?"#, options: .regularExpression)
+        else { return nil }
+        return Double(text[range])
+    }
+
+    private static func formatDecimal(_ value: Double, maximumFractionDigits: Int) -> String {
+        var result = String(
+            format: "%.*f",
+            locale: Locale(identifier: "en_US_POSIX"),
+            maximumFractionDigits,
+            value
+        )
+        while result.last == "0" { result.removeLast() }
+        if result.last == "." { result.removeLast() }
+        return result
+    }
+}
+
 // MARK: - TrackPointCodable
 
 /// TrackPoint(Sendable, non-Codable)를 저장하기 위한 경량 Codable 래퍼.
@@ -178,6 +258,9 @@ final class CourseRecord: ObservableObject, Identifiable {
     /// TCX 파일 열기로 생성된 경우 원본 파일 경로. 직접 생성/Strava 경로 기반이면 nil.
     @Published var sourceFilePath: String?
 
+    /// "코스 만들기"에서 선택한 Strava 구간 정보. CSB 저장 및 클립보드 복사에 사용한다.
+    @Published var segmentSnapshots: [CourseSegmentSnapshot] = []
+
     init(title: String, sourceRouteID: String? = nil, sourceFilePath: String? = nil) {
         self.title = title
         self.sourceRouteID = sourceRouteID
@@ -282,5 +365,9 @@ final class CourseRecord: ObservableObject, Identifiable {
 
     var totalElevationLossM: Double {
         sections.reduce(0) { $0 + $1.elevationLossM }
+    }
+
+    var segmentClipboardText: String {
+        segmentSnapshots.map(\.clipboardText).joined(separator: "\n\n")
     }
 }

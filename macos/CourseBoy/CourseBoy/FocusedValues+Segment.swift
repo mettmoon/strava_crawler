@@ -27,6 +27,8 @@ struct RouteCommandHandler {
 
 struct CourseCommandHandler {
     var edit: () -> Void
+    var copySegmentInfo: () -> Void
+    var canCopySegmentInfo: Bool
 }
 
 struct CourseFileCommandHandler {

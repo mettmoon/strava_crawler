@@ -279,6 +279,7 @@ struct RouteWorkspaceView: View {
         guard !pts.isEmpty else { NSSound.beep(); return }
 
         let newCourse = CourseRecord(title: route.title, sourceRouteID: route.id)
+        newCourse.segmentSnapshots = selectedSegments.map(CourseSegmentSnapshot.init(segment:))
         newCourse.routePoints = [
             CourseRoutePoint(lat: pts.first!.lat, lon: pts.first!.lon),
             CourseRoutePoint(lat: pts.last!.lat, lon: pts.last!.lon),
