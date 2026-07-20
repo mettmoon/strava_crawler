@@ -307,7 +307,7 @@ struct RouteWorkspaceView: View {
                 let prefix = entry.gradeClass.arrow + (meta.isEmpty ? "" : meta + " ")
                 displayName = prefix
             } else {
-                displayName = "🏁" + Classification.resolveSegmentName(entry.segName)
+                displayName = Classification.resolveSegmentName(entry.segName)
             }
             return CourseCuePoint(
                 lat: entry.lat, lon: entry.lon,
