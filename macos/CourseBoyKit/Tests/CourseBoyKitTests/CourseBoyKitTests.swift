@@ -140,6 +140,43 @@ final class CuesheetIntegrationTests: XCTestCase {
         XCTAssertEqual(Geo.nearestIndex(pts, lat: 37.0, lon: 127.01), 1)
     }
 
+    func testPositionAndDistanceLookupChoosesReturnOccurrence() {
+        let pts = makeTrackPoints([
+            (37.0, 127.00),
+            (37.0, 127.01),
+            (37.0, 127.02),
+            (37.0, 127.01),
+            (37.0, 127.00),
+        ])
+
+        let index = Geo.nearestIndex(
+            pts,
+            lat: 37.0,
+            lon: 127.01,
+            distanceKm: pts[3].cumKm
+        )
+
+        XCTAssertEqual(index, 3)
+    }
+
+    func testPositionAndDistanceLookupKeepsCandidatesNearCueCoordinate() {
+        let pts = makeTrackPoints([
+            (37.0, 127.00),
+            (37.0, 127.01),
+            (37.0, 127.02),
+            (37.0, 127.03),
+        ])
+
+        let index = Geo.nearestIndex(
+            pts,
+            lat: 37.0,
+            lon: 127.01,
+            distanceKm: pts[3].cumKm
+        )
+
+        XCTAssertEqual(index, 1)
+    }
+
     private func makeTrackPoints(_ coordinates: [(Double, Double)]) -> [TrackPoint] {
         var result: [TrackPoint] = []
         var distance = 0.0
@@ -265,6 +302,43 @@ final class CuesheetIntegrationTests: XCTestCase {
         XCTAssertEqual(parsed.coursePoints[0].name, "Summit")
         XCTAssertEqual(parsed.coursePoints[0].pointType, "Summit")
         XCTAssertEqual(parsed.coursePoints[0].notes, "manual")
+    }
+
+    func testBuildCourseDataGeneratesUniqueTimesForOutAndBackCuePoints() throws {
+        let trackPoints = makeTrackPoints([
+            (37.0, 127.00),
+            (37.0, 127.01),
+            (37.0, 127.02),
+            (37.0, 127.01),
+            (37.0, 127.00),
+        ]).map { point in
+            TrackPoint(lat: point.lat, lon: point.lon, ele: point.ele, time: nil, cumKm: point.cumKm)
+        }
+        let cues = [1, 3].map { index in
+            TCXCourse.CuePointSpec(
+                idx: index,
+                lat: trackPoints[index].lat,
+                lon: trackPoints[index].lon,
+                ele: trackPoints[index].ele,
+                name: index == 1 ? "Outbound" : "Return",
+                pointType: "Summit",
+                notes: ""
+            )
+        }
+
+        let built = try TCXCourse.buildCourseData(
+            title: "Out and Back",
+            trackPoints: trackPoints,
+            cuePoints: cues
+        )
+        let parsed = try TCXCourse(data: built.data)
+        let trackTimes = parsed.trackPoints.compactMap(\.time)
+        let cueTimes = parsed.coursePoints.compactMap(\.time)
+
+        XCTAssertEqual(trackTimes.count, trackPoints.count)
+        XCTAssertEqual(Set(trackTimes).count, trackPoints.count)
+        XCTAssertEqual(cueTimes, [trackTimes[1], trackTimes[3]])
+        XCTAssertNotEqual(cueTimes[0], cueTimes[1])
     }
 
     func testBuildCourseDataPreservesMultipleTracksWithoutGapDistance() throws {

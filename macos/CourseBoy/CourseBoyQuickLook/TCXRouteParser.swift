@@ -158,6 +158,7 @@ private struct ParsedTCXPoint {
         return RawCuePoint(
             lat: lat,
             lon: lon,
+            time: time,
             name: name,
             pointType: pointType.isEmpty ? "Generic" : pointType,
             notes: notes

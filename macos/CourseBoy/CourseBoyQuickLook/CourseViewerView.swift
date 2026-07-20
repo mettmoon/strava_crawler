@@ -304,7 +304,7 @@ private struct CourseElevationTab: View {
     private var selectedCueProfilePoint: CourseProfileSelection? {
         guard let selectedCueID,
               let cue = course.cuePoints.first(where: { $0.id == selectedCueID }),
-              let index = Geo.nearestIndex(course.trackPoints, lat: cue.lat, lon: cue.lon) else {
+              let index = cueTrackIndex(cue, in: course.trackPoints) else {
             return nil
         }
         return CourseProfileSelection(trackIndex: index, point: course.trackPoints[index])
@@ -694,7 +694,7 @@ private struct SelectedCueDetailRows: View {
 
     private var selectedCueElevation: Double? {
         guard let selectedCue,
-              let index = Geo.nearestIndex(course.trackPoints, lat: selectedCue.lat, lon: selectedCue.lon) else {
+              let index = cueTrackIndex(selectedCue, in: course.trackPoints) else {
             return nil
         }
         return course.trackPoints[index].ele
