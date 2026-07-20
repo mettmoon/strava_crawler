@@ -171,6 +171,7 @@ enum CoursePlanFileCoder {
                 lat: doubleAttribute(of: point, named: "lat") ?? 0,
                 lon: doubleAttribute(of: point, named: "lon") ?? 0,
                 ele: doubleAttribute(of: point, named: "ele"),
+                time: point.attribute(forName: "time")?.stringValue,
                 cumKm: doubleAttribute(of: point, named: "cumKm") ?? 0
             )
         }
@@ -210,6 +211,9 @@ enum CoursePlanFileCoder {
             element.addAttribute(attribute("lon", decimal(point.lon, places: 7)))
             if let ele = point.ele {
                 element.addAttribute(attribute("ele", decimal(ele, places: 2)))
+            }
+            if let time = point.time, !time.isEmpty {
+                element.addAttribute(attribute("time", time))
             }
             element.addAttribute(attribute("cumKm", decimal(point.cumKm, places: 6)))
             parent.addChild(element)

@@ -130,20 +130,22 @@ struct TrackPointCodable: Codable, Sendable, Equatable {
     var lat: Double
     var lon: Double
     var ele: Double?
+    var time: String?
     var cumKm: Double
 
-    init(lat: Double, lon: Double, ele: Double?, cumKm: Double) {
+    init(lat: Double, lon: Double, ele: Double?, time: String? = nil, cumKm: Double) {
         self.lat = lat
         self.lon = lon
         self.ele = ele
+        self.time = time
         self.cumKm = cumKm
     }
 
     init(_ tp: TrackPoint) {
-        lat = tp.lat; lon = tp.lon; ele = tp.ele; cumKm = tp.cumKm
+        lat = tp.lat; lon = tp.lon; ele = tp.ele; time = tp.time; cumKm = tp.cumKm
     }
 
-    var asTrackPoint: TrackPoint { TrackPoint(lat: lat, lon: lon, ele: ele, time: nil, cumKm: cumKm) }
+    var asTrackPoint: TrackPoint { TrackPoint(lat: lat, lon: lon, ele: ele, time: time, cumKm: cumKm) }
 }
 
 // MARK: - CourseSection
@@ -200,7 +202,7 @@ struct CourseSection: Codable, Identifiable, Sendable, Equatable {
                 lat: point.lat,
                 lon: point.lon,
                 ele: point.ele,
-                time: nil,
+                time: point.time,
                 cumKm: cumKm
             ))
         }

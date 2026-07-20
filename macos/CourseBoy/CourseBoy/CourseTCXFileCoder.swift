@@ -20,7 +20,10 @@ enum CourseTCXFileCoder {
 
         for point in tcxCourse.coursePoints {
             guard let match = nearestSectionMatch(
-                in: tcxCourse.trackPointSections, lat: point.lat, lon: point.lon
+                in: tcxCourse.trackPointSections,
+                time: point.time,
+                lat: point.lat,
+                lon: point.lon
             ) else { continue }
             course.sections[match.sectionIndex].cuePoints.append(CourseCuePoint(
                 lat: point.lat,
@@ -62,8 +65,10 @@ enum CourseTCXFileCoder {
             return TCXCourse.CuePointSpec(
                 idx: idx,
                 time: point.time,
-                lat: cue.lat,
-                lon: cue.lon,
+                // TCX에는 누적거리와 좌표를 함께 대조해 고른 실제 트랙 지점을 기록한다.
+                // 왕복/교차 경로에서 같은 좌표의 다른 통과 지점으로 붙는 것을 막는다.
+                lat: point.lat,
+                lon: point.lon,
                 ele: point.ele,
                 name: cue.name,
                 pointType: cue.pointType,
@@ -91,9 +96,18 @@ enum CourseTCXFileCoder {
 
     private static func nearestSectionMatch(
         in sections: [[TrackPoint]],
+        time: String?,
         lat: Double,
         lon: Double
     ) -> (sectionIndex: Int, point: TrackPoint)? {
+        if let time, !time.isEmpty {
+            for (sectionIndex, points) in sections.enumerated() {
+                if let point = points.first(where: { $0.time == time }) {
+                    return (sectionIndex, point)
+                }
+            }
+        }
+
         var best: (sectionIndex: Int, point: TrackPoint)?
         var bestDistance = Double.infinity
         for (sectionIndex, points) in sections.enumerated() {

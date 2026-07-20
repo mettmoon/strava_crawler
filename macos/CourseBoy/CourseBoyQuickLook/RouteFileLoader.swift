@@ -56,7 +56,10 @@ enum RouteFileLoader {
         trackPoints: [TrackPoint]
     ) -> [CourseCuePoint] {
         rawCuePoints.map { point in
-            let nearest = Geo.nearestIndex(trackPoints, lat: point.lat, lon: point.lon)
+            let nearestByTime = point.time.flatMap { time in
+                trackPoints.firstIndex(where: { $0.time == time })
+            }
+            let nearest = nearestByTime ?? Geo.nearestIndex(trackPoints, lat: point.lat, lon: point.lon)
             let distanceMeters = nearest.map { trackPoints[$0].cumKm * 1000 } ?? 0
             return CourseCuePoint(
                 lat: point.lat,
@@ -74,6 +77,7 @@ enum RouteFileLoader {
 struct RawCuePoint: Equatable {
     var lat: Double
     var lon: Double
+    var time: String? = nil
     var name: String
     var pointType: String
     var notes: String

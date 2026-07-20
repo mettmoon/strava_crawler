@@ -149,6 +149,20 @@ enum Geo {
         }
         return bestIndex
     }
+
+    static func nearestIndex(_ pts: [TrackPoint], distanceKm: Double) -> Int? {
+        guard !pts.isEmpty, distanceKm.isFinite else { return nil }
+        var bestIndex = 0
+        var bestDistance = abs(pts[0].cumKm - distanceKm)
+        for index in pts.indices.dropFirst() {
+            let distance = abs(pts[index].cumKm - distanceKm)
+            if distance < bestDistance {
+                bestDistance = distance
+                bestIndex = index
+            }
+        }
+        return bestIndex
+    }
 }
 
 struct CourseElevationStats: Equatable {
@@ -425,4 +439,16 @@ struct RawRoutePoint: Equatable {
     var lon: Double
     var ele: Double?
     var time: String?
+}
+
+/// TCX를 읽은 뒤에는 Time으로 계산해 둔 누적거리를 우선 사용한다.
+/// 이전 파일처럼 누적거리가 없는 경우에만 좌표 최근접 지점으로 되돌아간다.
+func cueTrackIndex(_ cue: CourseCuePoint, in trackPoints: [TrackPoint]) -> Int? {
+    guard let first = trackPoints.first else { return nil }
+    if cue.distanceMeters > 0 {
+        return Geo.nearestIndex(trackPoints, distanceKm: cue.distanceMeters / 1_000)
+    }
+    let firstPointError = Geo.haversineKm(first.lat, first.lon, cue.lat, cue.lon)
+    if cue.distanceMeters == 0, firstPointError <= 0.05 { return 0 }
+    return Geo.nearestIndex(trackPoints, lat: cue.lat, lon: cue.lon)
 }
