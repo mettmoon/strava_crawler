@@ -143,7 +143,9 @@ struct RouteWorkspaceView: View {
             }
         } else {
             let highlightSegment = highlightedSegment
-            let sidebarHighlightPoints = highlightSegment.map { sliceTrackPoints(pts, for: $0) } ?? []
+            let sidebarHighlightPoints = highlightSegment.map {
+                sliceTrackPoints(pts, for: $0, allSegments: route?.segments ?? [])
+            } ?? []
             let mapHighlight = sidebarHighlightPoints.isEmpty ? highlightPoints : sidebarHighlightPoints
             VStack(spacing: 0) {
                 RouteMapView(
@@ -175,12 +177,14 @@ struct RouteWorkspaceView: View {
         return route?.segments.first { $0.segmentID == id }
     }
 
-    private func sliceTrackPoints(_ pts: [TrackPoint], for seg: SegmentInfo) -> [TrackPoint] {
-        guard let sp = seg.startPoint, let ep = seg.endPoint else { return [] }
-        let startIdx = Geo.nearestIndex(pts, lat: sp[0], lon: sp[1]) ?? 0
-        let endIdx = Geo.nearestIndex(pts, lat: ep[0], lon: ep[1], startIdx: startIdx + 1) ?? (pts.count - 1)
-        guard startIdx < endIdx else { return [] }
-        return Array(pts[startIdx...endIdx])
+    private func sliceTrackPoints(
+        _ pts: [TrackPoint],
+        for seg: SegmentInfo,
+        allSegments: [SegmentInfo]
+    ) -> [TrackPoint] {
+        let matches = RouteSegmentMatcher.match(trackPoints: pts, segments: allSegments)
+        guard let placement = matches[seg.segmentID], placement.startIndex < placement.endIndex else { return [] }
+        return Array(pts[placement.startIndex...placement.endIndex])
     }
 
     private func highlightedRangeKm(for slice: [TrackPoint]) -> ClosedRange<Double>? {
@@ -194,11 +198,13 @@ struct RouteWorkspaceView: View {
         guard let route, let course = parsedCourse else { return [] }
         return Cuesheet.makeEntries(
             trackPoints: course.trackPoints,
-            segments: selectedSegments(for: route),
-            minCategory: nil
+            segments: route.segments,
+            minCategory: nil,
+            includedSegmentIDs: selectedSegmentIDs
         ).entries.map { entry in
             CourseCuePoint(lat: entry.lat, lon: entry.lon,
-                           name: entry.baseName, pointType: entry.pointType)
+                           name: entry.baseName, pointType: entry.pointType,
+                           distanceMeters: pts[entry.idx].cumKm * 1_000)
         }
     }
 
@@ -206,8 +212,9 @@ struct RouteWorkspaceView: View {
         guard let route, let course = parsedCourse, !pts.isEmpty else { return [] }
         return Cuesheet.makeEntries(
             trackPoints: course.trackPoints,
-            segments: selectedSegments(for: route),
-            minCategory: nil
+            segments: route.segments,
+            minCategory: nil,
+            includedSegmentIDs: selectedSegmentIDs
         ).entries.map { entry in
             ElevationMarker(
                 id: "\(entry.idx)-\(entry.isStart)",
@@ -288,8 +295,9 @@ struct RouteWorkspaceView: View {
 
         let cuesheetResult = Cuesheet.makeEntries(
             trackPoints: pts,
-            segments: selectedSegments,
-            minCategory: nil
+            segments: route.segments,
+            minCategory: nil,
+            includedSegmentIDs: Set(selectedSegments.map(\.segmentID))
         )
         newCourse.cuePoints = cuesheetResult.entries.map { entry in
             let displayName: String

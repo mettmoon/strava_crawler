@@ -39,6 +39,30 @@ public enum Geo {
         }
         return bestI
     }
+
+    /// 누적거리와 가장 가까운 트랙포인트 인덱스. `cumKm` 오름차순을 이용한다.
+    public static func nearestIndex(_ pts: [TrackPoint], distanceKm: Double) -> Int? {
+        guard !pts.isEmpty, distanceKm.isFinite else { return nil }
+        if distanceKm <= pts[0].cumKm { return 0 }
+        if distanceKm >= pts[pts.count - 1].cumKm { return pts.count - 1 }
+
+        var low = 0
+        var high = pts.count - 1
+        while low < high {
+            let mid = (low + high) / 2
+            if pts[mid].cumKm < distanceKm {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+
+        let upper = low
+        let lower = upper - 1
+        return abs(pts[lower].cumKm - distanceKm) <= abs(pts[upper].cumKm - distanceKm)
+            ? lower
+            : upper
+    }
 }
 
 /// TCX 트랙포인트 (누적거리 포함).

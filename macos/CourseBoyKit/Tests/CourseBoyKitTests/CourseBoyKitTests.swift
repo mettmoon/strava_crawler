@@ -84,6 +84,81 @@ final class CuesheetIntegrationTests: XCTestCase {
         try XCTUnwrap(Bundle.module.url(forResource: "Fixtures/\(name)", withExtension: nil))
     }
 
+    func testReturnSegmentUsesSecondOccurrenceOnOutAndBackRoute() {
+        let pts = makeTrackPoints([
+            (37.0, 127.00),
+            (37.0, 127.01),
+            (37.0, 127.02),
+            (37.0, 127.01),
+            (37.0, 127.00),
+        ])
+        var outbound = SegmentInfo(segmentID: "outbound", name: "가는 길")
+        outbound.startPoint = [37.0, 127.01]
+        outbound.endPoint = [37.0, 127.02]
+        outbound.distanceMeters = Geo.haversineKm(37.0, 127.01, 37.0, 127.02) * 1_000
+        outbound.coordinates = [outbound.startPoint!, outbound.endPoint!]
+        outbound.order = 1
+
+        var returning = SegmentInfo(segmentID: "returning", name: "오는 길")
+        returning.startPoint = [37.0, 127.01]
+        returning.endPoint = [37.0, 127.00]
+        returning.distanceMeters = Geo.haversineKm(37.0, 127.01, 37.0, 127.00) * 1_000
+        returning.coordinates = [returning.startPoint!, returning.endPoint!]
+        returning.climbCategory = "4"
+        returning.order = 2
+
+        let matches = RouteSegmentMatcher.match(trackPoints: pts, segments: [outbound, returning])
+        XCTAssertEqual(matches["outbound"]?.startIndex, 1)
+        XCTAssertEqual(matches["outbound"]?.endIndex, 2)
+        XCTAssertEqual(matches["returning"]?.startIndex, 3)
+        XCTAssertEqual(matches["returning"]?.endIndex, 4)
+
+        let result = Cuesheet.makeEntries(
+            trackPoints: pts,
+            segments: [outbound, returning],
+            includedSegmentIDs: ["returning"]
+        )
+        XCTAssertEqual(result.entries.map(\.idx), [3, 4])
+
+        let filtered = Cuesheet.makeEntries(
+            trackPoints: pts,
+            segments: [outbound, returning],
+            minCategory: "4"
+        )
+        XCTAssertEqual(filtered.entries.map(\.idx), [3, 4])
+    }
+
+    func testDistanceLookupChoosesReturnOccurrence() {
+        let pts = makeTrackPoints([
+            (37.0, 127.00),
+            (37.0, 127.01),
+            (37.0, 127.02),
+            (37.0, 127.01),
+            (37.0, 127.00),
+        ])
+        XCTAssertEqual(Geo.nearestIndex(pts, distanceKm: pts[3].cumKm), 3)
+        XCTAssertEqual(Geo.nearestIndex(pts, lat: 37.0, lon: 127.01), 1)
+    }
+
+    private func makeTrackPoints(_ coordinates: [(Double, Double)]) -> [TrackPoint] {
+        var result: [TrackPoint] = []
+        var distance = 0.0
+        for (index, coordinate) in coordinates.enumerated() {
+            if index > 0 {
+                let previous = coordinates[index - 1]
+                distance += Geo.haversineKm(previous.0, previous.1, coordinate.0, coordinate.1)
+            }
+            result.append(TrackPoint(
+                lat: coordinate.0,
+                lon: coordinate.1,
+                ele: Double(index),
+                time: "2026-07-20T00:00:0\(index)Z",
+                cumKm: distance
+            ))
+        }
+        return result
+    }
+
     /// 실제 라우트 TCX + segments json 으로 cuesheet 생성 → Python 결과(32 CoursePoint)와 대조.
     func testCuesheetMatchesPython() throws {
         let tcxData = try Data(contentsOf: try fixtureURL("route.tcx"))
@@ -94,6 +169,13 @@ final class CuesheetIntegrationTests: XCTestCase {
 
         let segments = try RouteSegments.load(data: segData)
         XCTAssertEqual(segments.count, 30)
+
+        let matches = RouteSegmentMatcher.match(trackPoints: course.trackPoints, segments: segments)
+        for segment in segments {
+            guard let storedStartKm = segment.startKm else { continue }
+            let matchedStartKm = try XCTUnwrap(matches[segment.segmentID]?.startKm)
+            XCTAssertEqual(matchedStartKm, storedStartKm, accuracy: 0.15, segment.name)
+        }
 
         // 전체(필터 없음): 좌표 있는 segment 마다 시작+종료 2개
         let all = Cuesheet.makeEntries(trackPoints: course.trackPoints, segments: segments)

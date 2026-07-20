@@ -77,6 +77,20 @@ func makePinnedDotImage() -> NSImage {
 
 // MARK: - 공통 헬퍼
 
+/// 큐시트 위치는 좌표보다 저장된 코스 누적거리를 우선한다.
+/// 왕복 경로에서 같은 좌표가 여러 번 나와도 올바른 통과 지점을 유지한다.
+func cueTrackIndex(_ cue: CourseCuePoint, in trackPoints: [TrackPoint]) -> Int? {
+    guard let first = trackPoints.first else { return nil }
+    if cue.distanceMeters > 0 {
+        return Geo.nearestIndex(trackPoints, distanceKm: cue.distanceMeters / 1_000)
+    }
+
+    // 이전 CSB처럼 누적거리가 없던 데이터는 좌표를 호환 경로로 사용한다.
+    let firstPointError = Geo.haversineKm(first.lat, first.lon, cue.lat, cue.lon)
+    if cue.distanceMeters == 0, firstPointError <= 0.05 { return 0 }
+    return Geo.nearestIndex(trackPoints, lat: cue.lat, lon: cue.lon)
+}
+
 func categoryLabel(_ cat: String?) -> String {
     guard let cat else { return "—" }
     return cat == "HC" ? "HC" : "Cat \(cat)"

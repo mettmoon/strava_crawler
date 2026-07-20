@@ -57,7 +57,7 @@ enum CourseTCXFileCoder {
     ) throws -> Data {
         let trackPoints = tracks.flatMap { $0 }
         let specs = cuePoints.compactMap { cue -> TCXCourse.CuePointSpec? in
-            guard let idx = Geo.nearestIndex(trackPoints, lat: cue.lat, lon: cue.lon) else { return nil }
+            guard let idx = cueTrackIndex(cue, in: trackPoints) else { return nil }
             let point = trackPoints[idx]
             return TCXCourse.CuePointSpec(
                 idx: idx,
