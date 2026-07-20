@@ -84,7 +84,7 @@ struct CourseCuesheetSidebar: View {
         trackPoints pts: [TrackPoint],
         progress: RouteElevationProgress
     ) -> RouteElevationProgressStats? {
-        progress.stats(at: Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon))
+        progress.stats(at: cueTrackIndex(cue, in: pts))
     }
 
     private func formatAccumulatedElevation(_ meters: Double) -> String {
@@ -199,7 +199,7 @@ struct CourseCueInspectorView: View {
     private func cueDetail(cue: CourseCuePoint) -> some View {
         let pts = trackPoints
         let totalKm = pts.last?.cumKm ?? 0
-        let cueIdx = Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon)
+        let cueIdx = cueTrackIndex(cue, in: pts)
         let cueKm = cueIdx.map { pts[$0].cumKm } ?? (cue.distanceMeters / 1000)
         let cueEle = cueIdx.flatMap { pts[$0].ele }
         let elevationProgress = RouteElevationProgress(trackPoints: pts).stats(at: cueIdx)
@@ -344,7 +344,7 @@ struct CourseCueInspectorView: View {
     }
 
     private func cueDistanceKm(_ cue: CourseCuePoint, trackPoints pts: [TrackPoint]) -> Double {
-        if let idx = Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon) {
+        if let idx = cueTrackIndex(cue, in: pts) {
             return pts[idx].cumKm
         }
         return cue.distanceMeters / 1000
@@ -401,8 +401,8 @@ struct CourseCueInspectorView: View {
     }
 
     private func formatEleDelta(from a: CourseCuePoint, to b: CourseCuePoint, pts: [TrackPoint]) -> String {
-        guard let aIdx = Geo.nearestIndex(pts, lat: a.lat, lon: a.lon),
-              let bIdx = Geo.nearestIndex(pts, lat: b.lat, lon: b.lon),
+        guard let aIdx = cueTrackIndex(a, in: pts),
+              let bIdx = cueTrackIndex(b, in: pts),
               let aEle = pts[aIdx].ele, let bEle = pts[bIdx].ele else { return "—" }
         let diff = bEle - aEle
         let sign = diff > 0 ? "+" : (diff < 0 ? "" : "")

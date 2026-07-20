@@ -139,13 +139,13 @@ struct CourseWorkspaceView: View {
     private func focusedDistanceKm(for pts: [TrackPoint], course: CourseRecord) -> Double? {
         guard let id = selectedCueID,
               let cue = course.cuePoints.first(where: { $0.id == id }),
-              let idx = Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon) else { return nil }
+              let idx = cueTrackIndex(cue, in: pts) else { return nil }
         return pts[idx].cumKm
     }
 
     private func markers(for pts: [TrackPoint], course: CourseRecord) -> [ElevationMarker] {
         course.cuePoints.compactMap { cue in
-            guard let idx = Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon) else { return nil }
+            guard let idx = cueTrackIndex(cue, in: pts) else { return nil }
             return ElevationMarker(
                 id: cue.id.uuidString,
                 cumKm: pts[idx].cumKm,
@@ -233,7 +233,7 @@ struct CourseWorkspaceView: View {
     }
 
     private func cueDistanceKm(_ cue: CourseCuePoint, trackPoints pts: [TrackPoint]) -> Double {
-        if let idx = Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon) {
+        if let idx = cueTrackIndex(cue, in: pts) {
             return pts[idx].cumKm
         }
         return cue.distanceMeters / 1000

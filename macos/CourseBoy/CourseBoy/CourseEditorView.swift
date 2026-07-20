@@ -982,7 +982,7 @@ private struct CourseEditorCuesheetSidebar: View {
         trackPoints pts: [TrackPoint],
         progress: RouteElevationProgress
     ) -> RouteElevationProgressStats? {
-        progress.stats(at: Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon))
+        progress.stats(at: cueTrackIndex(cue, in: pts))
     }
 }
 
@@ -1112,8 +1112,7 @@ private struct CuePointEditSheet: View {
         _pointType = State(initialValue: cue.pointType)
         _notes = State(initialValue: cue.notes)
         let initialDistanceKm: Double = {
-            guard cue.lat != 0 || cue.lon != 0,
-                  let idx = Geo.nearestIndex(trackPoints, lat: cue.lat, lon: cue.lon) else {
+            guard let idx = cueTrackIndex(cue, in: trackPoints) else {
                 return cue.distanceMeters / 1000
             }
             return trackPoints[idx].cumKm
@@ -1322,7 +1321,7 @@ private struct CourseEditorCueInspectorView: View {
     private func cueDetail(cue: CourseCuePoint) -> some View {
         let pts = trackPoints
         let totalKm = pts.last?.cumKm ?? 0
-        let cueIdx = Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon)
+        let cueIdx = cueTrackIndex(cue, in: pts)
         let cueKm = cueIdx.map { pts[$0].cumKm } ?? (cue.distanceMeters / 1000)
         let cueEle = cueIdx.flatMap { pts[$0].ele }
         let elevationProgress = RouteElevationProgress(trackPoints: pts).stats(at: cueIdx)
@@ -1486,7 +1485,7 @@ private struct CourseEditorCueInspectorView: View {
     }
 
     private func cueDistanceKm(_ cue: CourseCuePoint, trackPoints pts: [TrackPoint]) -> Double {
-        if let idx = Geo.nearestIndex(pts, lat: cue.lat, lon: cue.lon) {
+        if let idx = cueTrackIndex(cue, in: pts) {
             return pts[idx].cumKm
         }
         return cue.distanceMeters / 1000
@@ -1543,8 +1542,8 @@ private struct CourseEditorCueInspectorView: View {
     }
 
     private func formatEleDelta(from a: CourseCuePoint, to b: CourseCuePoint, pts: [TrackPoint]) -> String {
-        guard let aIdx = Geo.nearestIndex(pts, lat: a.lat, lon: a.lon),
-              let bIdx = Geo.nearestIndex(pts, lat: b.lat, lon: b.lon),
+        guard let aIdx = cueTrackIndex(a, in: pts),
+              let bIdx = cueTrackIndex(b, in: pts),
               let aEle = pts[aIdx].ele, let bEle = pts[bIdx].ele else { return "—" }
         let diff = bEle - aEle
         let sign = diff > 0 ? "+" : (diff < 0 ? "" : "")

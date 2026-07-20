@@ -67,6 +67,12 @@ struct ImportRouteUseCase: Sendable {
                 segments.append(info)
             }
 
+            // 세그먼트 캐시는 여러 route에서 공유되므로, route 전용 위치는 수집 완료 후 계산한다.
+            segments = RouteSegmentMatcher.enriching(
+                segments,
+                trackPoints: tcxCourse.trackPoints
+            )
+
             // 4) 도메인 Route 생성 및 저장
             let cuesheetCount = Cuesheet.makeEntries(
                 trackPoints: tcxCourse.trackPoints,
