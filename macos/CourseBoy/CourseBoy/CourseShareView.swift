@@ -177,7 +177,7 @@ struct CourseShareView: View {
                 .pickerStyle(.radioGroup)
 
                 if model.options.outputMode == .combined {
-                    Text("한 장으로 합칠 때 고도표 폭은 코스 이미지 폭에 맞춰집니다.")
+                    Text("코스와 고도표 폭이 다르면 더 넓은 폭을 기준으로 가운데 정렬됩니다.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -226,9 +226,7 @@ struct CourseShareView: View {
                     CourseShareSizeEditor(
                         title: "이미지 크기",
                         size: $model.options.mapSize,
-                        presets: CourseSharePixelSize.mapPresets,
-                        locksWidth: false,
-                        lockedWidth: nil
+                        presets: CourseSharePixelSize.mapPresets
                     )
                 } header: {
                     Text("코스")
@@ -252,11 +250,7 @@ struct CourseShareView: View {
                     CourseShareSizeEditor(
                         title: "이미지 크기",
                         size: $model.options.elevationSize,
-                        presets: CourseSharePixelSize.elevationPresets,
-                        locksWidth: model.options.outputMode == .combined,
-                        lockedWidth: model.options.outputMode == .combined
-                            ? model.options.mapSize.width
-                            : nil
+                        presets: CourseSharePixelSize.elevationPresets
                     )
                 }
             }
@@ -315,8 +309,6 @@ private struct CourseShareSizeEditor: View {
     let title: String
     @Binding var size: CourseSharePixelSize
     let presets: [(label: String, size: CourseSharePixelSize)]
-    let locksWidth: Bool
-    let lockedWidth: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -336,14 +328,10 @@ private struct CourseShareSizeEditor: View {
             HStack(spacing: 8) {
                 TextField(
                     "폭",
-                    value: Binding(
-                        get: { lockedWidth ?? size.width },
-                        set: { if !locksWidth { size.width = $0 } }
-                    ),
+                    value: $size.width,
                     format: .number
                 )
                 .textFieldStyle(.roundedBorder)
-                .disabled(locksWidth)
 
                 Text("×")
                     .foregroundStyle(.secondary)
