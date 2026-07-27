@@ -129,24 +129,30 @@ private enum CourseShareBitmap {
         bottom: NSImage,
         bottomSize: CourseSharePixelSize
     ) throws -> NSImage {
+        let outputWidth = max(topSize.width, bottomSize.width)
         let outputSize = CourseSharePixelSize(
-            width: topSize.width,
+            width: outputWidth,
             height: topSize.height + bottomSize.height
         )
         return try makeImage(size: outputSize) { rect in
             NSColor.white.setFill()
             rect.fill()
             bottom.draw(
-                in: NSRect(x: 0, y: 0, width: outputSize.width, height: bottomSize.height),
+                in: NSRect(
+                    x: (outputWidth - bottomSize.width) / 2,
+                    y: 0,
+                    width: bottomSize.width,
+                    height: bottomSize.height
+                ),
                 from: .zero,
                 operation: .copy,
                 fraction: 1
             )
             top.draw(
                 in: NSRect(
-                    x: 0,
+                    x: (outputWidth - topSize.width) / 2,
                     y: bottomSize.height,
-                    width: outputSize.width,
+                    width: topSize.width,
                     height: topSize.height
                 ),
                 from: .zero,

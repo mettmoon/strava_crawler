@@ -140,8 +140,7 @@ struct CourseShareOptions: Codable, Equatable, Sendable {
     var elevationSize: CourseSharePixelSize = .defaultElevation
 
     var effectiveElevationSize: CourseSharePixelSize {
-        guard outputMode == .combined else { return elevationSize }
-        return CourseSharePixelSize(width: mapSize.width, height: elevationSize.height)
+        elevationSize
     }
 
     var isValid: Bool {
@@ -152,7 +151,7 @@ struct CourseShareOptions: Codable, Equatable, Sendable {
         guard componentSizesAreValid else { return false }
         guard outputMode == .combined else { return true }
         return CourseSharePixelSize(
-            width: mapSize.width,
+            width: max(mapSize.width, effectiveElevationSize.width),
             height: mapSize.height + effectiveElevationSize.height
         ).isValid
     }
@@ -166,9 +165,6 @@ struct CourseShareOptions: Codable, Equatable, Sendable {
                 1,
                 routeLineWidth * Double(copy.mapSize.width) / Double(mapSize.width)
             )
-        }
-        if outputMode == .combined {
-            copy.elevationSize.width = copy.mapSize.width
         }
         return copy
     }
