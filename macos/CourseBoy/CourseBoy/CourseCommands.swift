@@ -11,6 +11,11 @@ struct CourseCommands: Commands {
             .disabled(handler == nil)
             .keyboardShortcut("E", modifiers: [.command])
 
+            Button("공유 이미지 만들기…") {
+                handler?.share?()
+            }
+            .disabled(handler?.canShare != true)
+
             Divider()
 
             Button("구간정보 복사하기") {
