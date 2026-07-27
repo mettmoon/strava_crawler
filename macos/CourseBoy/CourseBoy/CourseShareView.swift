@@ -217,6 +217,10 @@ struct CourseShareView: View {
                         )
                     }
 
+                    Toggle(
+                        "출발·도착지 표시",
+                        isOn: $model.options.showsMapEndpoints
+                    )
                     Toggle("웨이포인트 표시", isOn: $model.options.showsMapWaypoints)
 
                     CourseShareSizeEditor(
