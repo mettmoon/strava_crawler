@@ -190,6 +190,7 @@ public final class TCXCourse {
     ) throws -> (data: Data, count: Int) {
         let nonEmptyTracks = tracks.filter { !$0.isEmpty }
         guard !nonEmptyTracks.isEmpty else { throw TCXError.noTrackpoints }
+        let trackTimes = exportTimes(for: nonEmptyTracks.flatMap { $0 })
 
         let root = nsElement("TrainingCenterDatabase")
         root.addNamespace(XMLNode.namespace(withName: "xsi", stringValue: "http://www.w3.org/2001/XMLSchema-instance") as! XMLNode)
@@ -202,13 +203,12 @@ public final class TCXCourse {
         let course = nsElement("Course")
         course.addChild(nsElement("Name", title.isEmpty ? "Course" : title))
 
+        var flattenedIndex = 0
         for points in nonEmptyTracks {
             let track = nsElement("Track")
             for point in points {
                 let tp = nsElement("Trackpoint")
-                if let time = point.time, !time.isEmpty {
-                    tp.addChild(nsElement("Time", time))
-                }
+                tp.addChild(nsElement("Time", trackTimes[flattenedIndex]))
                 let pos = nsElement("Position")
                 pos.addChild(nsElement("LatitudeDegrees", String(format: "%.7f", point.lat)))
                 pos.addChild(nsElement("LongitudeDegrees", String(format: "%.7f", point.lon)))
@@ -218,14 +218,16 @@ public final class TCXCourse {
                 }
                 tp.addChild(nsElement("DistanceMeters", String(format: "%.2f", point.cumKm * 1000)))
                 track.addChild(tp)
+                flattenedIndex += 1
             }
             course.addChild(track)
         }
 
         let sortedCues = cuePoints.sorted { $0.idx < $1.idx }
         for cue in sortedCues {
+            let time = trackTimes.indices.contains(cue.idx) ? trackTimes[cue.idx] : cue.time
             course.addChild(makeCoursePointElement(
-                name: cue.name, time: cue.time, lat: cue.lat, lon: cue.lon, ele: cue.ele,
+                name: cue.name, time: time, lat: cue.lat, lon: cue.lon, ele: cue.ele,
                 pointType: cue.pointType, notes: cue.notes.isEmpty ? nil : cue.notes,
                 allowEmptyName: true
             ))
@@ -238,6 +240,32 @@ public final class TCXCourse {
         doc.characterEncoding = "UTF-8"
         doc.version = "1.0"
         return (doc.xmlData(options: []), sortedCues.count)
+    }
+
+    /// 기존 시간이 모두 존재하고 고유하면 보존하고, 그렇지 않으면 누적거리에서
+    /// 단조 증가하는 고유 시간을 만든다. 1m를 1초로 매핑하고 같은 거리의 연속
+    /// 포인트는 최소 1초 간격을 두어 왕복 경로의 동일 좌표도 구분할 수 있게 한다.
+    private static func exportTimes(for points: [TrackPoint]) -> [String] {
+        let existingTimes = points.map { point -> String? in
+            guard let time = point.time?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !time.isEmpty else { return nil }
+            return time
+        }
+        let presentTimes = existingTimes.compactMap { $0 }
+        if presentTimes.count == points.count, Set(presentTimes).count == points.count {
+            return presentTimes
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        let baseDate = Date(timeIntervalSince1970: 946_684_800) // 2000-01-01T00:00:00Z
+        var previousOffset = -1.0
+        return points.map { point in
+            let distanceOffset = point.cumKm.isFinite ? max(0, (point.cumKm * 1_000).rounded()) : 0
+            let offset = max(distanceOffset, previousOffset + 1)
+            previousOffset = offset
+            return formatter.string(from: baseDate.addingTimeInterval(offset))
+        }
     }
 
     // MARK: - CoursePoint 생성

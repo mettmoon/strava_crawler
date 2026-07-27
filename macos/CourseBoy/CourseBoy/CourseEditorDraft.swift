@@ -85,7 +85,7 @@ final class CourseEditorDraft {
                 let prev = raw[i - 1]
                 cumKm += Geo.haversineKm(prev.lat, prev.lon, tp.lat, tp.lon)
             }
-            result.append(TrackPoint(lat: tp.lat, lon: tp.lon, ele: tp.ele, time: nil, cumKm: cumKm))
+            result.append(TrackPoint(lat: tp.lat, lon: tp.lon, ele: tp.ele, time: tp.time, cumKm: cumKm))
         }
         _allTrackPointsCache = result
         _allTrackPointsSignature = sig
