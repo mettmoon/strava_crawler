@@ -33,6 +33,7 @@ enum CourseShareRenderer {
             elevationImage = try CourseShareElevationRenderer.render(
                 snapshot: snapshot,
                 size: options.effectiveElevationSize,
+                darkMode: options.usesDarkElevationStyle,
                 showsWaypoints: options.showsElevationWaypoints
             )
         }
@@ -696,16 +697,69 @@ private enum OSMCourseShareMapRenderer {
 
 @MainActor
 private enum CourseShareElevationRenderer {
+    private struct Palette {
+        let background: NSColor
+        let primaryText: NSColor
+        let secondaryText: NSColor
+        let grid: NSColor
+        let markerLabelBackground: NSColor
+        let markerLabelBorder: NSColor
+        let elevationFillTop: NSColor
+        let elevationFillBottom: NSColor
+        let elevationLine: NSColor
+
+        static let light = Palette(
+            background: NSColor(calibratedWhite: 1, alpha: 1),
+            primaryText: NSColor(calibratedWhite: 0.12, alpha: 1),
+            secondaryText: NSColor(calibratedWhite: 0.38, alpha: 1),
+            grid: NSColor(calibratedWhite: 0.2, alpha: 0.22),
+            markerLabelBackground: NSColor(calibratedWhite: 0.96, alpha: 0.98),
+            markerLabelBorder: NSColor.systemCyan.withAlphaComponent(0.65),
+            elevationFillTop: NSColor.systemOrange.withAlphaComponent(0.48),
+            elevationFillBottom: NSColor.systemOrange.withAlphaComponent(0.08),
+            elevationLine: .systemOrange
+        )
+
+        static let dark = Palette(
+            background: NSColor(
+                calibratedRed: 0.075,
+                green: 0.085,
+                blue: 0.105,
+                alpha: 1
+            ),
+            primaryText: NSColor(calibratedWhite: 0.94, alpha: 1),
+            secondaryText: NSColor(calibratedWhite: 0.72, alpha: 1),
+            grid: NSColor(calibratedWhite: 1, alpha: 0.18),
+            markerLabelBackground: NSColor(
+                calibratedRed: 0.13,
+                green: 0.15,
+                blue: 0.18,
+                alpha: 0.98
+            ),
+            markerLabelBorder: NSColor.systemCyan.withAlphaComponent(0.8),
+            elevationFillTop: NSColor.systemOrange.withAlphaComponent(0.58),
+            elevationFillBottom: NSColor.systemOrange.withAlphaComponent(0.12),
+            elevationLine: NSColor(
+                calibratedRed: 1,
+                green: 0.56,
+                blue: 0.18,
+                alpha: 1
+            )
+        )
+    }
+
     static func render(
         snapshot: CourseShareSnapshot,
         size: CourseSharePixelSize,
+        darkMode: Bool,
         showsWaypoints: Bool
     ) throws -> NSImage {
         let elevations = snapshot.allTrackPoints.compactMap(\.ele)
         guard elevations.count >= 2 else { throw CourseShareError.noElevation }
+        let palette = darkMode ? Palette.dark : Palette.light
 
         return try CourseShareBitmap.makeImage(size: size) { rect in
-            NSColor.white.setFill()
+            palette.background.setFill()
             rect.fill()
 
             let leftMargin = max(52, rect.width * 0.055)
@@ -741,14 +795,16 @@ private enum CourseShareElevationRenderer {
                 plotRect: plotRect,
                 totalKm: totalKm,
                 minimumElevation: minimumElevation,
-                maximumElevation: maximumElevation
+                maximumElevation: maximumElevation,
+                palette: palette
             )
             drawElevationPaths(
                 sectionTrackPoints: snapshot.sectionTrackPoints,
                 plotRect: plotRect,
                 totalKm: totalKm,
                 minimumElevation: minimumElevation,
-                maximumElevation: maximumElevation
+                maximumElevation: maximumElevation,
+                palette: palette
             )
             if showsWaypoints {
                 drawWaypoints(
@@ -756,7 +812,8 @@ private enum CourseShareElevationRenderer {
                     plotRect: plotRect,
                     totalKm: totalKm,
                     minimumElevation: minimumElevation,
-                    maximumElevation: maximumElevation
+                    maximumElevation: maximumElevation,
+                    palette: palette
                 )
             }
         }
@@ -766,11 +823,12 @@ private enum CourseShareElevationRenderer {
         plotRect: NSRect,
         totalKm: Double,
         minimumElevation: Double,
-        maximumElevation: Double
+        maximumElevation: Double,
+        palette: Palette
     ) {
         let labelAttributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
-            .foregroundColor: NSColor.secondaryLabelColor,
+            .foregroundColor: palette.secondaryText,
         ]
 
         for index in 0 ... 4 {
@@ -778,7 +836,7 @@ private enum CourseShareElevationRenderer {
             let x = plotRect.minX + plotRect.width * ratio
             let y = plotRect.minY + plotRect.height * ratio
 
-            NSColor.gridColor.withAlphaComponent(index == 0 ? 0.75 : 0.4).setStroke()
+            palette.grid.withAlphaComponent(index == 0 ? 0.9 : 0.55).setStroke()
             let vertical = NSBezierPath()
             vertical.move(to: CGPoint(x: x, y: plotRect.minY))
             vertical.line(to: CGPoint(x: x, y: plotRect.maxY))
@@ -820,7 +878,8 @@ private enum CourseShareElevationRenderer {
         plotRect: NSRect,
         totalKm: Double,
         minimumElevation: Double,
-        maximumElevation: Double
+        maximumElevation: Double,
+        palette: Palette
     ) {
         func point(_ trackPoint: TrackPoint) -> CGPoint? {
             guard let elevation = trackPoint.ele else { return nil }
@@ -850,8 +909,8 @@ private enum CourseShareElevationRenderer {
                 fillPath.line(to: CGPoint(x: chunk.last!.x, y: plotRect.minY))
                 fillPath.close()
                 let gradient = NSGradient(colors: [
-                    NSColor.systemOrange.withAlphaComponent(0.48),
-                    NSColor.systemOrange.withAlphaComponent(0.08),
+                    palette.elevationFillTop,
+                    palette.elevationFillBottom,
                 ])
                 gradient?.draw(in: fillPath, angle: -90)
 
@@ -861,7 +920,7 @@ private enum CourseShareElevationRenderer {
                 linePath.lineJoinStyle = .round
                 linePath.lineCapStyle = .round
                 linePath.lineWidth = max(2, plotRect.width / 650)
-                NSColor.systemOrange.setStroke()
+                palette.elevationLine.setStroke()
                 linePath.stroke()
             }
         }
@@ -872,13 +931,14 @@ private enum CourseShareElevationRenderer {
         plotRect: NSRect,
         totalKm: Double,
         minimumElevation: Double,
-        maximumElevation: Double
+        maximumElevation: Double,
+        palette: Palette
     ) {
         let pointsWithElevation = snapshot.allTrackPoints.filter { $0.ele != nil }
         guard !pointsWithElevation.isEmpty else { return }
         let labelAttributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: palette.primaryText,
         ]
         var rowRightEdges = Array(repeating: -CGFloat.greatestFiniteMagnitude, count: 4)
 
@@ -921,9 +981,9 @@ private enum CourseShareElevationRenderer {
                 width: boxWidth,
                 height: 16
             )
-            NSColor(calibratedWhite: 0.96, alpha: 0.96).setFill()
+            palette.markerLabelBackground.setFill()
             NSBezierPath(roundedRect: box, xRadius: 4, yRadius: 4).fill()
-            NSColor.systemCyan.withAlphaComponent(0.65).setStroke()
+            palette.markerLabelBorder.setStroke()
             let border = NSBezierPath(roundedRect: box, xRadius: 4, yRadius: 4)
             border.lineWidth = 1
             border.stroke()

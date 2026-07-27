@@ -134,6 +134,7 @@ struct CourseShareOptions: Codable, Equatable, Sendable {
     var routeLineWidth: Double = 6
     var showsMapEndpoints: Bool = true
     var showsMapWaypoints: Bool = true
+    var usesDarkElevationStyle: Bool = false
     var showsElevationWaypoints: Bool = true
     var mapSize: CourseSharePixelSize = .defaultMap
     var elevationSize: CourseSharePixelSize = .defaultElevation
