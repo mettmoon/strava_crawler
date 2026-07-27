@@ -321,6 +321,7 @@ private enum CourseShareMapRenderer {
                 snapshot: snapshot,
                 viewport: viewport,
                 size: options.mapSize,
+                showsEndpoints: options.showsMapEndpoints,
                 showsWaypoints: options.showsMapWaypoints
             )
         }
@@ -391,31 +392,34 @@ private enum CourseShareMapRenderer {
         snapshot: CourseShareSnapshot,
         viewport: CourseShareMapViewport,
         size: CourseSharePixelSize,
+        showsEndpoints: Bool,
         showsWaypoints: Bool
     ) {
         guard let first = snapshot.sectionTrackPoints.first?.first,
               let last = snapshot.sectionTrackPoints.last?.last
         else { return }
 
-        let markerRadius = max(8, min(15, CGFloat(size.width) / 80))
-        drawEndpoint(
-            text: "S",
-            color: .systemGreen,
-            center: viewport.point(
-                for: CLLocationCoordinate2D(latitude: first.lat, longitude: first.lon),
-                size: size
-            ),
-            radius: markerRadius
-        )
-        drawEndpoint(
-            text: "E",
-            color: .systemRed,
-            center: viewport.point(
-                for: CLLocationCoordinate2D(latitude: last.lat, longitude: last.lon),
-                size: size
-            ),
-            radius: markerRadius
-        )
+        if showsEndpoints {
+            let markerRadius = max(8, min(15, CGFloat(size.width) / 80))
+            drawEndpoint(
+                text: "S",
+                color: .systemGreen,
+                center: viewport.point(
+                    for: CLLocationCoordinate2D(latitude: first.lat, longitude: first.lon),
+                    size: size
+                ),
+                radius: markerRadius
+            )
+            drawEndpoint(
+                text: "E",
+                color: .systemRed,
+                center: viewport.point(
+                    for: CLLocationCoordinate2D(latitude: last.lat, longitude: last.lon),
+                    size: size
+                ),
+                radius: markerRadius
+            )
+        }
 
         guard showsWaypoints else { return }
         for cue in snapshot.cuePoints {

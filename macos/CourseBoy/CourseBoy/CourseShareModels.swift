@@ -132,6 +132,7 @@ struct CourseShareOptions: Codable, Equatable, Sendable {
     var mapBackground: CourseShareMapBackground = .appleLight
     var solidBackgroundColor: CourseShareColor = .warmGray
     var routeLineWidth: Double = 6
+    var showsMapEndpoints: Bool = true
     var showsMapWaypoints: Bool = true
     var showsElevationWaypoints: Bool = true
     var mapSize: CourseSharePixelSize = .defaultMap
