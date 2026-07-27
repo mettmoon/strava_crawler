@@ -242,6 +242,10 @@ struct CourseShareView: View {
             if model.options.outputMode.includesElevation {
                 Section("고도표") {
                     Toggle(
+                        "다크 모드",
+                        isOn: $model.options.usesDarkElevationStyle
+                    )
+                    Toggle(
                         "웨이포인트 표시",
                         isOn: $model.options.showsElevationWaypoints
                     )
