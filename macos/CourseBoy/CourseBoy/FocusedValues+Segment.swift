@@ -27,7 +27,9 @@ struct RouteCommandHandler {
 
 struct CourseCommandHandler {
     var edit: () -> Void
+    var share: (() -> Void)? = nil
     var copySegmentInfo: () -> Void
+    var canShare: Bool = false
     var canCopySegmentInfo: Bool
 }
 

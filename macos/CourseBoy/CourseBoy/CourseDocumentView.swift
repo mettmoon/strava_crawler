@@ -9,6 +9,7 @@ struct CourseDocumentView: View {
 
     @State private var isEditing = false
     @State private var showing3D = false
+    @State private var showingShare = false
     @State private var registeredRecentFileURL: URL?
 
     var body: some View {
@@ -26,6 +27,7 @@ struct CourseDocumentView: View {
                     course: document.course,
                     container: container,
                     onEdit: { isEditing = true },
+                    onShare: { showingShare = true },
                     onShow3D: { showing3D = true }
                 )
             }
@@ -40,11 +42,16 @@ struct CourseDocumentView: View {
         .sheet(isPresented: $showing3D) {
             Course3DPreview(course: document.course)
         }
+        .sheet(isPresented: $showingShare) {
+            CourseShareView(course: document.course)
+        }
         .focusedSceneValue(
             \.courseCommandHandler,
             CourseCommandHandler(
                 edit: { isEditing = true },
+                share: { if !isEditing { showingShare = true } },
                 copySegmentInfo: { copySegmentInfoToPasteboard() },
+                canShare: !isEditing && !document.course.allTrackPoints.isEmpty,
                 canCopySegmentInfo: !document.course.segmentSnapshots.isEmpty
             )
         )
