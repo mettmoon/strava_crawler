@@ -39,6 +39,75 @@ public enum Geo {
         }
         return bestI
     }
+
+    /// 누적거리와 가장 가까운 트랙포인트 인덱스. `cumKm` 오름차순을 이용한다.
+    public static func nearestIndex(_ pts: [TrackPoint], distanceKm: Double) -> Int? {
+        guard !pts.isEmpty, distanceKm.isFinite else { return nil }
+        if distanceKm <= pts[0].cumKm { return 0 }
+        if distanceKm >= pts[pts.count - 1].cumKm { return pts.count - 1 }
+
+        var low = 0
+        var high = pts.count - 1
+        while low < high {
+            let mid = (low + high) / 2
+            if pts[mid].cumKm < distanceKm {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+
+        let upper = low
+        let lower = upper - 1
+        return abs(pts[lower].cumKm - distanceKm) <= abs(pts[upper].cumKm - distanceKm)
+            ? lower
+            : upper
+    }
+
+    /// 좌표에 가까운 후보들 중 누적거리까지 가장 잘 맞는 트랙포인트 인덱스.
+    ///
+    /// 왕복/교차 경로처럼 같은 좌표를 여러 번 통과할 때 좌표만으로는 올바른
+    /// 통과 지점을 고를 수 없다. 좌표상 최단 지점에서 50m 이내인 후보로 범위를
+    /// 제한한 뒤, 저장된 코스 누적거리와 가장 가까운 지점을 선택한다.
+    public static func nearestIndex(
+        _ pts: [TrackPoint],
+        lat: Double?,
+        lon: Double?,
+        distanceKm: Double?
+    ) -> Int? {
+        guard !pts.isEmpty else { return nil }
+        guard let lat, let lon else {
+            return distanceKm.flatMap { nearestIndex(pts, distanceKm: $0) }
+        }
+        guard let distanceKm, distanceKm.isFinite else {
+            return nearestIndex(pts, lat: lat, lon: lon)
+        }
+
+        var spatialDistances: [Double] = []
+        spatialDistances.reserveCapacity(pts.count)
+        var nearestSpatialDistance = Double.infinity
+        for point in pts {
+            let distance = haversineKm(point.lat, point.lon, lat, lon)
+            spatialDistances.append(distance)
+            nearestSpatialDistance = min(nearestSpatialDistance, distance)
+        }
+
+        let candidateLimitKm = nearestSpatialDistance + 0.05
+        var bestIndex: Int?
+        var bestCourseDistanceError = Double.infinity
+        var bestSpatialDistance = Double.infinity
+        for index in pts.indices where spatialDistances[index] <= candidateLimitKm {
+            let courseDistanceError = abs(pts[index].cumKm - distanceKm)
+            let spatialDistance = spatialDistances[index]
+            if courseDistanceError < bestCourseDistanceError
+                || (courseDistanceError == bestCourseDistanceError && spatialDistance < bestSpatialDistance) {
+                bestIndex = index
+                bestCourseDistanceError = courseDistanceError
+                bestSpatialDistance = spatialDistance
+            }
+        }
+        return bestIndex
+    }
 }
 
 /// TCX 트랙포인트 (누적거리 포함).

@@ -148,11 +148,9 @@ struct RouteDetailView: View {
     // MARK: - 하이라이트 헬퍼
 
     private func sliceTrackPoints(_ pts: [TrackPoint], for seg: SegmentInfo) -> [TrackPoint] {
-        guard let sp = seg.startPoint, let ep = seg.endPoint else { return [] }
-        let startIdx = Geo.nearestIndex(pts, lat: sp[0], lon: sp[1]) ?? 0
-        let endIdx   = Geo.nearestIndex(pts, lat: ep[0], lon: ep[1], startIdx: startIdx + 1) ?? (pts.count - 1)
-        guard startIdx < endIdx else { return [] }
-        return Array(pts[startIdx...endIdx])
+        let matches = RouteSegmentMatcher.match(trackPoints: pts, segments: route.segments)
+        guard let placement = matches[seg.segmentID], placement.startIndex < placement.endIndex else { return [] }
+        return Array(pts[placement.startIndex...placement.endIndex])
     }
 
     private func loadCourse() {
