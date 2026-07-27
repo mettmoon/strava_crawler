@@ -9,6 +9,7 @@ struct CourseWorkspaceView: View {
     @ObservedObject var course: CourseRecord
     var container: AppContainer
     var onEdit: () -> Void
+    var onShare: () -> Void
     var onShow3D: () -> Void
 
     @State private var highlightPoints: [TrackPoint] = []
@@ -32,6 +33,14 @@ struct CourseWorkspaceView: View {
                         Label("편집", systemImage: "pencil")
                     }
                     .help("코스 편집")
+                }
+
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: onShare) {
+                        Label("공유 이미지", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(course.allTrackPoints.isEmpty)
+                    .help("코스 공유 이미지 만들기")
                 }
 
                 ToolbarItem(placement: .primaryAction) {
@@ -160,7 +169,9 @@ struct CourseWorkspaceView: View {
     private func makeHandler() -> CourseCommandHandler? {
         return CourseCommandHandler(
             edit: onEdit,
+            share: onShare,
             copySegmentInfo: { copySegmentInfoToPasteboard(course) },
+            canShare: !course.allTrackPoints.isEmpty,
             canCopySegmentInfo: !course.segmentSnapshots.isEmpty
         )
     }
