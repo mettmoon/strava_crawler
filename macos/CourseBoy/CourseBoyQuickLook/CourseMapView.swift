@@ -1,3 +1,4 @@
+import CoursePreviewCore
 import MapKit
 import SwiftUI
 import UIKit

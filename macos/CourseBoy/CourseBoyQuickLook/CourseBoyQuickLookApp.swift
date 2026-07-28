@@ -1,3 +1,4 @@
+import CoursePreviewCore
 import SwiftUI
 
 @main

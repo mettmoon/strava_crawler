@@ -7,16 +7,13 @@ final class GPXRouteParser: NSObject, XMLParserDelegate {
 
     private var elementStack: [String] = []
     private var currentText = ""
-
     private var metadataTitle: String?
     private var trackTitle: String?
     private var routeTitle: String?
-
     private var trackCandidates: [RawRoutePoint] = []
     private var routeCandidates: [RawRoutePoint] = []
     private var waypointCandidates: [RawCuePoint] = []
     private var routeCueCandidates: [RawCuePoint] = []
-
     private var currentTrackPoint: ParsedGPXPoint?
     private var currentRoutePoint: ParsedGPXPoint?
     private var currentWaypoint: ParsedGPXPoint?
@@ -142,12 +139,18 @@ final class GPXRouteParser: NSObject, XMLParserDelegate {
             if let point = currentRoutePoint?.rawRoutePoint {
                 routeCandidates.append(point)
             }
-            if let cue = currentRoutePoint?.rawCuePoint(defaultName: "Route Point", includeUnnamed: false) {
+            if let cue = currentRoutePoint?.rawCuePoint(
+                defaultName: "Route Point",
+                includeUnnamed: false
+            ) {
                 routeCueCandidates.append(cue)
             }
             currentRoutePoint = nil
         case "wpt":
-            if let cue = currentWaypoint?.rawCuePoint(defaultName: "Waypoint", includeUnnamed: true) {
+            if let cue = currentWaypoint?.rawCuePoint(
+                defaultName: "Waypoint",
+                includeUnnamed: true
+            ) {
                 waypointCandidates.append(cue)
             }
             currentWaypoint = nil
@@ -188,7 +191,6 @@ private struct ParsedGPXPoint {
 
     func rawCuePoint(defaultName: String, includeUnnamed: Bool) -> RawCuePoint? {
         guard let lat, let lon else { return nil }
-
         let pointName = firstNonEmpty(name, desc, comment, type, symbol)
         guard includeUnnamed || pointName != nil else { return nil }
 
@@ -203,27 +205,24 @@ private struct ParsedGPXPoint {
 
     private func mappedPointType(from values: [String?]) -> String {
         let text = values.compactMap { $0 }.joined(separator: " ").lowercased()
-        if text.contains("water") || text.contains("drink") || text.contains("hydration") || text.contains("급수") {
+        if text.contains("water") || text.contains("drink")
+            || text.contains("hydration") || text.contains("급수") {
             return "Water"
         }
-        if text.contains("food") || text.contains("cafe") || text.contains("restaurant") || text.contains("보급") {
+        if text.contains("food") || text.contains("cafe")
+            || text.contains("restaurant") || text.contains("보급") {
             return "Food"
         }
-        if text.contains("danger") || text.contains("hazard") || text.contains("warning") || text.contains("위험") {
+        if text.contains("danger") || text.contains("hazard")
+            || text.contains("warning") || text.contains("위험") {
             return "Danger"
         }
         if text.contains("summit") || text.contains("peak") || text.contains("정상") {
             return "Summit"
         }
-        if text.contains("left") || text.contains("좌회전") {
-            return "Left"
-        }
-        if text.contains("right") || text.contains("우회전") {
-            return "Right"
-        }
-        if text.contains("straight") || text.contains("직진") {
-            return "Straight"
-        }
+        if text.contains("left") || text.contains("좌회전") { return "Left" }
+        if text.contains("right") || text.contains("우회전") { return "Right" }
+        if text.contains("straight") || text.contains("직진") { return "Straight" }
         return "Generic"
     }
 }
@@ -231,9 +230,7 @@ private struct ParsedGPXPoint {
 func firstNonEmpty(_ values: String?...) -> String? {
     for value in values {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !trimmed.isEmpty {
-            return trimmed
-        }
+        if !trimmed.isEmpty { return trimmed }
     }
     return nil
 }

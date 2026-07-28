@@ -4,14 +4,11 @@ final class TCXRouteParser: NSObject, XMLParserDelegate {
     private let data: Data
     private let sourceURL: URL
     private let fallbackTitle: String
-
     private var elementStack: [String] = []
     private var currentText = ""
-
     private var courseTitle: String?
     private var rawTrackPoints: [RawRoutePoint] = []
     private var rawCuePoints: [RawCuePoint] = []
-
     private var currentTrackPoint: ParsedTCXPoint?
     private var currentCoursePoint: ParsedTCXPoint?
 
@@ -34,14 +31,16 @@ final class TCXRouteParser: NSObject, XMLParserDelegate {
         let trackPoints = normalizedTrackPoints(from: rawTrackPoints)
         guard !trackPoints.isEmpty else { throw RouteFileLoadError.noTrackpoints }
 
-        let cues = RouteFileLoader.cuePoints(from: rawCuePoints, trackPoints: trackPoints)
         return LoadedCourse(
             title: RouteFileLoader.normalizedTitle(courseTitle, fallback: fallbackTitle),
             sourceURL: sourceURL,
             fileKind: .tcx,
             routePoints: routeEndpoints(from: trackPoints),
             trackPoints: trackPoints,
-            cuePoints: cues
+            cuePoints: RouteFileLoader.cuePoints(
+                from: rawCuePoints,
+                trackPoints: trackPoints
+            )
         )
     }
 
@@ -83,9 +82,7 @@ final class TCXRouteParser: NSObject, XMLParserDelegate {
 
         switch name {
         case "Name" where parent == "Course":
-            if courseTitle == nil {
-                courseTitle = text
-            }
+            if courseTitle == nil { courseTitle = text }
         case "Time":
             currentTrackPoint?.time = text
             currentCoursePoint?.time = text
@@ -168,8 +165,5 @@ private struct ParsedTCXPoint {
 
 func normalizedElementName(localName: String, qualifiedName: String?) -> String {
     let raw = localName.isEmpty ? (qualifiedName ?? "") : localName
-    if let suffix = raw.split(separator: ":").last {
-        return String(suffix)
-    }
-    return raw
+    return raw.split(separator: ":").last.map(String.init) ?? raw
 }
