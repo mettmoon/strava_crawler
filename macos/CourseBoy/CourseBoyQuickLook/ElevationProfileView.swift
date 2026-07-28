@@ -1,3 +1,4 @@
+import CoursePreviewCore
 import SwiftUI
 #if canImport(UIKit)
 import UIKit
