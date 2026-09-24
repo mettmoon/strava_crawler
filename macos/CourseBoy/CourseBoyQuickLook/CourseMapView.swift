@@ -306,7 +306,7 @@ struct CourseMapView: UIViewRepresentable {
                 view.markerTintColor = glyph.uiColor
                 view.glyphImage = glyph.symbol.flatMap { UIImage(systemName: $0) }
                 view.glyphText = glyph.text
-                view.displayPriority = .defaultHigh
+                view.displayPriority = .required
                 return view
             }
 
