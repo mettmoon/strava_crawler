@@ -270,10 +270,10 @@ struct CourseMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
-            if overlay is CourseRoutePolyline {
-                let renderer = MKPolylineRenderer(overlay: overlay)
+            if let route = overlay as? CourseRoutePolyline {
+                let renderer = CourseRouteRenderer(overlay: route)
                 renderer.strokeColor = UIColor.systemBlue
-                renderer.lineWidth = 4
+                renderer.lineWidth = 6
                 renderer.lineJoin = .round
                 renderer.lineCap = .round
                 return renderer
@@ -436,6 +436,101 @@ struct CourseMapView: UIViewRepresentable {
 }
 
 private final class CourseRoutePolyline: MKPolyline {}
+
+/// 코스 라인 위에 진행 방향 화살표(›)를 일정한 화면 간격으로 그린다.
+private final class CourseRouteRenderer: MKPolylineRenderer {
+    private static let arrowSpacing: CGFloat = 72
+    /// lineWidth 대비 화살표 크기 비율.
+    private static let arrowArmRatio: CGFloat = 0.15
+    private static let arrowLineWidthRatio: CGFloat = 0.09
+    private static let minimumArrowCount: CGFloat = 3
+
+    /// 경로 시작점부터 각 포인트까지의 누적 길이(맵 포인트 단위).
+    private let cumulativeLengths: [Double]
+
+    // MapKit 내부에서 init(overlay:)로 생성하므로 이 이니셜라이저를 재정의한다.
+    override init(overlay: MKOverlay) {
+        var lengths: [Double] = []
+        if let polyline = overlay as? MKPolyline, polyline.pointCount > 0 {
+            let points = polyline.points()
+            lengths = [Double](repeating: 0, count: polyline.pointCount)
+            for index in stride(from: 1, to: polyline.pointCount, by: 1) {
+                let dx = points[index].x - points[index - 1].x
+                let dy = points[index].y - points[index - 1].y
+                lengths[index] = lengths[index - 1] + (dx * dx + dy * dy).squareRoot()
+            }
+        }
+        cumulativeLengths = lengths
+        super.init(overlay: overlay)
+    }
+
+    override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
+        super.draw(mapRect, zoomScale: zoomScale, in: context)
+
+        let pointCount = polyline.pointCount
+        guard pointCount >= 2, cumulativeLengths.count == pointCount, let totalLength = cumulativeLengths.last, totalLength > 0 else { return }
+
+        // 맵 포인트 단위 간격. 화면에서는 항상 arrowSpacing(pt) 간격으로 보인다.
+        let spacing = Double(Self.arrowSpacing / zoomScale)
+        guard totalLength >= spacing * Double(Self.minimumArrowCount) else { return }
+
+        // 라인과 같은 배율(MKRoadWidthAtZoomScale)을 써서 확대 수준과 관계없이 라인 대비 크기를 유지한다.
+        let unit = lineWidth * MKRoadWidthAtZoomScale(zoomScale)
+        let arm = Double(unit * Self.arrowArmRatio)
+        let margin = arm * 2
+        let clipRect = mapRect.insetBy(dx: -margin, dy: -margin)
+        let points = polyline.points()
+
+        let path = CGMutablePath()
+        for index in 0..<(pointCount - 1) {
+            let start = points[index]
+            let end = points[index + 1]
+            let segmentRect = MKMapRect(
+                x: min(start.x, end.x),
+                y: min(start.y, end.y),
+                width: abs(end.x - start.x),
+                height: abs(end.y - start.y)
+            )
+            guard segmentRect.intersects(clipRect) else { continue }
+
+            let startLength = cumulativeLengths[index]
+            let segmentLength = cumulativeLengths[index + 1] - startLength
+            guard segmentLength > 0 else { continue }
+
+            let dx = (end.x - start.x) / segmentLength
+            let dy = (end.y - start.y) / segmentLength
+
+            // 경로 전체 기준 간격 위치를 사용해 타일 경계에서도 화살표가 어긋나지 않게 한다.
+            var arrowLength = (startLength / spacing).rounded(.up) * spacing
+            if arrowLength == 0 { arrowLength = spacing }
+            while arrowLength < startLength + segmentLength {
+                guard arrowLength < totalLength - spacing * 0.5 else { break }
+                let offset = arrowLength - startLength
+                let tip = MKMapPoint(x: start.x + dx * offset, y: start.y + dy * offset)
+                appendArrow(to: path, tip: tip, dx: dx, dy: dy, arm: arm)
+                arrowLength += spacing
+            }
+        }
+
+        guard !path.isEmpty else { return }
+        context.addPath(path)
+        context.setStrokeColor(UIColor.white.cgColor)
+        context.setLineWidth(unit * Self.arrowLineWidthRatio)
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+        context.strokePath()
+    }
+
+    private func appendArrow(to path: CGMutablePath, tip: MKMapPoint, dx: Double, dy: Double, arm: Double) {
+        // 진행 방향 벡터(dx, dy)와 수직 벡터(-dy, dx)로 › 모양을 만든다.
+        let back = MKMapPoint(x: tip.x - dx * arm, y: tip.y - dy * arm)
+        let left = MKMapPoint(x: back.x - dy * arm, y: back.y + dx * arm)
+        let right = MKMapPoint(x: back.x + dy * arm, y: back.y - dx * arm)
+        path.move(to: point(for: left))
+        path.addLine(to: point(for: tip))
+        path.addLine(to: point(for: right))
+    }
+}
 
 private struct CourseRouteLocationMatch {
     var selection: CourseProfileSelection
