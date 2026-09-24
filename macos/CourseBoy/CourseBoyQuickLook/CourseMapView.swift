@@ -55,6 +55,7 @@ struct CourseMapView: UIViewRepresentable {
         private var cueAnnotations: [CourseCueAnnotation] = []
         private var endpointAnnotations: [CourseEndpointAnnotation] = []
         private var profileSelectionAnnotation: CourseProfileSelectionAnnotation?
+        private weak var routeRenderer: CourseRouteRenderer?
         private var trackingMode: CourseLocationTracker.Mode = .off
         private var needsFollowZoom = false
         /// 확대 애니메이션이 끝난 뒤(regionDidChange) 따라가기를 켜야 하는지.
@@ -302,12 +303,27 @@ struct CourseMapView: UIViewRepresentable {
             if let route = overlay as? CourseRoutePolyline {
                 let renderer = CourseRouteRenderer(overlay: route)
                 renderer.strokeColor = UIColor.systemBlue
-                renderer.lineWidth = 6
+                renderer.lineWidth = CourseRouteRenderer.lineWidth(forZoomScale: currentZoomScale(of: mapView))
+                routeRenderer = renderer
                 renderer.lineJoin = .round
                 renderer.lineCap = .round
                 return renderer
             }
             return MKOverlayRenderer(overlay: overlay)
+        }
+
+        private func updateRouteLineWidth(in mapView: MKMapView) {
+            guard let routeRenderer else { return }
+            let width = CourseRouteRenderer.lineWidth(forZoomScale: currentZoomScale(of: mapView))
+            guard routeRenderer.lineWidth != width else { return }
+            routeRenderer.lineWidth = width
+            routeRenderer.setNeedsDisplay()
+        }
+
+        private func currentZoomScale(of mapView: MKMapView) -> MKZoomScale {
+            let visibleWidth = mapView.visibleMapRect.width
+            guard visibleWidth > 0, mapView.bounds.width > 0 else { return 1 }
+            return mapView.bounds.width / visibleWidth
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
@@ -394,6 +410,7 @@ struct CourseMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            updateRouteLineWidth(in: mapView)
             guard pendingFollowAfterZoom else { return }
             pendingFollowAfterZoom = false
             if trackingMode == .following, mapView.userTrackingMode != .follow {
@@ -430,6 +447,11 @@ private final class CourseRouteRenderer: MKPolylineRenderer {
     private static let arrowArmRatio: CGFloat = 0.15
     private static let arrowLineWidthRatio: CGFloat = 0.09
     private static let minimumArrowCount: CGFloat = 3
+    private static let baseLineWidth: CGFloat = 6
+    /// 이 줌 레벨 이하에서는 라인을 minimumWidthFactor 배로 가늘게, fullWidthZoomLevel 이상에서는 원래 두께로 그린다.
+    private static let thinZoomLevel: CGFloat = 9
+    private static let fullWidthZoomLevel: CGFloat = 13
+    private static let minimumWidthFactor: CGFloat = 0.45
 
     /// 경로 시작점부터 각 포인트까지의 누적 길이(맵 포인트 단위).
     private let cumulativeLengths: [Double]
@@ -448,6 +470,14 @@ private final class CourseRouteRenderer: MKPolylineRenderer {
         }
         cumulativeLengths = lengths
         super.init(overlay: overlay)
+    }
+
+    /// MapKit 기본 두께는 축소할수록 두꺼워 보여서 줌 레벨에 따라 lineWidth를 줄인다.
+    static func lineWidth(forZoomScale zoomScale: MKZoomScale) -> CGFloat {
+        let zoomLevel = 20 + log2(zoomScale)
+        let progress = (zoomLevel - thinZoomLevel) / (fullWidthZoomLevel - thinZoomLevel)
+        let factor = minimumWidthFactor + (1 - minimumWidthFactor) * min(max(progress, 0), 1)
+        return (baseLineWidth * factor * 2).rounded() / 2
     }
 
     override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
