@@ -3,20 +3,18 @@ import MapKit
 import SwiftUI
 import UIKit
 
-struct CourseLocateRequest: Equatable {
-    var id = UUID()
-}
-
 struct CourseMapView: UIViewRepresentable {
     let course: LoadedCourse
     @Binding var selectedCueID: UUID?
     @Binding var selectedProfilePoint: CourseProfileSelection?
-    @Binding var locateRequest: CourseLocateRequest?
+    let trackingMode: CourseLocationTracker.Mode
+    var onUserStopFollowing: () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             selectedCueID: $selectedCueID,
-            selectedProfilePoint: $selectedProfilePoint
+            selectedProfilePoint: $selectedProfilePoint,
+            onUserStopFollowing: onUserStopFollowing
         )
     }
 
@@ -38,39 +36,45 @@ struct CourseMapView: UIViewRepresentable {
     func updateUIView(_ map: MKMapView, context: Context) {
         context.coordinator.selectedCueID = $selectedCueID
         context.coordinator.selectedProfilePoint = $selectedProfilePoint
+        context.coordinator.onUserStopFollowing = onUserStopFollowing
         context.coordinator.syncCourse(course, in: map)
-        context.coordinator.syncLocateRequest(locateRequest, course: course, in: map)
+        context.coordinator.syncTrackingMode(trackingMode, in: map)
         context.coordinator.syncSelectedCue(selectedCueID, in: map)
         context.coordinator.syncProfileSelection(selectedProfilePoint, in: map)
     }
 
-    final class Coordinator: NSObject, MKMapViewDelegate, CLLocationManagerDelegate {
+    final class Coordinator: NSObject, MKMapViewDelegate {
+        /// 따라가기를 켤 때 이보다 넓게 보고 있으면 followZoomMeters로 확대한다.
+        private static let followZoomThresholdMeters: CLLocationDistance = 3_000
+        private static let followZoomMeters: CLLocationDistance = 700
+
         var selectedCueID: Binding<UUID?>
         var selectedProfilePoint: Binding<CourseProfileSelection?>
+        var onUserStopFollowing: () -> Void
         private var loadedCourseID: UUID?
         private var cueAnnotations: [CourseCueAnnotation] = []
         private var endpointAnnotations: [CourseEndpointAnnotation] = []
         private var profileSelectionAnnotation: CourseProfileSelectionAnnotation?
-        private let locationManager = CLLocationManager()
-        private weak var pendingLocationMap: MKMapView?
-        private var pendingLocationCourse: LoadedCourse?
-        private var handledLocateRequestID: UUID?
+        private var trackingMode: CourseLocationTracker.Mode = .off
+        private var needsFollowZoom = false
+        /// 확대 애니메이션이 끝난 뒤(regionDidChange) 따라가기를 켜야 하는지.
+        private var pendingFollowAfterZoom = false
+        private var isChangingTrackingModeProgrammatically = false
+        private var isInBackground = false
         private weak var attachedMap: MKMapView?
         private var didEnterBackgroundObserver: NSObjectProtocol?
         private var willEnterForegroundObserver: NSObjectProtocol?
         private var savedConfiguration: MKMapConfiguration?
-        private var savedShowsUserLocation = false
 
         init(
             selectedCueID: Binding<UUID?>,
-            selectedProfilePoint: Binding<CourseProfileSelection?>
+            selectedProfilePoint: Binding<CourseProfileSelection?>,
+            onUserStopFollowing: @escaping () -> Void
         ) {
             self.selectedCueID = selectedCueID
             self.selectedProfilePoint = selectedProfilePoint
+            self.onUserStopFollowing = onUserStopFollowing
             super.init()
-            locationManager.delegate = self
-            locationManager.desiredAccuracy = kCLLocationAccuracyBest
-            locationManager.distanceFilter = kCLDistanceFilterNone
         }
 
         deinit {
@@ -110,17 +114,12 @@ struct CourseMapView: UIViewRepresentable {
                 NotificationCenter.default.removeObserver(observer)
                 willEnterForegroundObserver = nil
             }
-            locationManager.stopUpdatingLocation()
             attachedMap = nil
         }
 
         private func handleDidEnterBackground() {
-            locationManager.stopUpdatingLocation()
-            pendingLocationMap = nil
-            pendingLocationCourse = nil
-
+            isInBackground = true
             guard let map = attachedMap else { return }
-            savedShowsUserLocation = map.showsUserLocation
             map.showsUserLocation = false
 
             if savedConfiguration == nil {
@@ -132,12 +131,15 @@ struct CourseMapView: UIViewRepresentable {
         }
 
         private func handleWillEnterForeground() {
+            isInBackground = false
             guard let map = attachedMap else { return }
             if let saved = savedConfiguration {
                 map.preferredConfiguration = saved
                 savedConfiguration = nil
             }
-            map.showsUserLocation = savedShowsUserLocation
+            let mode = trackingMode
+            trackingMode = .off
+            syncTrackingMode(mode, in: map)
         }
 
         func syncCourse(_ course: LoadedCourse, in map: MKMapView) {
@@ -184,23 +186,50 @@ struct CourseMapView: UIViewRepresentable {
             map.addAnnotations(cueAnnotations)
         }
 
-        func syncLocateRequest(_ request: CourseLocateRequest?, course: LoadedCourse, in map: MKMapView) {
-            guard let request, handledLocateRequestID != request.id else { return }
-            handledLocateRequestID = request.id
-            pendingLocationMap = map
-            pendingLocationCourse = course
-            map.showsUserLocation = true
-
-            switch locationManager.authorizationStatus {
-            case .notDetermined:
-                locationManager.requestWhenInUseAuthorization()
-            case .authorizedAlways, .authorizedWhenInUse:
-                requestCurrentLocation()
-            case .denied, .restricted:
-                centerMapOnKnownUserLocation(in: map, course: course)
-            @unknown default:
-                break
+        func syncTrackingMode(_ mode: CourseLocationTracker.Mode, in map: MKMapView) {
+            guard !isInBackground else {
+                trackingMode = mode
+                return
             }
+            let previousMode = trackingMode
+            trackingMode = mode
+            map.showsUserLocation = mode != .off
+
+            let desired: MKUserTrackingMode = mode == .following ? .follow : .none
+            if mode == .following, previousMode != .following {
+                needsFollowZoom = isZoomedOutForFollowing(map)
+                applyFollowZoomIfPossible(in: map)
+            }
+            // 확대 애니메이션 중에는 follow를 걸지 않는다. 끝나면 regionDidChange에서 건다.
+            if map.userTrackingMode != desired, desired == .none || !pendingFollowAfterZoom {
+                setUserTrackingMode(desired, in: map)
+            }
+        }
+
+        private func isZoomedOutForFollowing(_ map: MKMapView) -> Bool {
+            let region = map.region
+            let metersPerDegreeLatitude = 111_000.0
+            return region.span.latitudeDelta * metersPerDegreeLatitude > Self.followZoomThresholdMeters
+        }
+
+        private func applyFollowZoomIfPossible(in map: MKMapView) {
+            guard needsFollowZoom, let location = map.userLocation.location else { return }
+            needsFollowZoom = false
+            let region = MKCoordinateRegion(
+                center: location.coordinate,
+                latitudinalMeters: Self.followZoomMeters,
+                longitudinalMeters: Self.followZoomMeters
+            )
+            pendingFollowAfterZoom = true
+            isChangingTrackingModeProgrammatically = true
+            map.setRegion(region, animated: true)
+            isChangingTrackingModeProgrammatically = false
+        }
+
+        private func setUserTrackingMode(_ mode: MKUserTrackingMode, in map: MKMapView) {
+            isChangingTrackingModeProgrammatically = true
+            map.setUserTrackingMode(mode, animated: true)
+            isChangingTrackingModeProgrammatically = false
         }
 
         func syncSelectedCue(_ id: UUID?, in map: MKMapView) {
@@ -359,72 +388,29 @@ struct CourseMapView: UIViewRepresentable {
             }
         }
 
-        func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-            switch manager.authorizationStatus {
-            case .authorizedAlways, .authorizedWhenInUse:
-                requestCurrentLocation()
-            case .denied, .restricted:
-                pendingLocationMap = nil
-                pendingLocationCourse = nil
-            case .notDetermined:
-                break
-            @unknown default:
-                break
+        func mapView(_ mapView: MKMapView, didUpdate userLocation: MKUserLocation) {
+            guard trackingMode == .following else { return }
+            applyFollowZoomIfPossible(in: mapView)
+        }
+
+        func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            guard pendingFollowAfterZoom else { return }
+            pendingFollowAfterZoom = false
+            if trackingMode == .following, mapView.userTrackingMode != .follow {
+                setUserTrackingMode(.follow, in: mapView)
             }
         }
 
-        func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-            guard let location = locations.last,
-                  let map = pendingLocationMap,
-                  let course = pendingLocationCourse else {
+        func mapView(_ mapView: MKMapView, didChange mode: MKUserTrackingMode, animated: Bool) {
+            // 사용자가 지도를 끌어서 따라가기가 풀린 경우에만 트래커에 알린다.
+            guard mode == .none,
+                  trackingMode == .following,
+                  !isChangingTrackingModeProgrammatically,
+                  !pendingFollowAfterZoom,
+                  !isInBackground else {
                 return
             }
-            applyCurrentLocation(location, in: map, course: course)
-        }
-
-        func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-            if let map = pendingLocationMap, let course = pendingLocationCourse {
-                centerMapOnKnownUserLocation(in: map, course: course)
-            }
-            pendingLocationMap = nil
-            pendingLocationCourse = nil
-        }
-
-        private func requestCurrentLocation() {
-            if let map = pendingLocationMap,
-               let course = pendingLocationCourse,
-               let location = map.userLocation.location {
-                applyCurrentLocation(location, in: map, course: course)
-                return
-            }
-            locationManager.requestLocation()
-        }
-
-        private func centerMapOnKnownUserLocation(in map: MKMapView, course: LoadedCourse) {
-            guard let location = map.userLocation.location else { return }
-            applyCurrentLocation(location, in: map, course: course)
-        }
-
-        private func applyCurrentLocation(_ location: CLLocation, in map: MKMapView, course: LoadedCourse) {
-            let coordinate = location.coordinate
-            let region = MKCoordinateRegion(
-                center: coordinate,
-                latitudinalMeters: 700,
-                longitudinalMeters: 700
-            )
-            map.setRegion(region, animated: true)
-
-            if let match = CourseRouteLocationMatcher.match(
-                coordinate: coordinate,
-                trackPoints: course.trackPoints,
-                toleranceMeters: 50
-            ) {
-                selectedCueID.wrappedValue = nil
-                selectedProfilePoint.wrappedValue = match.selection
-            }
-
-            pendingLocationMap = nil
-            pendingLocationCourse = nil
+            onUserStopFollowing()
         }
 
         private func paddedRect(for rect: MKMapRect) -> MKMapRect {
@@ -529,96 +515,6 @@ private final class CourseRouteRenderer: MKPolylineRenderer {
         path.move(to: point(for: left))
         path.addLine(to: point(for: tip))
         path.addLine(to: point(for: right))
-    }
-}
-
-private struct CourseRouteLocationMatch {
-    var selection: CourseProfileSelection
-    var distanceFromRouteMeters: CLLocationDistance
-}
-
-private enum CourseRouteLocationMatcher {
-    static func match(
-        coordinate: CLLocationCoordinate2D,
-        trackPoints: [TrackPoint],
-        toleranceMeters: CLLocationDistance
-    ) -> CourseRouteLocationMatch? {
-        guard !trackPoints.isEmpty else { return nil }
-
-        if trackPoints.count == 1 {
-            let point = trackPoints[0]
-            let distance = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-                .distance(from: CLLocation(latitude: point.lat, longitude: point.lon))
-            guard distance <= toleranceMeters else { return nil }
-            return CourseRouteLocationMatch(
-                selection: CourseProfileSelection(trackIndex: 0, point: point),
-                distanceFromRouteMeters: distance
-            )
-        }
-
-        let target = MKMapPoint(coordinate)
-        var bestMatch: CourseRouteLocationMatch?
-
-        for index in 0..<(trackPoints.count - 1) {
-            let startPoint = trackPoints[index]
-            let endPoint = trackPoints[index + 1]
-            let start = MKMapPoint(startPoint.coordinate)
-            let end = MKMapPoint(endPoint.coordinate)
-            let dx = end.x - start.x
-            let dy = end.y - start.y
-            let segmentLengthSquared = dx * dx + dy * dy
-            let rawRatio = segmentLengthSquared > 0
-                ? ((target.x - start.x) * dx + (target.y - start.y) * dy) / segmentLengthSquared
-                : 0
-            let ratio = min(max(rawRatio, 0), 1)
-            let snappedPoint = MKMapPoint(
-                x: start.x + dx * ratio,
-                y: start.y + dy * ratio
-            )
-            let snappedCoordinate = snappedPoint.coordinate
-            let distance = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-                .distance(from: CLLocation(
-                    latitude: snappedCoordinate.latitude,
-                    longitude: snappedCoordinate.longitude
-                ))
-
-            guard distance <= toleranceMeters else { continue }
-            if let bestMatch, bestMatch.distanceFromRouteMeters <= distance { continue }
-
-            let distanceKm = startPoint.cumKm + (endPoint.cumKm - startPoint.cumKm) * ratio
-            let elevation = interpolatedElevation(from: startPoint, to: endPoint, ratio: ratio)
-            let trackIndex = ratio < 0.5 ? index : index + 1
-            let selection = CourseProfileSelection(
-                trackIndex: trackIndex,
-                lat: snappedCoordinate.latitude,
-                lon: snappedCoordinate.longitude,
-                distanceKm: distanceKm,
-                elevationMeters: elevation
-            )
-            bestMatch = CourseRouteLocationMatch(
-                selection: selection,
-                distanceFromRouteMeters: distance
-            )
-        }
-
-        return bestMatch
-    }
-
-    private static func interpolatedElevation(
-        from startPoint: TrackPoint,
-        to endPoint: TrackPoint,
-        ratio: Double
-    ) -> Double? {
-        switch (startPoint.ele, endPoint.ele) {
-        case let (.some(start), .some(end)):
-            return start + (end - start) * ratio
-        case let (.some(start), .none):
-            return start
-        case let (.none, .some(end)):
-            return end
-        case (.none, .none):
-            return nil
-        }
     }
 }
 

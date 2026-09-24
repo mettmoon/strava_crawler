@@ -9,6 +9,12 @@ struct CourseViewerView: View {
     @State private var selectedTab: CourseViewerTab = .summary
     @State private var elevationCueScrollRequest: ElevationCueScrollRequest?
     @State private var elevationHorizontalScrollPosition = 0.0
+    @State private var locationTracker = CourseLocationTracker()
+
+    /// 코스 위로 인식된 현재 위치. 코스 밖이거나 트래킹 중이 아니면 nil.
+    private var currentRouteLocation: CourseProfileSelection? {
+        locationTracker.currentLocation?.routeMatch
+    }
 
     private var selectedCue: CourseCuePoint? {
         guard let selectedCueID else { return nil }
@@ -30,7 +36,8 @@ struct CourseViewerView: View {
             CourseMapTab(
                 course: course,
                 selectedCueID: linkedCueSelection,
-                selectedProfilePoint: $selectedProfilePoint
+                selectedProfilePoint: $selectedProfilePoint,
+                locationTracker: locationTracker
             )
                 .tabItem {
                     Label("지도", systemImage: "map")
@@ -43,6 +50,7 @@ struct CourseViewerView: View {
                 selectedProfilePoint: $selectedProfilePoint,
                 cueScrollRequest: $elevationCueScrollRequest,
                 horizontalScrollPosition: $elevationHorizontalScrollPosition,
+                currentLocation: currentRouteLocation,
                 isActive: selectedTab == .elevation
             )
                 .tabItem {
@@ -53,12 +61,16 @@ struct CourseViewerView: View {
             CourseCueSheetTab(
                 course: course,
                 selectedCueID: linkedCueSelection,
-                selectedProfilePoint: $selectedProfilePoint
+                selectedProfilePoint: $selectedProfilePoint,
+                currentLocation: currentRouteLocation
             )
                 .tabItem {
                     Label("큐시트", systemImage: "list.bullet.rectangle")
                 }
                 .tag(CourseViewerTab.cueSheet)
+        }
+        .onDisappear {
+            locationTracker.stop()
         }
     }
 
@@ -127,7 +139,8 @@ private struct CourseMapTab: View {
     let course: LoadedCourse
     @Binding var selectedCueID: UUID?
     @Binding var selectedProfilePoint: CourseProfileSelection?
-    @State private var locateRequest: CourseLocateRequest?
+    @Bindable var locationTracker: CourseLocationTracker
+    @Environment(\.openURL) private var openURL
 
     private var selectedCue: CourseCuePoint? {
         guard let selectedCueID else { return nil }
@@ -140,7 +153,10 @@ private struct CourseMapTab: View {
                 course: course,
                 selectedCueID: $selectedCueID,
                 selectedProfilePoint: $selectedProfilePoint,
-                locateRequest: $locateRequest
+                trackingMode: locationTracker.mode,
+                onUserStopFollowing: { [locationTracker] in
+                    locationTracker.stopFollowing()
+                }
             )
             .ignoresSafeArea(.container, edges: [.top, .bottom])
 
@@ -173,15 +189,25 @@ private struct CourseMapTab: View {
         }
         .toolbarBackground(.bar, for: .navigationBar, .tabBar)
         .toolbarBackground(.visible, for: .navigationBar, .tabBar)
+        .alert("위치 권한이 필요합니다", isPresented: $locationTracker.showsAuthorizationDeniedAlert) {
+            Button("설정 열기") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    openURL(url)
+                }
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("현재 위치를 표시하려면 설정에서 위치 접근을 허용해 주세요.")
+        }
     }
 
     private var locateButton: some View {
         Button {
-            locateRequest = CourseLocateRequest()
+            locationTracker.toggle(course: course)
         } label: {
-            Image(systemName: "location.fill")
+            Image(systemName: locationTracker.mode == .following ? "location.fill" : "location")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.primary)
+                .foregroundStyle(locationTracker.mode == .off ? Color.primary : Color.accentColor)
                 .frame(width: 44, height: 44)
                 .background(.regularMaterial, in: Circle())
                 .overlay {
@@ -191,6 +217,15 @@ private struct CourseMapTab: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("내 위치")
+        .accessibilityValue(locateButtonAccessibilityValue)
+    }
+
+    private var locateButtonAccessibilityValue: String {
+        switch locationTracker.mode {
+        case .off: return "꺼짐"
+        case .following: return "따라가는 중"
+        case .tracking: return "위치 표시 중"
+        }
     }
 }
 
@@ -200,6 +235,7 @@ private struct CourseElevationTab: View {
     @Binding var selectedProfilePoint: CourseProfileSelection?
     @Binding var cueScrollRequest: ElevationCueScrollRequest?
     @Binding var horizontalScrollPosition: Double
+    let currentLocation: CourseProfileSelection?
     let isActive: Bool
 
     var body: some View {
@@ -233,6 +269,7 @@ private struct CourseElevationTab: View {
                                 cuePoints: course.sortedCuePoints,
                                 selectedCueID: selectedCueID,
                                 selectedProfilePoint: profileSelectionForDisplay,
+                                currentLocation: currentLocation,
                                 contentWidth: profileSize.width,
                                 visibleWidth: viewportWidth,
                                 horizontalOffset: horizontalOffset,
@@ -373,6 +410,7 @@ private struct CourseCueSheetTab: View {
     let course: LoadedCourse
     @Binding var selectedCueID: UUID?
     @Binding var selectedProfilePoint: CourseProfileSelection?
+    let currentLocation: CourseProfileSelection?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -381,7 +419,8 @@ private struct CourseCueSheetTab: View {
                     CueSheetListView(
                         course: course,
                         selectedCueID: cueSelectionBinding,
-                        selectedProfilePoint: $selectedProfilePoint
+                        selectedProfilePoint: $selectedProfilePoint,
+                        currentLocation: currentLocation
                     )
                 }
                 .padding(16)

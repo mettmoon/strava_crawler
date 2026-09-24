@@ -16,6 +16,8 @@ struct ElevationProfileView: View {
     let cuePoints: [CourseCuePoint]
     let selectedCueID: UUID?
     let selectedProfilePoint: CourseProfileSelection?
+    /// 코스 위로 인식된 현재 위치. 선택 지점과 별개로 표시한다.
+    var currentLocation: CourseProfileSelection? = nil
     var contentWidth: CGFloat = 0
     var visibleWidth: CGFloat = 0
     var horizontalOffset: CGFloat = 0
@@ -191,6 +193,17 @@ struct ElevationProfileView: View {
 
         if let selectedPlacement = cuePlacements.first(where: { $0.cue.id == selectedCueID }) {
             drawCueLabel(selectedPlacement, context: context, x: cueLabelX, selected: true)
+        }
+
+        if let currentLocation {
+            drawCurrentLocation(
+                currentLocation,
+                context: context,
+                chartRect: chartRect,
+                canvasWidth: size.width,
+                xPosition: xPosition,
+                yPosition: yPosition
+            )
         }
 
         if let selectedProfilePoint {
@@ -460,6 +473,56 @@ struct ElevationProfileView: View {
             chartRect: chartRect,
             canvasWidth: canvasWidth
         )
+    }
+
+    private func drawCurrentLocation(
+        _ location: CourseProfileSelection,
+        context: GraphicsContext,
+        chartRect: CGRect,
+        canvasWidth: CGFloat,
+        xPosition: (Double) -> CGFloat,
+        yPosition: (Double) -> CGFloat
+    ) {
+        let color = Color.blue
+        let y = min(max(yPosition(location.distanceKm), chartRect.minY), chartRect.maxY)
+
+        var horizontal = Path()
+        horizontal.move(to: CGPoint(x: chartRect.minX, y: y))
+        horizontal.addLine(to: CGPoint(x: fixedCueGuideEndX(chartRect: chartRect, canvasWidth: canvasWidth), y: y))
+        context.stroke(horizontal, with: .color(color.opacity(0.85)), lineWidth: 1.5)
+
+        // 고도값이 없으면 가이드 라인과 라벨만 그린다.
+        let x = location.elevationMeters.map { min(max(xPosition($0), chartRect.minX), chartRect.maxX) }
+        if let x {
+            let haloRadius: CGFloat = 11
+            context.fill(
+                Path(ellipseIn: CGRect(x: x - haloRadius, y: y - haloRadius, width: haloRadius * 2, height: haloRadius * 2)),
+                with: .color(color.opacity(0.18))
+            )
+            let dotRadius: CGFloat = 6
+            let dotRect = CGRect(x: x - dotRadius, y: y - dotRadius, width: dotRadius * 2, height: dotRadius * 2)
+            context.fill(Path(ellipseIn: dotRect), with: .color(color))
+            context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 2)
+        }
+
+        let label = context.resolve(
+            Text("현위치 \(formatRouteDistance(location.distanceKm))")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.white)
+        )
+        let textSize = label.measure(in: CGSize(width: 200, height: 40))
+        let pillSize = CGSize(width: textSize.width + 12, height: textSize.height + 6)
+        let anchorX = x ?? chartRect.minX
+        let maxX = max(canvasWidth, chartRect.maxX)
+        var origin = CGPoint(x: anchorX + 14, y: y - pillSize.height / 2)
+        if origin.x + pillSize.width > maxX - 6 {
+            origin.x = anchorX - pillSize.width - 14
+        }
+        origin.x = min(max(origin.x, chartRect.minX + 4), maxX - pillSize.width - 4)
+        origin.y = min(max(origin.y, chartRect.minY + 2), chartRect.maxY - pillSize.height - 2)
+        let pillRect = CGRect(origin: origin, size: pillSize)
+        context.fill(Path(roundedRect: pillRect, cornerRadius: pillSize.height / 2), with: .color(color))
+        context.draw(label, at: CGPoint(x: pillRect.midX, y: pillRect.midY), anchor: .center)
     }
 
     private func drawProfileSelectionBubble(

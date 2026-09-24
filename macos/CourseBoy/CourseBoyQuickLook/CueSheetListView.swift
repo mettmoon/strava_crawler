@@ -3,6 +3,7 @@ import SwiftUI
 
 struct CueSheetListView: View {
     static let profileSelectionRowID = "profile-selection-row"
+    static let currentLocationRowID = "current-location-row"
     static let startEndpointRowID = "cuesheet-endpoint-start"
     static let endEndpointRowID = "cuesheet-endpoint-end"
 
@@ -17,6 +18,8 @@ struct CueSheetListView: View {
     let course: LoadedCourse
     @Binding var selectedCueID: UUID?
     @Binding var selectedProfilePoint: CourseProfileSelection?
+    /// 코스 위로 인식된 현재 위치. 선택 지점과 별개의 항목으로 표시한다.
+    var currentLocation: CourseProfileSelection? = nil
 
     private var progress: RouteElevationProgress {
         RouteElevationProgress(trackPoints: course.trackPoints)
@@ -56,6 +59,14 @@ struct CueSheetListView: View {
                         )
                         .id(Self.profileSelectionRowID)
 
+                    case .currentLocation(let location):
+                        CurrentLocationCueSheetRow(
+                            location: location,
+                            progress: profileProgress(location),
+                            remainingDistanceKm: remainingDistanceKm(from: location.distanceKm)
+                        )
+                        .id(Self.currentLocationRowID)
+
                     case .cue(let cue):
                         CueSheetRow(
                             cue: cue,
@@ -85,6 +96,9 @@ struct CueSheetListView: View {
         }
         for endpoint in endpoints {
             items.append(.endpoint(endpoint))
+        }
+        if let currentLocation {
+            items.append(.currentLocation(currentLocation))
         }
         return items.sorted { lhs, rhs in
             if lhs.distanceKm == rhs.distanceKm {
@@ -139,6 +153,7 @@ struct CueSheetListView: View {
 private enum CueSheetListItem: Identifiable {
     case endpoint(TrackEndpoint)
     case profile(CourseProfileSelection)
+    case currentLocation(CourseProfileSelection)
     case cue(CourseCuePoint)
 
     var id: String {
@@ -147,6 +162,8 @@ private enum CueSheetListItem: Identifiable {
             return endpoint.rowID
         case .profile:
             return CueSheetListView.profileSelectionRowID
+        case .currentLocation:
+            return CueSheetListView.currentLocationRowID
         case .cue(let cue):
             return cue.id.uuidString
         }
@@ -156,18 +173,20 @@ private enum CueSheetListItem: Identifiable {
         switch self {
         case .endpoint(let endpoint):
             return endpoint.distanceKm
-        case .profile(let selection):
+        case .profile(let selection), .currentLocation(let selection):
             return selection.distanceKm
         case .cue(let cue):
             return cue.distanceKm
         }
     }
 
-    var sortOrder: Int {
+    var sortOrder: Double {
         switch self {
         case .endpoint(let endpoint):
             // Start goes before other items at the same distance; end goes after.
             return endpoint.kind == .start ? -1 : 2
+        case .currentLocation:
+            return -0.5
         case .profile:
             return 0
         case .cue:
@@ -324,6 +343,57 @@ private struct ProfileSelectionCueSheetRow: View {
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(Color.cyan.opacity(0.65), lineWidth: 1)
         }
+    }
+}
+
+private struct CurrentLocationCueSheetRow: View {
+    let location: CourseProfileSelection
+    let progress: RouteElevationProgressStats?
+    let remainingDistanceKm: Double
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(Color.blue)
+                Image(systemName: "location.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 34, height: 34)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("현재 위치")
+                        .font(.headline)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(formatRouteDistance(location.distanceKm))
+                        .font(.subheadline.weight(.medium))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack(spacing: 8) {
+                    Text("고도 \(formatRouteElevation(location.elevationMeters))")
+                    Text("남은 \(formatRouteDistance(remainingDistanceKm))")
+                    if let progress {
+                        Text("남은 상승 \(formatRouteElevation(progress.ascentToEnd))")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            }
+        }
+        .padding(12)
+        .background(Color.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.blue.opacity(0.7), lineWidth: 1.5)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
