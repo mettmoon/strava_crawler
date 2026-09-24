@@ -40,6 +40,12 @@ final class CourseShareViewModel: ObservableObject {
         previewTask?.cancel()
         errorMessage = nil
         successMessage = nil
+        guard options.isValid else {
+            previewImage = nil
+            isRenderingPreview = false
+            errorMessage = CourseShareError.invalidImageSize.localizedDescription
+            return
+        }
         isRenderingPreview = true
         let snapshot = snapshot
         let previewOptions = options.previewScaled()
@@ -49,7 +55,8 @@ final class CourseShareViewModel: ObservableObject {
                 try await Task.sleep(for: .milliseconds(250))
                 let result = try await CourseShareRenderer.render(
                     snapshot: snapshot,
-                    options: previewOptions
+                    options: previewOptions,
+                    purpose: .preview
                 )
                 try Task.checkCancellation()
                 self?.previewImage = result.previewImage
@@ -140,6 +147,11 @@ struct CourseShareView: View {
                     .resizable()
                     .interpolation(.high)
                     .scaledToFit()
+                    .background {
+                        if model.options.usesTransparentBackground {
+                            CourseShareTransparencyCheckerboard()
+                        }
+                    }
                     .padding(28)
                     .shadow(color: .black.opacity(0.2), radius: 12, y: 5)
             } else if !model.isRenderingPreview {
@@ -181,6 +193,17 @@ struct CourseShareView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                Toggle(
+                    "투명 배경 (PNG)",
+                    isOn: $model.options.usesTransparentBackground
+                )
+
+                if model.options.usesTransparentBackground {
+                    Text("지도와 고도표의 바탕을 제거하고 투명도를 유지합니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             if model.options.outputMode.includesMap {
@@ -190,6 +213,7 @@ struct CourseShareView: View {
                             Text(background.label).tag(background)
                         }
                     }
+                    .disabled(model.options.usesTransparentBackground)
 
                     if model.options.mapBackground == .solid {
                         ColorPicker(
@@ -200,6 +224,7 @@ struct CourseShareView: View {
                             ),
                             supportsOpacity: false
                         )
+                        .disabled(model.options.usesTransparentBackground)
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
@@ -295,13 +320,40 @@ struct CourseShareView: View {
             Button {
                 Task { await model.export() }
             } label: {
-                Text(model.isExporting ? "내보내는 중…" : "이미지 내보내기…")
+                Text(model.isExporting ? "내보내는 중…" : "PNG 내보내기…")
             }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.defaultAction)
             .disabled(!model.canExport || model.isRenderingPreview)
         }
         .padding(16)
+    }
+}
+
+private struct CourseShareTransparencyCheckerboard: View {
+    private let tileSize: CGFloat = 14
+
+    var body: some View {
+        Canvas { context, size in
+            let columns = Int(ceil(size.width / tileSize))
+            let rows = Int(ceil(size.height / tileSize))
+
+            for row in 0 ..< rows {
+                for column in 0 ..< columns where (row + column).isMultiple(of: 2) {
+                    let rect = CGRect(
+                        x: CGFloat(column) * tileSize,
+                        y: CGFloat(row) * tileSize,
+                        width: tileSize,
+                        height: tileSize
+                    )
+                    context.fill(
+                        Path(rect),
+                        with: .color(Color.secondary.opacity(0.12))
+                    )
+                }
+            }
+        }
+        .background(Color.primary.opacity(0.04))
     }
 }
 

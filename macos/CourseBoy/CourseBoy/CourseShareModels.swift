@@ -109,11 +109,19 @@ struct CourseSharePixelSize: Codable, Equatable, Sendable {
     ]
 
     var isValid: Bool {
-        width >= 320
-            && height >= 240
-            && width <= 8192
-            && height <= 8192
-            && width * height <= 32_000_000
+        width >= 320 && height >= 240 && isBitmapSafe
+    }
+
+    // A scaled preview may legitimately be smaller than the export minimum.
+    var isBitmapSafe: Bool {
+        guard width > 0,
+              height > 0,
+              width <= 8192,
+              height <= 8192
+        else {
+            return false
+        }
+        return width <= 32_000_000 / height
     }
 
     func scaledToFit(maxDimension: Int) -> CourseSharePixelSize {
@@ -129,6 +137,7 @@ struct CourseSharePixelSize: Codable, Equatable, Sendable {
 
 struct CourseShareOptions: Codable, Equatable, Sendable {
     var outputMode: CourseShareOutputMode = .combined
+    var usesTransparentBackground: Bool = false
     var mapBackground: CourseShareMapBackground = .appleLight
     var solidBackgroundColor: CourseShareColor = .warmGray
     var routeLineWidth: Double = 6
@@ -144,16 +153,26 @@ struct CourseShareOptions: Codable, Equatable, Sendable {
     }
 
     var isValid: Bool {
-        let componentSizesAreValid = (!outputMode.includesMap || mapSize.isValid)
-            && (!outputMode.includesElevation || effectiveElevationSize.isValid)
+        sizesAreValid { $0.isValid }
+    }
+
+    var isBitmapSafe: Bool {
+        sizesAreValid { $0.isBitmapSafe }
+    }
+
+    private func sizesAreValid(
+        _ validate: (CourseSharePixelSize) -> Bool
+    ) -> Bool {
+        let componentSizesAreValid = (!outputMode.includesMap || validate(mapSize))
+            && (!outputMode.includesElevation || validate(effectiveElevationSize))
             && routeLineWidth >= 1
             && routeLineWidth <= 24
         guard componentSizesAreValid else { return false }
         guard outputMode == .combined else { return true }
-        return CourseSharePixelSize(
+        return validate(CourseSharePixelSize(
             width: max(mapSize.width, effectiveElevationSize.width),
             height: mapSize.height + effectiveElevationSize.height
-        ).isValid
+        ))
     }
 
     func previewScaled(maxDimension: Int = 1200) -> CourseShareOptions {

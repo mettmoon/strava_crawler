@@ -6,11 +6,20 @@ import CourseBoyKit
 
 @MainActor
 enum CourseShareRenderer {
+    enum Purpose {
+        case preview
+        case export
+    }
+
     static func render(
         snapshot: CourseShareSnapshot,
-        options: CourseShareOptions
+        options: CourseShareOptions,
+        purpose: Purpose = .export
     ) async throws -> CourseShareRenderResult {
-        guard options.isValid else { throw CourseShareError.invalidImageSize }
+        let sizesAreValid = purpose == .preview
+            ? options.isBitmapSafe
+            : options.isValid
+        guard sizesAreValid else { throw CourseShareError.invalidImageSize }
         if options.outputMode.includesMap, !snapshot.hasRoute {
             throw CourseShareError.noRoute
         }
@@ -34,7 +43,8 @@ enum CourseShareRenderer {
                 snapshot: snapshot,
                 size: options.effectiveElevationSize,
                 darkMode: options.usesDarkElevationStyle,
-                showsWaypoints: options.showsElevationWaypoints
+                showsWaypoints: options.showsElevationWaypoints,
+                transparentBackground: options.usesTransparentBackground
             )
         }
         try Task.checkCancellation()
@@ -49,7 +59,8 @@ enum CourseShareRenderer {
                 top: mapImage,
                 topSize: options.mapSize,
                 bottom: elevationImage,
-                bottomSize: options.effectiveElevationSize
+                bottomSize: options.effectiveElevationSize,
+                transparentBackground: options.usesTransparentBackground
             )
             artifacts = [CourseShareArtifact(kind: .combined, image: combined)]
 
@@ -73,7 +84,10 @@ enum CourseShareRenderer {
 
         let preview = artifacts.count == 1
             ? artifacts[0].image
-            : try CourseShareBitmap.contactSheet(artifacts.map(\.image))
+            : try CourseShareBitmap.contactSheet(
+                artifacts.map(\.image),
+                transparentBackground: options.usesTransparentBackground
+            )
         return CourseShareRenderResult(artifacts: artifacts, previewImage: preview)
     }
 }
@@ -84,7 +98,7 @@ private enum CourseShareBitmap {
         size: CourseSharePixelSize,
         drawing: (_ rect: NSRect) throws -> Void
     ) throws -> NSImage {
-        guard size.isValid,
+        guard size.isBitmapSafe,
               let representation = NSBitmapImageRep(
                 bitmapDataPlanes: nil,
                 pixelsWide: size.width,
@@ -110,6 +124,7 @@ private enum CourseShareBitmap {
         NSGraphicsContext.current = graphicsContext
         graphicsContext.shouldAntialias = true
         do {
+            graphicsContext.cgContext.clear(rect)
             try drawing(rect)
             graphicsContext.flushGraphics()
             NSGraphicsContext.restoreGraphicsState()
@@ -127,7 +142,8 @@ private enum CourseShareBitmap {
         top: NSImage,
         topSize: CourseSharePixelSize,
         bottom: NSImage,
-        bottomSize: CourseSharePixelSize
+        bottomSize: CourseSharePixelSize,
+        transparentBackground: Bool
     ) throws -> NSImage {
         let outputWidth = max(topSize.width, bottomSize.width)
         let outputSize = CourseSharePixelSize(
@@ -135,8 +151,10 @@ private enum CourseShareBitmap {
             height: topSize.height + bottomSize.height
         )
         return try makeImage(size: outputSize) { rect in
-            NSColor.white.setFill()
-            rect.fill()
+            if !transparentBackground {
+                NSColor.white.setFill()
+                rect.fill()
+            }
             bottom.draw(
                 in: NSRect(
                     x: (outputWidth - bottomSize.width) / 2,
@@ -164,7 +182,10 @@ private enum CourseShareBitmap {
         }
     }
 
-    static func contactSheet(_ images: [NSImage]) throws -> NSImage {
+    static func contactSheet(
+        _ images: [NSImage],
+        transparentBackground: Bool
+    ) throws -> NSImage {
         let gap = 24
         let padding = 24
         let maximumContentWidth: CGFloat = 1_200
@@ -183,8 +204,10 @@ private enum CourseShareBitmap {
         let height = contentHeight + max(0, images.count - 1) * gap + padding * 2
         let safeSize = CourseSharePixelSize(width: width, height: height)
         return try makeImage(size: safeSize) { rect in
-            NSColor.windowBackgroundColor.setFill()
-            rect.fill()
+            if !transparentBackground {
+                NSColor.windowBackgroundColor.setFill()
+                rect.fill()
+            }
             var y = CGFloat(padding)
             for (image, scaledSize) in zip(images, scaledSizes).reversed() {
                 let x = (rect.width - scaledSize.width) / 2
@@ -291,28 +314,32 @@ private enum CourseShareMapRenderer {
         )
 
         let baseImage: NSImage
-        switch options.mapBackground {
-        case .appleLight:
-            baseImage = try await appleMapImage(
-                viewport: viewport,
-                size: options.mapSize,
-                appearance: NSAppearance(named: .aqua)
-            )
-        case .appleDark:
-            baseImage = try await appleMapImage(
-                viewport: viewport,
-                size: options.mapSize,
-                appearance: NSAppearance(named: .darkAqua)
-            )
-        case .openStreetMap:
-            baseImage = try await OSMCourseShareMapRenderer.render(
-                viewport: viewport,
-                size: options.mapSize
-            )
-        case .solid:
-            baseImage = try CourseShareBitmap.makeImage(size: options.mapSize) { rect in
-                options.solidBackgroundColor.nsColor.setFill()
-                rect.fill()
+        if options.usesTransparentBackground {
+            baseImage = try CourseShareBitmap.makeImage(size: options.mapSize) { _ in }
+        } else {
+            switch options.mapBackground {
+            case .appleLight:
+                baseImage = try await appleMapImage(
+                    viewport: viewport,
+                    size: options.mapSize,
+                    appearance: NSAppearance(named: .aqua)
+                )
+            case .appleDark:
+                baseImage = try await appleMapImage(
+                    viewport: viewport,
+                    size: options.mapSize,
+                    appearance: NSAppearance(named: .darkAqua)
+                )
+            case .openStreetMap:
+                baseImage = try await OSMCourseShareMapRenderer.render(
+                    viewport: viewport,
+                    size: options.mapSize
+                )
+            case .solid:
+                baseImage = try CourseShareBitmap.makeImage(size: options.mapSize) { rect in
+                    options.solidBackgroundColor.nsColor.setFill()
+                    rect.fill()
+                }
             }
         }
 
@@ -758,15 +785,18 @@ private enum CourseShareElevationRenderer {
         snapshot: CourseShareSnapshot,
         size: CourseSharePixelSize,
         darkMode: Bool,
-        showsWaypoints: Bool
+        showsWaypoints: Bool,
+        transparentBackground: Bool
     ) throws -> NSImage {
         let elevations = snapshot.allTrackPoints.compactMap(\.ele)
         guard elevations.count >= 2 else { throw CourseShareError.noElevation }
         let palette = darkMode ? Palette.dark : Palette.light
 
         return try CourseShareBitmap.makeImage(size: size) { rect in
-            palette.background.setFill()
-            rect.fill()
+            if !transparentBackground {
+                palette.background.setFill()
+                rect.fill()
+            }
 
             let leftMargin = max(52, rect.width * 0.055)
             let rightMargin = max(18, rect.width * 0.025)
