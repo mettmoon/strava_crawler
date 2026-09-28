@@ -208,7 +208,7 @@ private struct CourseMapTab: View {
             VStack {
                 Spacer()
                 if let selectedCue {
-                    SelectedCueOverlay(cue: selectedCue) {
+                    SelectedCueOverlay(course: course, cue: selectedCue) {
                         selectedCueID = nil
                     }
                     .padding(.horizontal, 16)
@@ -499,11 +499,21 @@ private struct CourseCueSheetTab: View {
 }
 
 private struct SelectedCueOverlay: View {
+    let course: LoadedCourse
     let cue: CourseCuePoint
     var onClose: () -> Void
 
     private var glyph: CuePointGlyph {
         cuePointGlyph(for: cue.pointType)
+    }
+
+    private var progress: RouteElevationProgressStats? {
+        RouteElevationProgress(trackPoints: course.trackPoints)
+            .stats(atDistanceKm: cue.distanceKm, trackPoints: course.trackPoints)
+    }
+
+    private var remainingDistanceKm: Double {
+        max(0, course.totalDistanceKm - cue.distanceKm)
     }
 
     var body: some View {
@@ -533,6 +543,11 @@ private struct SelectedCueOverlay: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                Text("남은 \(formatRouteDistance(remainingDistanceKm)) · 남은 상승 \(formatRouteElevation(progress?.ascentToEnd))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
 
             Spacer()
