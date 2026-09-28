@@ -10,7 +10,7 @@ struct CuePointGlyph {
 }
 
 func cuePointGlyph(for value: String) -> CuePointGlyph {
-    switch value {
+    switch canonicalCuePointType(value) {
     case "Summit":
         return .init(symbol: "mountain.2.fill", text: nil, color: .green, uiColor: .systemGreen)
     case "Valley":

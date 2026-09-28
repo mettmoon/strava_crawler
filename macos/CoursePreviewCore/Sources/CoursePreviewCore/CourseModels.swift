@@ -423,7 +423,20 @@ public let cuePointTypes: [(value: String, label: String)] = [
 ]
 
 public func cuePointLabel(for value: String) -> String {
-    cuePointTypes.first { $0.value == value }?.label ?? "알 수 없음(\(value))"
+    let type = canonicalCuePointType(value)
+    return cuePointTypes.first { $0.value == type }?.label ?? "알 수 없음(\(value))"
+}
+
+/// 다른 도구가 쓰는 PointType 표기("Fourth Category" 등)를 cuePointTypes의 값으로 맞춘다.
+public func canonicalCuePointType(_ value: String) -> String {
+    switch value.trimmingCharacters(in: .whitespacesAndNewlines) {
+    case "Fourth Category": return "4th Category"
+    case "Third Category": return "3rd Category"
+    case "Second Category": return "2nd Category"
+    case "First Category": return "1st Category"
+    case "HC", "Hors Categorie": return "Hors Category"
+    case let other: return other
+    }
 }
 
 public func formatRouteDistance(_ km: Double) -> String {
