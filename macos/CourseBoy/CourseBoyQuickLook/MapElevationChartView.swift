@@ -672,7 +672,7 @@ struct MapElevationChartView: View {
         static let cueMagnetReleaseDistance: CGFloat = 14
     }
 
-    private static func niceStep(
+    static func niceStep(
         span: Double,
         availableLength: CGFloat,
         targetSpacing: CGFloat

@@ -1,0 +1,670 @@
+import CoursePreviewCore
+import MapKit
+import SwiftUI
+
+/// 큐시트의 HC·1~4등급 오르막 큐를 구간으로 묶어 보여주는 탭.
+struct ClimbSectionsTab: View {
+    let course: LoadedCourse
+
+    @State private var sections: [CourseClimbSection] = []
+    @State private var sectionsCourseID: UUID?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                if sectionsCourseID != course.id {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 140)
+                } else if sections.isEmpty {
+                    ContentUnavailableView {
+                        Label("구간 없음", systemImage: "mountain.2")
+                    } description: {
+                        Text("큐시트에 HC·1~4등급 오르막 항목이 없습니다.")
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 140)
+                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+                } else {
+                    Text("오르막 \(sections.count)개")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+
+                    LazyVStack(spacing: 8) {
+                        ForEach(sections) { section in
+                            NavigationLink(value: ClimbSectionRoute(section: section)) {
+                                ClimbSectionRow(section: section)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .padding(16)
+        }
+        .background(Color(.systemGroupedBackground))
+        .task(id: course.id) {
+            let course = course
+            let detected = await Task.detached(priority: .userInitiated) {
+                CourseClimbDetector.sections(in: course)
+            }.value
+            sections = detected
+            sectionsCourseID = course.id
+        }
+    }
+}
+
+/// 구간 상세 화면으로 가는 경로. 같은 구간이면 같은 경로로 본다.
+struct ClimbSectionRoute: Hashable {
+    var section: CourseClimbSection
+
+    static func == (lhs: ClimbSectionRoute, rhs: ClimbSectionRoute) -> Bool {
+        lhs.section.id == rhs.section.id
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(section.id)
+    }
+}
+
+extension View {
+    /// TabView 안쪽에 둔 navigationDestination은 바깥 NavigationStack이 찾지 못하므로 TabView에 붙인다.
+    func climbSectionDestination(
+        course: LoadedCourse,
+        onShowOnMap: @escaping (CourseClimbSection) -> Void
+    ) -> some View {
+        navigationDestination(for: ClimbSectionRoute.self) { route in
+            ClimbSectionDetailView(course: course, section: route.section, onShowOnMap: onShowOnMap)
+        }
+    }
+}
+
+private struct ClimbSectionRow: View {
+    let section: CourseClimbSection
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            CueGlyphView(glyph: cuePointGlyph(for: section.startCue.pointType))
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(section.name)
+                        .font(.headline)
+                        .lineLimit(2)
+                    Spacer(minLength: 8)
+                    Text(formatRouteDistance(section.startKm))
+                        .font(.subheadline.weight(.medium))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack(spacing: 8) {
+                    Text(section.category.label)
+                        .fontWeight(.semibold)
+                    Text(formatRouteDistance(section.lengthKm))
+                    Text(formatElevationGain(section.elevationGain))
+                    Text(formatGrade(section.averageGrade))
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+
+                if let summit = section.summitCue {
+                    Label(summit.displayName, systemImage: "mountain.2.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                        .lineLimit(1)
+                }
+            }
+
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .padding(.top, 3)
+        }
+        .padding(12)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+// MARK: - Detail
+
+struct ClimbSectionDetailView: View {
+    let course: LoadedCourse
+    let section: CourseClimbSection
+    /// 구간 시작 큐를 선택하고 지도 탭으로 옮긴다. 상세 화면은 닫는다.
+    var onShowOnMap: (CourseClimbSection) -> Void
+
+    private let profile: ClimbProfile
+
+    init(course: LoadedCourse, section: CourseClimbSection, onShowOnMap: @escaping (CourseClimbSection) -> Void) {
+        self.course = course
+        self.section = section
+        self.onShowOnMap = onShowOnMap
+        profile = ClimbProfile(trackPoints: course.trackPoints, section: section)
+    }
+
+    @Environment(\.dismiss) private var dismiss
+
+    private var columns: [GridItem] {
+        [GridItem(.adaptive(minimum: 150), spacing: 8)]
+    }
+
+    /// 구간 안에 있는 다른 큐. 시작 큐와 매칭된 정상 큐도 위치 확인용으로 함께 보여준다.
+    private var cuesInSection: [CourseCuePoint] {
+        course.sortedCuePoints.filter {
+            $0.id != section.startCue.id
+                && (section.contains(distanceKm: $0.distanceKm) || $0.id == section.summitCue?.id)
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                ClimbSectionMapView(profile: profile)
+                    .frame(height: 220)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                header
+
+                Button {
+                    dismiss()
+                    onShowOnMap(section)
+                } label: {
+                    Label("지도탭에서 보기", systemImage: "map")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                ClimbProfileChartView(
+                    profile: profile,
+                    summitOffsetKm: section.summitCue.map { $0.distanceKm - section.startKm }
+                )
+                    .padding(12)
+                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+                    MetricTile(title: "길이", value: formatRouteDistance(section.lengthKm), systemImage: "ruler")
+                    MetricTile(title: "고도차", value: formatElevationGain(section.elevationGain), systemImage: "arrow.up.right")
+                    MetricTile(title: "평균 경사", value: formatGrade(section.averageGrade), systemImage: "angle")
+                    MetricTile(title: "최대 경사", value: formatGrade(section.maxGrade), systemImage: "exclamationmark.triangle")
+                }
+
+                ViewerSection(title: "상세 정보", systemImage: "info.circle") {
+                    VStack(spacing: 0) {
+                        DetailRow(title: "등급", value: cuePointLabel(for: section.startCue.pointType))
+                        DetailRow(title: "시작 위치", value: formatRouteDistance(section.startKm))
+                        DetailRow(title: "종료 위치", value: formatRouteDistance(section.endKm))
+                        DetailRow(title: "시작 고도", value: formatRouteElevation(section.startElevation))
+                        DetailRow(title: "정상 고도", value: formatRouteElevation(section.endElevation))
+                        DetailRow(title: "누적 상승", value: formatRouteElevation(section.ascent))
+                        DetailRow(title: "누적 하강", value: formatRouteElevation(section.descent))
+                        DetailRow(title: "정상 큐", value: summitDescription)
+                        DetailRow(title: "종료 후 남은 거리", value: formatRouteDistance(max(0, course.totalDistanceKm - section.endKm)))
+                    }
+                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+                }
+
+                if !section.startCue.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    ViewerSection(title: "메모", systemImage: "note.text") {
+                        Text(section.startCue.notes)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+
+                if !cuesInSection.isEmpty {
+                    ViewerSection(title: "구간 내 큐시트", systemImage: "list.bullet.rectangle") {
+                        VStack(spacing: 0) {
+                            ForEach(cuesInSection) { cue in
+                                SectionCueRow(cue: cue, offsetKm: cue.distanceKm - section.startKm)
+                            }
+                        }
+                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+            }
+            .padding(16)
+        }
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle(section.name)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            CueGlyphView(glyph: cuePointGlyph(for: section.startCue.pointType))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(section.name)
+                    .font(.title3.weight(.semibold))
+                    .lineLimit(2)
+                Text("\(formatRouteDistance(section.startKm)) → \(formatRouteDistance(section.endKm))")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                if let summit = section.summitCue {
+                    Label(summit.displayName, systemImage: "mountain.2.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.green)
+                        .lineLimit(2)
+                }
+            }
+        }
+    }
+
+    private var summitDescription: String {
+        guard let summit = section.summitCue else { return "-" }
+        return "\(summit.displayName) (\(formatRouteDistance(summit.distanceKm)))"
+    }
+}
+
+private struct SectionCueRow: View {
+    let cue: CourseCuePoint
+    let offsetKm: Double
+
+    var body: some View {
+        HStack(spacing: 10) {
+            CueGlyphView(glyph: cuePointGlyph(for: cue.pointType))
+                .scaleEffect(0.8)
+                .frame(width: 28, height: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(cue.displayName)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                Text(cuePointLabel(for: cue.pointType))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Text(offsetKm >= 0 ? "+\(formatRouteDistance(offsetKm))" : "-\(formatRouteDistance(-offsetKm))")
+                .font(.callout)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .overlay(alignment: .bottom) {
+            Divider().padding(.leading, 50)
+        }
+    }
+}
+
+// MARK: - Map
+
+/// 구간 경로를 100m 조각마다 경사 색으로 칠한 지도. 이동·확대·회전할 수 있고 버튼으로 구간 전체 보기로 돌아온다.
+private struct ClimbSectionMapView: View {
+    let profile: ClimbProfile
+
+    @State private var position: MapCameraPosition = .automatic
+
+    var body: some View {
+        Map(position: $position, interactionModes: [.pan, .zoom, .rotate]) {
+            // 색 조각이 배경 지도와 섞이지 않게 흰 테두리를 먼저 깐다.
+            MapPolyline(coordinates: profile.samples.map(\.coordinate))
+                .stroke(.white, style: StrokeStyle(lineWidth: 8, lineCap: .round, lineJoin: .round))
+
+            ForEach(profile.buckets.indices, id: \.self) { index in
+                let bucket = profile.buckets[index]
+                MapPolyline(coordinates: bucket.points.map(\.coordinate))
+                    .stroke(
+                        GradeBand(grade: bucket.grade).color,
+                        style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
+                    )
+            }
+
+            if let start = profile.samples.first {
+                Annotation("시작", coordinate: start.coordinate, anchor: .center) {
+                    Circle()
+                        .fill(.white)
+                        .frame(width: 12, height: 12)
+                        .overlay { Circle().strokeBorder(.black, lineWidth: 2.5) }
+                }
+                .annotationTitles(.hidden)
+            }
+            if let end = profile.samples.last {
+                Annotation("정상", coordinate: end.coordinate, anchor: .center) {
+                    Image(systemName: "flag.checkered")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 20, height: 20)
+                        .background(.black, in: Circle())
+                        .overlay { Circle().strokeBorder(.white, lineWidth: 1.5) }
+                }
+                .annotationTitles(.hidden)
+            }
+        }
+        .mapStyle(.standard(elevation: .flat, emphasis: .muted, pointsOfInterest: .excludingAll))
+        .accessibilityLabel("구간 지도")
+        .overlay(alignment: .topTrailing) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    position = fittedPosition
+                }
+            } label: {
+                Image(systemName: "arrow.up.left.and.down.right.magnifyingglass")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 36, height: 36)
+                    .background(.regularMaterial, in: Circle())
+                    .overlay { Circle().strokeBorder(Color(.separator), lineWidth: 0.5) }
+            }
+            .buttonStyle(.plain)
+            .padding(8)
+            .accessibilityLabel("구간 전체 보기")
+        }
+        .onAppear {
+            position = fittedPosition
+        }
+    }
+
+    private var fittedPosition: MapCameraPosition {
+        let points = profile.samples.map { MKMapPoint($0.coordinate) }
+        guard let first = points.first else { return .automatic }
+        var rect = MKMapRect(origin: first, size: MKMapSize(width: 0, height: 0))
+        for point in points.dropFirst() {
+            rect = rect.union(MKMapRect(origin: point, size: MKMapSize(width: 0, height: 0)))
+        }
+        let padding = max(rect.width, rect.height) * 0.2 + 200
+        return .rect(rect.insetBy(dx: -padding, dy: -padding))
+    }
+}
+
+// MARK: - Chart
+
+/// 구간 고도 그래프. 100m 조각마다 평균 경사를 색으로 칠한다.
+private struct ClimbProfileChartView: View {
+    let profile: ClimbProfile
+    let summitOffsetKm: Double?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GradeLegendView(caption: "100 m 단위 경사")
+            if profile.samples.count >= 2 {
+                Canvas { context, size in
+                    draw(size: size, context: context)
+                }
+                .frame(height: Layout.height)
+                .accessibilityElement()
+                .accessibilityLabel("구간 고도 그래프")
+                .accessibilityValue(profile.accessibilitySummary)
+            } else {
+                Text("고도 데이터 없음")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: Layout.height)
+            }
+        }
+    }
+
+    private func draw(size: CGSize, context: GraphicsContext) {
+        let rect = CGRect(
+            x: Layout.leftPad,
+            y: Layout.topPad,
+            width: max(1, size.width - Layout.leftPad - Layout.rightPad),
+            height: max(1, size.height - Layout.topPad - Layout.bottomPad)
+        )
+        let length = max(profile.lengthKm, 0.001)
+        let eleSpan = max(profile.maxEle - profile.minEle, 1)
+
+        func x(_ offsetKm: Double) -> CGFloat {
+            rect.minX + CGFloat(offsetKm / length) * rect.width
+        }
+        func y(_ ele: Double) -> CGFloat {
+            rect.maxY - CGFloat((ele - profile.minEle) / eleSpan) * rect.height
+        }
+
+        drawGrid(rect: rect, context: context, x: x, y: y)
+
+        // 같은 색끼리 모아 한 번에 채운다.
+        var bandPaths = [GradeBand: Path]()
+        for bucket in profile.buckets {
+            guard let first = bucket.points.first, let last = bucket.points.last else { continue }
+            var area = Path()
+            area.move(to: CGPoint(x: x(first.offsetKm), y: rect.maxY))
+            for point in bucket.points {
+                area.addLine(to: CGPoint(x: x(point.offsetKm), y: y(point.ele)))
+            }
+            area.addLine(to: CGPoint(x: x(last.offsetKm), y: rect.maxY))
+            area.closeSubpath()
+            bandPaths[GradeBand(grade: bucket.grade), default: Path()].addPath(area)
+        }
+        for (band, path) in bandPaths {
+            context.fill(path, with: .color(band.color.opacity(0.85)))
+        }
+
+        var line = Path()
+        for (index, sample) in profile.samples.enumerated() {
+            let point = CGPoint(x: x(sample.offsetKm), y: y(sample.ele))
+            if index == 0 { line.move(to: point) } else { line.addLine(to: point) }
+        }
+        context.stroke(line, with: .color(.primary.opacity(0.6)), style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
+
+        drawSummit(rect: rect, context: context, x: x, y: y)
+    }
+
+    private func drawGrid(
+        rect: CGRect,
+        context: GraphicsContext,
+        x: (Double) -> CGFloat,
+        y: (Double) -> CGFloat
+    ) {
+        let gridColor = Color.secondary.opacity(0.18)
+        let eleStep = MapElevationChartView.niceStep(
+            span: profile.maxEle - profile.minEle,
+            availableLength: rect.height,
+            targetSpacing: 36
+        )
+        var ele = (profile.minEle / eleStep).rounded(.up) * eleStep
+        while ele <= profile.maxEle + 0.001 {
+            let lineY = y(ele)
+            var path = Path()
+            path.move(to: CGPoint(x: rect.minX, y: lineY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: lineY))
+            context.stroke(path, with: .color(gridColor), lineWidth: 0.5)
+            context.draw(
+                Text("\(Int(ele))").font(.system(size: 9).monospacedDigit()).foregroundStyle(.secondary),
+                at: CGPoint(x: rect.minX - 4, y: lineY),
+                anchor: .trailing
+            )
+            ele += eleStep
+        }
+
+        let kmStep = MapElevationChartView.niceStep(span: profile.lengthKm, availableLength: rect.width, targetSpacing: 48)
+        var km = 0.0
+        while km <= profile.lengthKm + kmStep * 0.001 {
+            context.draw(
+                Text(formatKm(km)).font(.system(size: 9).monospacedDigit()).foregroundStyle(.secondary),
+                at: CGPoint(x: x(km), y: rect.maxY + 3),
+                anchor: .top
+            )
+            km += kmStep
+        }
+
+        var baseline = Path()
+        baseline.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        baseline.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        context.stroke(baseline, with: .color(.secondary.opacity(0.35)), lineWidth: 0.5)
+    }
+
+    /// 오르막 끝(정상) 표시. 매칭된 정상 큐가 있으면 그 위치에도 가이드 선을 긋는다.
+    private func drawSummit(
+        rect: CGRect,
+        context: GraphicsContext,
+        x: (Double) -> CGFloat,
+        y: (Double) -> CGFloat
+    ) {
+        if let offset = summitOffsetKm, offset >= 0, offset <= profile.lengthKm {
+            var guide = Path()
+            guide.move(to: CGPoint(x: x(offset), y: rect.minY))
+            guide.addLine(to: CGPoint(x: x(offset), y: rect.maxY))
+            context.stroke(guide, with: .color(.green.opacity(0.7)), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+        }
+
+        guard let last = profile.samples.last else { return }
+        let peak = CGPoint(x: x(last.offsetKm), y: y(last.ele))
+        let dot = CGRect(x: peak.x - 4.5, y: peak.y - 4.5, width: 9, height: 9)
+        context.fill(Path(ellipseIn: dot), with: .color(.green))
+        context.stroke(Path(ellipseIn: dot), with: .color(.white), lineWidth: 1.5)
+    }
+
+    private func formatKm(_ km: Double) -> String {
+        let hundredths = (km * 100).rounded()
+        if hundredths.truncatingRemainder(dividingBy: 100) == 0 { return String(format: "%.0f", km) }
+        if hundredths.truncatingRemainder(dividingBy: 10) == 0 { return String(format: "%.1f", km) }
+        return String(format: "%.2f", km)
+    }
+
+    private enum Layout {
+        static let height: CGFloat = 200
+        static let leftPad: CGFloat = 32
+        static let rightPad: CGFloat = 6
+        static let topPad: CGFloat = 16
+        static let bottomPad: CGFloat = 16
+    }
+}
+
+private struct GradeLegendView: View {
+    let caption: String
+
+    var body: some View {
+        HStack(spacing: 7) {
+            ForEach(GradeBand.allCases, id: \.self) { band in
+                HStack(spacing: 3) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(band.color)
+                        .frame(width: 8, height: 8)
+                    Text(band.legendLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+            Text(caption)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("경사도 범례")
+    }
+}
+
+// MARK: - Profile data
+
+/// 구간의 고도 샘플과 100m 조각별 평균 경사. 지도와 고도 그래프가 같은 조각을 쓴다.
+private struct ClimbProfile {
+    struct Sample {
+        var offsetKm: Double
+        var ele: Double
+        var coordinate: CLLocationCoordinate2D
+    }
+
+    struct Bucket {
+        /// 조각 경계를 보간한 시작·끝 샘플과 그 사이 트랙 포인트.
+        var points: [Sample]
+        /// 퍼센트 단위.
+        var grade: Double
+    }
+
+    static let bucketKm = 0.1
+
+    let samples: [Sample]
+    let buckets: [Bucket]
+    let lengthKm: Double
+    let minEle: Double
+    let maxEle: Double
+
+    init(trackPoints: [TrackPoint], section: CourseClimbSection) {
+        let startKm = section.startKm
+        let range = section.startIndex...min(section.endIndex, trackPoints.count - 1)
+        let samples = trackPoints[range].compactMap { point in
+            point.ele.map { Sample(offsetKm: point.cumKm - startKm, ele: $0, coordinate: point.coordinate) }
+        }
+        self.samples = samples
+        lengthKm = section.lengthKm
+
+        var buckets: [Bucket] = []
+        if samples.count >= 2 {
+            var cursor = 0
+            var start = 0.0
+            while start < lengthKm - 0.000_1 {
+                // 마지막 조각이 너무 짧으면 앞 칸에 붙인다.
+                var end = min(start + Self.bucketKm, lengthKm)
+                if lengthKm - end < Self.bucketKm * 0.3 { end = lengthKm }
+
+                var points = [Self.sample(at: start, in: samples)]
+                while cursor < samples.count, samples[cursor].offsetKm <= start { cursor += 1 }
+                while cursor < samples.count, samples[cursor].offsetKm < end {
+                    points.append(samples[cursor])
+                    cursor += 1
+                }
+                let last = Self.sample(at: end, in: samples)
+                points.append(last)
+
+                let meters = (end - start) * 1_000
+                let grade = meters > 1 ? (last.ele - points[0].ele) / meters * 100 : 0
+                buckets.append(Bucket(points: points, grade: grade))
+                start = end
+            }
+        }
+        self.buckets = buckets
+
+        let elevations = samples.map(\.ele)
+        let low = elevations.min() ?? 0
+        let high = elevations.max() ?? 100
+        let pad = max((high - low) * 0.12, 10)
+        minEle = max(0, ((low - pad) / 10).rounded(.down) * 10)
+        maxEle = ((high + pad) / 10).rounded(.up) * 10
+    }
+
+    var accessibilitySummary: String {
+        guard let steepest = buckets.map(\.grade).max() else { return "" }
+        return String(format: "100 m 단위 최대 경사 %.1f%%", steepest)
+    }
+
+    /// 거리 위치의 고도와 좌표를 앞뒤 샘플 사이에서 선형 보간한다.
+    private static func sample(at km: Double, in samples: [Sample]) -> Sample {
+        guard let first = samples.first, let last = samples.last else {
+            return Sample(offsetKm: km, ele: 0, coordinate: CLLocationCoordinate2D())
+        }
+        if km <= first.offsetKm { return first }
+        if km >= last.offsetKm { return last }
+        var low = 0
+        var high = samples.count - 1
+        while high - low > 1 {
+            let mid = (low + high) / 2
+            if samples[mid].offsetKm < km { low = mid } else { high = mid }
+        }
+        let a = samples[low]
+        let b = samples[high]
+        let span = b.offsetKm - a.offsetKm
+        let t = span > 0 ? (km - a.offsetKm) / span : 0
+        return Sample(
+            offsetKm: km,
+            ele: a.ele + (b.ele - a.ele) * t,
+            coordinate: CLLocationCoordinate2D(
+                latitude: a.coordinate.latitude + (b.coordinate.latitude - a.coordinate.latitude) * t,
+                longitude: a.coordinate.longitude + (b.coordinate.longitude - a.coordinate.longitude) * t
+            )
+        )
+    }
+}
+
+// MARK: - Formatting
+
+private func formatGrade(_ grade: Double?) -> String {
+    guard let grade else { return "-" }
+    return String(format: "%.1f%%", grade)
+}
+
+private func formatElevationGain(_ meters: Double?) -> String {
+    guard let meters else { return "-" }
+    return String(format: "%+.0f m", meters)
+}
