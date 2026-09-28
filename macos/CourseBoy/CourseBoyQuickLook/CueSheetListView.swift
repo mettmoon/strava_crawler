@@ -454,7 +454,7 @@ private struct TrackEndpointRow: View {
     }
 }
 
-private struct CueGlyphView: View {
+struct CueGlyphView: View {
     let glyph: CuePointGlyph
 
     var body: some View {

@@ -42,6 +42,12 @@ struct CourseViewerView: View {
                 }
                 .tag(CourseViewerTab.map)
 
+            ClimbSectionsTab(course: course)
+                .tabItem {
+                    Label("구간", systemImage: "mountain.2")
+                }
+                .tag(CourseViewerTab.sections)
+
             CourseCueSheetTab(
                 course: course,
                 selectedCueID: linkedCueSelection,
@@ -52,6 +58,10 @@ struct CourseViewerView: View {
                     Label("큐시트", systemImage: "list.bullet.rectangle")
                 }
                 .tag(CourseViewerTab.cueSheet)
+        }
+        .climbSectionDestination(course: course) { section in
+            linkedCueSelection.wrappedValue = section.startCue.id
+            selectedTab = .map
         }
         .onDisappear {
             locationTracker.stop()
@@ -73,6 +83,7 @@ struct CourseViewerView: View {
 private enum CourseViewerTab: Hashable {
     case summary
     case map
+    case sections
     case cueSheet
 }
 
@@ -497,7 +508,7 @@ private struct CourseSummaryGrid: View {
     }
 }
 
-private struct MetricTile: View {
+struct MetricTile: View {
     let title: String
     let value: String
     let systemImage: String
@@ -593,7 +604,7 @@ private struct SelectedCueDetailRows: View {
     }
 }
 
-private struct DetailRow: View {
+struct DetailRow: View {
     let title: String
     let value: String
 
