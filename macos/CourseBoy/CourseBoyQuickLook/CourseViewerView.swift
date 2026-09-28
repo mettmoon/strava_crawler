@@ -140,6 +140,8 @@ private struct CourseMapTab: View {
     @Binding var selectedCueID: UUID?
     @Binding var selectedProfilePoint: CourseProfileSelection?
     @Bindable var locationTracker: CourseLocationTracker
+    @AppStorage("mapShowsElevationChart") private var showsElevationChart = true
+    @State private var isScrubbingElevationChart = false
     @Environment(\.openURL) private var openURL
 
     private var selectedCue: CourseCuePoint? {
@@ -148,6 +150,35 @@ private struct CourseMapTab: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            mapLayer
+
+            if showsElevationChart {
+                MapElevationChartView(
+                    course: course,
+                    selectedCueID: $selectedCueID,
+                    selectedProfilePoint: $selectedProfilePoint,
+                    currentLocation: locationTracker.currentLocation?.routeMatch,
+                    onScrubbingChanged: { isScrubbingElevationChart = $0 }
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .toolbarBackground(.bar, for: .navigationBar, .tabBar)
+        .toolbarBackground(.visible, for: .navigationBar, .tabBar)
+        .alert("위치 권한이 필요합니다", isPresented: $locationTracker.showsAuthorizationDeniedAlert) {
+            Button("설정 열기") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    openURL(url)
+                }
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("현재 위치를 표시하려면 설정에서 위치 접근을 허용해 주세요.")
+        }
+    }
+
+    private var mapLayer: some View {
         ZStack {
             CourseMapView(
                 course: course,
@@ -156,14 +187,18 @@ private struct CourseMapTab: View {
                 trackingMode: locationTracker.mode,
                 onUserStopFollowing: { [locationTracker] in
                     locationTracker.stopFollowing()
-                }
+                },
+                isScrubbingProfile: isScrubbingElevationChart
             )
             .ignoresSafeArea(.container, edges: [.top, .bottom])
 
             VStack {
                 HStack {
                     Spacer()
-                    locateButton
+                    VStack(spacing: 8) {
+                        locateButton
+                        elevationChartButton
+                    }
                 }
                 Spacer()
             }
@@ -187,18 +222,27 @@ private struct CourseMapTab: View {
                 }
             }
         }
-        .toolbarBackground(.bar, for: .navigationBar, .tabBar)
-        .toolbarBackground(.visible, for: .navigationBar, .tabBar)
-        .alert("위치 권한이 필요합니다", isPresented: $locationTracker.showsAuthorizationDeniedAlert) {
-            Button("설정 열기") {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    openURL(url)
-                }
+    }
+
+    private var elevationChartButton: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showsElevationChart.toggle()
             }
-            Button("취소", role: .cancel) {}
-        } message: {
-            Text("현재 위치를 표시하려면 설정에서 위치 접근을 허용해 주세요.")
+        } label: {
+            Image(systemName: showsElevationChart ? "mountain.2.fill" : "mountain.2")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(showsElevationChart ? Color.accentColor : Color.primary)
+                .frame(width: 44, height: 44)
+                .background(.regularMaterial, in: Circle())
+                .overlay {
+                    Circle()
+                        .strokeBorder(Color(.separator), lineWidth: 0.5)
+                }
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("고도 그래프")
+        .accessibilityValue(showsElevationChart ? "표시 중" : "숨김")
     }
 
     private var locateButton: some View {
