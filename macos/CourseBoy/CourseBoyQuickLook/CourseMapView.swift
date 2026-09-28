@@ -41,7 +41,7 @@ struct CourseMapView: UIViewRepresentable {
         context.coordinator.onUserStopFollowing = onUserStopFollowing
         context.coordinator.syncCourse(course, in: map)
         context.coordinator.syncTrackingMode(trackingMode, in: map)
-        context.coordinator.syncSelectedCue(selectedCueID, in: map)
+        context.coordinator.syncSelectedCue(selectedCueID, animated: !isScrubbingProfile, in: map)
         context.coordinator.syncProfileSelection(
             selectedProfilePoint,
             animated: !isScrubbingProfile,
@@ -239,7 +239,7 @@ struct CourseMapView: UIViewRepresentable {
             isChangingTrackingModeProgrammatically = false
         }
 
-        func syncSelectedCue(_ id: UUID?, in map: MKMapView) {
+        func syncSelectedCue(_ id: UUID?, animated: Bool = true, in map: MKMapView) {
             guard let id,
                   let annotation = cueAnnotations.first(where: { $0.cue.id == id }) else {
                 if let selected = map.selectedAnnotations.first as? CourseCueAnnotation {
@@ -251,7 +251,7 @@ struct CourseMapView: UIViewRepresentable {
             if !map.selectedAnnotations.contains(where: { ($0 as? CourseCueAnnotation)?.cue.id == id }) {
                 map.selectAnnotation(annotation, animated: true)
             }
-            map.setCenter(annotation.coordinate, animated: true)
+            map.setCenter(annotation.coordinate, animated: animated)
         }
 
         func syncProfileSelection(_ selection: CourseProfileSelection?, animated: Bool = true, in map: MKMapView) {
