@@ -221,7 +221,7 @@ struct MapElevationChartView: View {
     ) {
         let gridColor = Color.secondary.opacity(0.18)
 
-        let eleStep = ElevationProfileView.niceStep(
+        let eleStep = Self.niceStep(
             span: profile.maxEle - profile.minEle,
             availableLength: rect.height,
             targetSpacing: 32
@@ -242,7 +242,7 @@ struct MapElevationChartView: View {
         }
 
         let span = window.upperBound - window.lowerBound
-        let kmStep = ElevationProfileView.niceStep(span: span, availableLength: rect.width, targetSpacing: 56)
+        let kmStep = Self.niceStep(span: span, availableLength: rect.width, targetSpacing: 56)
         var km = (window.lowerBound / kmStep).rounded(.up) * kmStep
         while km <= window.upperBound + kmStep * 0.001 {
             let lineX = x(km)
@@ -671,11 +671,30 @@ struct MapElevationChartView: View {
         static let cueMagnetCaptureDistance: CGFloat = 8
         static let cueMagnetReleaseDistance: CGFloat = 14
     }
+
+    private static func niceStep(
+        span: Double,
+        availableLength: CGFloat,
+        targetSpacing: CGFloat
+    ) -> Double {
+        let length = max(1, Double(availableLength))
+        let spacing = max(1, Double(targetSpacing))
+        let rawStep = span * spacing / length
+        guard rawStep > 0, rawStep.isFinite else { return span }
+        let exponent = floor(log10(rawStep))
+        let base = pow(10, exponent)
+        let n = rawStep / base
+        let niceMultiplier: Double
+        switch n {
+        case ..<1.5: niceMultiplier = 1
+        case ..<3:   niceMultiplier = 2
+        case ..<7:   niceMultiplier = 5
+        default:     niceMultiplier = 10
+        }
+        return niceMultiplier * base
+    }
 }
 
-// MARK: - Gestures
-
-/// 그래프 위에 겹치는 투명 뷰. 탭, 길게 누르기(+드래그), 한 손가락 이동, 핀치 확대를 UIKit 인식기로 처리한다.
 private struct ChartGestureView: UIViewRepresentable {
     var onTap: (CGPoint) -> Void
     var onLongPress: (UIGestureRecognizer.State, CGPoint) -> Void
