@@ -9,6 +9,8 @@ struct CourseMapView: UIViewRepresentable {
     @Binding var selectedProfilePoint: CourseProfileSelection?
     let trackingMode: CourseLocationTracker.Mode
     var onUserStopFollowing: () -> Void = {}
+    /// 고도 그래프를 길게 눌러 조정하는 중이면 지도가 손가락을 바로 따라오도록 애니메이션 없이 이동한다.
+    var isScrubbingProfile = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -40,7 +42,11 @@ struct CourseMapView: UIViewRepresentable {
         context.coordinator.syncCourse(course, in: map)
         context.coordinator.syncTrackingMode(trackingMode, in: map)
         context.coordinator.syncSelectedCue(selectedCueID, in: map)
-        context.coordinator.syncProfileSelection(selectedProfilePoint, in: map)
+        context.coordinator.syncProfileSelection(
+            selectedProfilePoint,
+            animated: !isScrubbingProfile,
+            in: map
+        )
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate {
@@ -248,7 +254,7 @@ struct CourseMapView: UIViewRepresentable {
             map.setCenter(annotation.coordinate, animated: true)
         }
 
-        func syncProfileSelection(_ selection: CourseProfileSelection?, in map: MKMapView) {
+        func syncProfileSelection(_ selection: CourseProfileSelection?, animated: Bool = true, in map: MKMapView) {
             guard let selection else {
                 if let profileSelectionAnnotation {
                     map.removeAnnotation(profileSelectionAnnotation)
@@ -268,7 +274,7 @@ struct CourseMapView: UIViewRepresentable {
                     map.selectAnnotation(endpoint, animated: true)
                 }
                 if selectedCueID.wrappedValue == nil {
-                    map.setCenter(endpoint.coordinate, animated: true)
+                    map.setCenter(endpoint.coordinate, animated: animated)
                 }
                 return
             }
@@ -284,7 +290,7 @@ struct CourseMapView: UIViewRepresentable {
             }
 
             if selectedCueID.wrappedValue == nil {
-                map.setCenter(selection.coordinate, animated: true)
+                map.setCenter(selection.coordinate, animated: animated)
             }
         }
 
