@@ -20,6 +20,7 @@ struct MapElevationChartView: View {
     @State private var pinchBase: (zoom: CGFloat, startKm: Double)?
     @State private var panBaseStartKm: Double?
     @State private var scrubFeedbackTrigger = 0
+    @State private var cueSnapFeedbackTrigger = 0
 
     private var cues: [CourseCuePoint] {
         course.sortedCuePoints
@@ -134,6 +135,7 @@ struct MapElevationChartView: View {
             )
         }
         .sensoryFeedback(.impact(weight: .medium), trigger: scrubFeedbackTrigger)
+        .sensoryFeedback(.selection, trigger: cueSnapFeedbackTrigger)
         .accessibilityElement()
         .accessibilityLabel("고도 그래프")
         .accessibilityHint("누르면 지도에서 해당 지점으로 이동합니다. 길게 누른 채 움직이면 위치를 조정하고, 두 손가락으로 확대할 수 있습니다.")
@@ -424,7 +426,54 @@ struct MapElevationChartView: View {
             }
         }
 
+        if let cue = magnetCue(atX: location.x, window: window, rect: rect, holding: nil) {
+            selectCue(cue)
+            return
+        }
         selectProfilePoint(atX: location.x, profile: profile, window: window, rect: rect)
+    }
+
+    /// 길게 눌러 조정하는 중의 선택. 큐 가이드 라인 근처에서는 큐에 달라붙는다.
+    private func scrub(
+        atX x: CGFloat,
+        profile: MapElevationProfile,
+        window: ClosedRange<Double>,
+        rect: CGRect
+    ) {
+        if let cue = magnetCue(atX: x, window: window, rect: rect, holding: selectedCueID) {
+            if selectedCueID != cue.id {
+                selectCue(cue)
+                cueSnapFeedbackTrigger += 1
+            }
+            return
+        }
+        selectProfilePoint(atX: x, profile: profile, window: window, rect: rect)
+    }
+
+    /// x 근처에 아이콘이 그려진 큐가 있으면 반환한다.
+    /// 이미 붙어 있는 큐(holding)는 더 넓은 범위까지 유지해서 경계에서 깜빡이지 않게 한다.
+    private func magnetCue(
+        atX x: CGFloat,
+        window: ClosedRange<Double>,
+        rect: CGRect,
+        holding heldID: UUID?
+    ) -> CourseCuePoint? {
+        let icons = cueIcons(window: window, rect: rect)
+        if let heldID,
+           let held = icons.first(where: { $0.cue.id == heldID }),
+           abs(held.x - x) <= Layout.cueMagnetReleaseDistance {
+            return held.cue
+        }
+        return icons
+            .map { (cue: $0.cue, dx: abs($0.x - x)) }
+            .filter { $0.dx <= Layout.cueMagnetCaptureDistance }
+            .min { $0.dx < $1.dx }?
+            .cue
+    }
+
+    private func selectCue(_ cue: CourseCuePoint) {
+        selectedProfilePoint = nil
+        selectedCueID = cue.id
     }
 
     private func selectProfilePoint(
@@ -504,9 +553,9 @@ struct MapElevationChartView: View {
         case .began:
             scrubFeedbackTrigger += 1
             onScrubbingChanged(true)
-            selectProfilePoint(atX: location.x, profile: profile, window: window, rect: rect)
+            scrub(atX: location.x, profile: profile, window: window, rect: rect)
         case .changed:
-            selectProfilePoint(atX: location.x, profile: profile, window: window, rect: rect)
+            scrub(atX: location.x, profile: profile, window: window, rect: rect)
         default:
             onScrubbingChanged(false)
         }
@@ -618,6 +667,9 @@ struct MapElevationChartView: View {
         static let cueIconRadius: CGFloat = 8
         static let minimumVisibleKm: Double = 0.5
         static let minimumSegmentWidth: CGFloat = 2
+        /// 큐 가이드 라인에서 이 거리 안으로 들어오면 큐에 달라붙고, release 거리 밖으로 나가야 떨어진다.
+        static let cueMagnetCaptureDistance: CGFloat = 8
+        static let cueMagnetReleaseDistance: CGFloat = 14
     }
 }
 
