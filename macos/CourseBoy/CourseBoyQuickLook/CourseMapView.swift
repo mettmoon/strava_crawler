@@ -82,7 +82,8 @@ struct CourseMapView: UIViewRepresentable {
         private var endpointAnnotations: [CourseEndpointAnnotation] = []
         private var profileSelectionAnnotation: CourseProfileSelectionAnnotation?
         private var handledCenterRequest = 0
-        private weak var routeRenderer: CourseRouteRenderer?
+        /// 줌에 따라 두께를 맞출 코스 라인 렌더러(경사 색 구간들과 화살표).
+        private let routeRenderers = NSHashTable<MKOverlayPathRenderer>.weakObjects()
         private var trackingMode: CourseLocationTracker.Mode = .off
         private var needsFollowZoom = false
         /// 확대 애니메이션이 끝난 뒤(regionDidChange) 따라가기를 켜야 하는지.
@@ -206,6 +207,21 @@ struct CourseMapView: UIViewRepresentable {
 
             let coordinates = course.trackPoints.map(\.coordinate)
             if coordinates.count >= 2 {
+                // 경사 색마다 MKMultiPolyline 하나로 묶어 MapKit 기본 렌더러로 그린다.
+                // MKGradientPolylineRenderer는 확대할수록 타일 하나에 수 초가 걸려 쓰지 않는다.
+                var bandLines = [GradeBand: [MKPolyline]]()
+                for run in CourseRoutePolyline.gradeRuns(for: course.trackPoints) {
+                    let runCoordinates = Array(coordinates[run.startIndex...run.endIndex])
+                    bandLines[run.band, default: []].append(
+                        MKPolyline(coordinates: runCoordinates, count: runCoordinates.count)
+                    )
+                }
+                for band in GradeBand.allCases {
+                    guard let lines = bandLines[band] else { continue }
+                    map.addOverlay(CourseGradeMultiPolyline(lines, band: band), level: .aboveRoads)
+                }
+
+                // 화살표만 그리는 오버레이. 색 구간들보다 나중에 추가해 위에 그려지게 한다.
                 let route = CourseRoutePolyline(coordinates: coordinates, count: coordinates.count)
                 map.addOverlay(route, level: .aboveRoads)
 
@@ -358,24 +374,28 @@ struct CourseMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
-            if let route = overlay as? CourseRoutePolyline {
-                let renderer = CourseRouteRenderer(overlay: route)
-                renderer.strokeColor = UIColor.systemBlue
-                renderer.lineWidth = CourseRouteRenderer.lineWidth(forZoomScale: currentZoomScale(of: mapView))
-                routeRenderer = renderer
-                renderer.lineJoin = .round
-                renderer.lineCap = .round
-                return renderer
+            let renderer: MKOverlayPathRenderer
+            if let grade = overlay as? CourseGradeMultiPolyline {
+                renderer = MKMultiPolylineRenderer(multiPolyline: grade)
+                renderer.strokeColor = UIColor(grade.band.color)
+            } else if let route = overlay as? CourseRoutePolyline {
+                renderer = CourseRouteRenderer(overlay: route)
+            } else {
+                return MKOverlayRenderer(overlay: overlay)
             }
-            return MKOverlayRenderer(overlay: overlay)
+            renderer.lineWidth = CourseRouteRenderer.lineWidth(forZoomScale: currentZoomScale(of: mapView))
+            renderer.lineJoin = .round
+            renderer.lineCap = .round
+            routeRenderers.add(renderer)
+            return renderer
         }
 
         private func updateRouteLineWidth(in mapView: MKMapView) {
-            guard let routeRenderer else { return }
             let width = CourseRouteRenderer.lineWidth(forZoomScale: currentZoomScale(of: mapView))
-            guard routeRenderer.lineWidth != width else { return }
-            routeRenderer.lineWidth = width
-            routeRenderer.setNeedsDisplay()
+            for renderer in routeRenderers.allObjects where renderer.lineWidth != width {
+                renderer.lineWidth = width
+                renderer.setNeedsDisplay()
+            }
         }
 
         private func currentZoomScale(of mapView: MKMapView) -> MKZoomScale {
@@ -506,9 +526,95 @@ private final class LayoutObservingMapView: MKMapView {
     }
 }
 
-private final class CourseRoutePolyline: MKPolyline {}
+/// 같은 경사도 색으로 칠할 구간들.
+private final class CourseGradeMultiPolyline: MKMultiPolyline {
+    let band: GradeBand
 
-/// 코스 라인 위에 진행 방향 화살표(›)를 일정한 화면 간격으로 그린다.
+    init(_ polylines: [MKPolyline], band: GradeBand) {
+        self.band = band
+        super.init(polylines)
+    }
+}
+
+/// 코스 전체 경로. 진행 방향 화살표를 그리는 데 쓴다.
+private final class CourseRoutePolyline: MKPolyline {
+    /// 같은 경사도 색으로 칠할 연속 구간. 인덱스는 트랙 포인트 기준이다.
+    struct GradeRun {
+        var startIndex: Int
+        var endIndex: Int
+        var band: GradeBand
+    }
+
+    /// 이보다 짧은 색 구간은 이웃 구간에 합친다. GPS 고도 노이즈로 색이 잘게 바뀌는 것을 막는다.
+    static let minimumRunKm = 0.1
+
+    /// 고도 그래프와 같은 순간 경사도로 구간을 나눈 뒤 minimumRunKm보다 짧은 구간을 이웃에 합친다.
+    static func gradeRuns(for trackPoints: [TrackPoint]) -> [GradeRun] {
+        guard trackPoints.count >= 2 else { return [] }
+        let samples = MapElevationProfile(trackPoints: trackPoints).samples
+
+        // 포인트 index-1 → index 구간은 끝 포인트의 경사도로 칠한다. 고도가 없는 포인트는 앞 값을 쓴다.
+        var runs: [GradeRun] = []
+        var cursor = 0
+        var grade = samples.first?.grade ?? 0
+        for index in 1..<trackPoints.count {
+            while cursor < samples.count, samples[cursor].trackIndex <= index {
+                grade = samples[cursor].grade
+                cursor += 1
+            }
+            let band = GradeBand(grade: grade)
+            if let last = runs.last, last.band == band {
+                runs[runs.count - 1].endIndex = index
+            } else {
+                runs.append(GradeRun(startIndex: index - 1, endIndex: index, band: band))
+            }
+        }
+
+        func length(_ run: GradeRun) -> Double {
+            trackPoints[run.endIndex].cumKm - trackPoints[run.startIndex].cumKm
+        }
+
+        // 가장 짧은 구간부터 경사도가 더 비슷한(같으면 더 긴) 이웃에 흡수시킨다.
+        while runs.count > 1,
+              let shortest = runs.indices.min(by: { length(runs[$0]) < length(runs[$1]) }),
+              length(runs[shortest]) < minimumRunKm {
+            let run = runs[shortest]
+            let target: Int
+            if shortest == 0 {
+                target = 1
+            } else if shortest == runs.count - 1 {
+                target = shortest - 1
+            } else {
+                let previous = runs[shortest - 1]
+                let next = runs[shortest + 1]
+                let previousGap = abs(previous.band.order - run.band.order)
+                let nextGap = abs(next.band.order - run.band.order)
+                if previousGap != nextGap {
+                    target = previousGap < nextGap ? shortest - 1 : shortest + 1
+                } else {
+                    target = length(previous) >= length(next) ? shortest - 1 : shortest + 1
+                }
+            }
+            runs[target].startIndex = min(runs[target].startIndex, run.startIndex)
+            runs[target].endIndex = max(runs[target].endIndex, run.endIndex)
+            runs.remove(at: shortest)
+
+            // 흡수 후 같은 색이 된 양옆 구간을 하나로 잇는다.
+            let merged = target < shortest ? target : target - 1
+            if merged + 1 < runs.count, runs[merged + 1].band == runs[merged].band {
+                runs[merged].endIndex = runs[merged + 1].endIndex
+                runs.remove(at: merged + 1)
+            }
+            if merged > 0, runs[merged - 1].band == runs[merged].band {
+                runs[merged - 1].endIndex = runs[merged].endIndex
+                runs.remove(at: merged)
+            }
+        }
+        return runs
+    }
+}
+
+/// 코스 라인 위에 진행 방향 화살표(›)를 일정한 화면 간격으로 그린다. 라인 자체는 CourseGradeMultiPolyline이 그린다.
 private final class CourseRouteRenderer: MKPolylineRenderer {
     private static let arrowSpacing: CGFloat = 72
     /// lineWidth 대비 화살표 크기 비율.
@@ -549,8 +655,11 @@ private final class CourseRouteRenderer: MKPolylineRenderer {
     }
 
     override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
-        super.draw(mapRect, zoomScale: zoomScale, in: context)
+        // 라인은 그리지 않고 화살표만 그린다.
+        drawArrows(mapRect, zoomScale: zoomScale, in: context)
+    }
 
+    private func drawArrows(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
         let pointCount = polyline.pointCount
         guard pointCount >= 2, cumulativeLengths.count == pointCount, let totalLength = cumulativeLengths.last, totalLength > 0 else { return }
 

@@ -984,6 +984,11 @@ enum GradeBand: CaseIterable, Hashable {
         }
     }
 
+    /// 경사 순서. 비슷한 경사 구간을 찾을 때 쓴다.
+    var order: Int {
+        Self.allCases.firstIndex(of: self) ?? 0
+    }
+
     var legendLabel: String {
         switch self {
         case .descent: return "↓"
