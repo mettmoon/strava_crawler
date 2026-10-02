@@ -644,19 +644,15 @@ struct MapElevationChartView: View {
     /// 선택한 큐는 항상 그리고 맨 위에 오도록 마지막에 둔다.
     private func cueIcons(window: ClosedRange<Double>, rect: CGRect) -> [(cue: CourseCuePoint, x: CGFloat)] {
         let span = max(window.upperBound - window.lowerBound, 0.0001)
-        let minimumGap = Layout.cueIconRadius * 2 + 1
         var icons: [(cue: CourseCuePoint, x: CGFloat)] = []
         var selected: (cue: CourseCuePoint, x: CGFloat)?
-        var lastX = -CGFloat.infinity
         for cue in cues where window.contains(cue.distanceKm) {
             let cueX = rect.minX + CGFloat((cue.distanceKm - window.lowerBound) / span) * rect.width
             if cue.id == selectedCueID {
                 selected = (cue, cueX)
                 continue
             }
-            guard cueX - lastX >= minimumGap else { continue }
             icons.append((cue, cueX))
-            lastX = cueX
         }
         if let selected {
             icons.append(selected)
