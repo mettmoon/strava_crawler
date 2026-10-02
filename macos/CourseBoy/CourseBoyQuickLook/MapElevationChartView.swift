@@ -24,6 +24,8 @@ struct MapElevationChartView: View {
     @State private var visibleStartKm: Double = 0
     @State private var pinchBase: (zoom: CGFloat, startKm: Double)?
     @State private var panBaseStartKm: Double?
+    /// 선택 지점을 바로 끌기 시작할 때의 지점 x. 손가락과의 간격을 유지하며 옮긴다.
+    @State private var handleDragBaseX: CGFloat?
     /// 그래프 영역 폭. + 버튼으로 확대할 배율을 계산할 때 쓴다.
     @State private var plotWidth: CGFloat = 0
     @State private var scrubFeedbackTrigger = 0
@@ -182,6 +184,13 @@ struct MapElevationChartView: View {
                 onLongPress: { state, location in
                     handleLongPress(state, at: location, profile: profile, window: window, rect: rect)
                 },
+                canDragSelection: { location in
+                    guard let selectionX = selectionX(window: window, rect: rect) else { return false }
+                    return abs(location.x - selectionX) <= Layout.selectionHandleHitDistance
+                },
+                onSelectionDrag: { state, translationX in
+                    handleSelectionDrag(state, translationX: translationX, profile: profile, window: window, rect: rect)
+                },
                 onPan: { state, translationX in
                     handlePan(state, translationX: translationX, profile: profile, rect: rect)
                 },
@@ -194,7 +203,7 @@ struct MapElevationChartView: View {
         .sensoryFeedback(.selection, trigger: cueSnapFeedbackTrigger)
         .accessibilityElement()
         .accessibilityLabel("고도 그래프")
-        .accessibilityHint("누르면 지도에서 해당 지점으로 이동합니다. 길게 누른 채 움직이면 위치를 조정하고, 두 손가락으로 확대할 수 있습니다.")
+        .accessibilityHint("누르면 지도에서 해당 지점으로 이동합니다. 길게 누르거나 선택한 지점을 끌면 위치를 조정하고, 두 손가락으로 확대할 수 있습니다.")
     }
 
     private func draw(
@@ -651,6 +660,37 @@ struct MapElevationChartView: View {
         }
     }
 
+    /// 이미 선택한 지점 근처에서 끌기 시작하면 길게 누르지 않아도 바로 위치를 조정한다.
+    private func handleSelectionDrag(
+        _ state: UIGestureRecognizer.State,
+        translationX: CGFloat,
+        profile: MapElevationProfile,
+        window: ClosedRange<Double>,
+        rect: CGRect
+    ) {
+        switch state {
+        case .began:
+            guard let selectionX = selectionX(window: window, rect: rect) else { return }
+            handleDragBaseX = selectionX
+            onScrubbingChanged(true)
+            scrub(atX: selectionX + translationX, profile: profile, window: window, rect: rect)
+        case .changed:
+            guard let base = handleDragBaseX else { return }
+            scrub(atX: base + translationX, profile: profile, window: window, rect: rect)
+        default:
+            guard handleDragBaseX != nil else { return }
+            handleDragBaseX = nil
+            onScrubbingChanged(false)
+        }
+    }
+
+    /// 선택한 지점이 현재 화면에 보이면 그 x 좌표.
+    private func selectionX(window: ClosedRange<Double>, rect: CGRect) -> CGFloat? {
+        guard let km = focusedDistanceKm, window.contains(km) else { return nil }
+        let span = max(window.upperBound - window.lowerBound, 0.0001)
+        return rect.minX + CGFloat((km - window.lowerBound) / span) * rect.width
+    }
+
     /// 지도나 다른 탭에서 선택한 지점이 화면 밖이면 그 지점이 가운데 오도록 이동한다.
     private func revealIfNeeded(_ km: Double) {
         guard let profile, zoom > 1 else { return }
@@ -782,6 +822,8 @@ struct MapElevationChartView: View {
         static let cueMagnetCaptureDistance: CGFloat = 8
         static let cueMagnetReleaseDistance: CGFloat = 14
         static let cueMagnetSwitchMargin: CGFloat = 3
+        /// 선택 지점을 바로 끌 수 있는 좌우 범위.
+        static let selectionHandleHitDistance: CGFloat = 22
     }
 
     static func niceStep(
@@ -810,6 +852,9 @@ struct MapElevationChartView: View {
 private struct ChartGestureView: UIViewRepresentable {
     var onTap: (CGPoint) -> Void
     var onLongPress: (UIGestureRecognizer.State, CGPoint) -> Void
+    /// 이 위치에서 시작한 드래그를 선택 지점 이동으로 볼지.
+    var canDragSelection: (CGPoint) -> Bool
+    var onSelectionDrag: (UIGestureRecognizer.State, CGFloat) -> Void
     var onPan: (UIGestureRecognizer.State, CGFloat) -> Void
     var onPinch: (UIGestureRecognizer.State, CGFloat, CGFloat) -> Void
 
@@ -831,14 +876,24 @@ private struct ChartGestureView: UIViewRepresentable {
 
         let tap = UITapGestureRecognizer(target: coordinator, action: #selector(Coordinator.handleTap(_:)))
 
+        // 선택 지점 근처에서 시작한 드래그는 길게 누르기를 기다리지 않고 바로 지점을 옮긴다.
+        let selectionDrag = UIPanGestureRecognizer(
+            target: coordinator,
+            action: #selector(Coordinator.handleSelectionDrag(_:))
+        )
+        selectionDrag.maximumNumberOfTouches = 1
+        selectionDrag.delegate = coordinator
+        coordinator.selectionDrag = selectionDrag
+
         let pan = UIPanGestureRecognizer(target: coordinator, action: #selector(Coordinator.handlePan(_:)))
         pan.maximumNumberOfTouches = 1
         // 길게 누르기가 실패(=누르자마자 움직임)했을 때만 이동으로 본다.
         pan.require(toFail: longPress)
+        pan.require(toFail: selectionDrag)
 
         let pinch = UIPinchGestureRecognizer(target: coordinator, action: #selector(Coordinator.handlePinch(_:)))
 
-        [longPress, tap, pan, pinch].forEach(view.addGestureRecognizer)
+        [longPress, tap, selectionDrag, pan, pinch].forEach(view.addGestureRecognizer)
         return view
     }
 
@@ -846,9 +901,11 @@ private struct ChartGestureView: UIViewRepresentable {
         context.coordinator.parent = self
     }
 
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var parent: ChartGestureView
+        weak var selectionDrag: UIPanGestureRecognizer?
         private var pinchAnchorX: CGFloat = 0
+        private var touchDownLocation: CGPoint?
 
         init(parent: ChartGestureView) {
             self.parent = parent
@@ -861,6 +918,24 @@ private struct ChartGestureView: UIViewRepresentable {
 
         @objc func handleLongPress(_ recognizer: UILongPressGestureRecognizer) {
             parent.onLongPress(recognizer.state, recognizer.location(in: recognizer.view))
+        }
+
+        @objc func handleSelectionDrag(_ recognizer: UIPanGestureRecognizer) {
+            parent.onSelectionDrag(recognizer.state, recognizer.translation(in: recognizer.view).x)
+        }
+
+        // 팬은 손가락이 조금 움직인 뒤에 시작되므로, 처음 닿은 위치로 선택 지점 근처인지 판단한다.
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            if gestureRecognizer === selectionDrag {
+                touchDownLocation = touch.location(in: gestureRecognizer.view)
+            }
+            return true
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard gestureRecognizer === selectionDrag else { return true }
+            guard let touchDownLocation else { return false }
+            return parent.canDragSelection(touchDownLocation)
         }
 
         @objc func handlePan(_ recognizer: UIPanGestureRecognizer) {
