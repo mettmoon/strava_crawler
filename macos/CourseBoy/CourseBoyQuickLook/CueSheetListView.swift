@@ -15,11 +15,31 @@ struct CueSheetListView: View {
         }
     }
 
+    /// 구간 행 id. 시작 큐 행과 id가 같으면 보기를 바꿀 때 SwiftUI가 같은 행으로 보고 갱신하지 않으므로 따로 둔다.
+    static func sectionRowID(_ section: CourseClimbSection) -> String {
+        "climb-section-\(section.id.uuidString)"
+    }
+
+    /// 구간 보기에서는 구간의 시작·정상 큐 행이 구간 행으로 바뀐다.
+    static func rowID(forCueID id: UUID, sections: [CourseClimbSection]?, groupsClimbSections: Bool) -> AnyHashable {
+        guard groupsClimbSections,
+              let section = sections?.first(where: { $0.startCue.id == id || $0.summitCue?.id == id }) else {
+            return id
+        }
+        return sectionRowID(section)
+    }
+
     let course: LoadedCourse
     @Binding var selectedCueID: UUID?
     @Binding var selectedProfilePoint: CourseProfileSelection?
     /// 코스 위로 인식된 현재 위치. 선택 지점과 별개의 항목으로 표시한다.
     var currentLocation: CourseProfileSelection? = nil
+    /// 오르막 구간. nil이면 아직 계산 중이라 구간 보기에서도 큐를 그대로 보여준다.
+    var climbSections: [CourseClimbSection]? = nil
+    /// true면 구간의 시작·정상 큐를 숨기고 그 자리에 구간 행을 둔다.
+    var groupsClimbSections = false
+    /// true면 오르막 구간(또는 구간을 이루는 큐)과 현재 위치만 남긴다.
+    var climbsOnly = false
 
     /// 트랙 포인트 전체를 훑어 만들기 때문에 코스마다 한 번만 계산해 둔다. 행마다 새로 만들지 않는다.
     @State private var cachedProgress: (courseID: UUID, progress: RouteElevationProgress)?
@@ -40,7 +60,19 @@ struct CueSheetListView: View {
 
     @ViewBuilder
     private var content: some View {
-        if listItems.isEmpty {
+        let listItems = listItems
+        if climbsOnly && climbSections == nil {
+            ProgressView()
+                .frame(maxWidth: .infinity, minHeight: 140)
+        } else if climbsOnly && !listItems.contains(where: \.isClimb) {
+            ContentUnavailableView {
+                Label("구간 없음", systemImage: "mountain.2")
+            } description: {
+                Text("큐시트에 등급·스프린트 오르막 항목이 없습니다.")
+            }
+            .frame(maxWidth: .infinity, minHeight: 140)
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+        } else if listItems.isEmpty {
             ContentUnavailableView {
                 Label("큐시트 없음", systemImage: "list.bullet")
             } description: {
@@ -81,6 +113,17 @@ struct CueSheetListView: View {
                         )
                         .id(Self.currentLocationRowID)
 
+                    case .section(let section):
+                        NavigationLink(value: ClimbSectionRoute(section: section)) {
+                            ClimbSectionRow(
+                                section: section,
+                                isSelected: selectedCueID == section.startCue.id
+                                    || (selectedCueID != nil && selectedCueID == section.summitCue?.id)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .id(Self.sectionRowID(section))
+
                     case .cue(let cue):
                         CueSheetRow(
                             cue: cue,
@@ -101,15 +144,35 @@ struct CueSheetListView: View {
     }
 
     private var listItems: [CueSheetListItem] {
-        var items = course.sortedCuePoints.map(CueSheetListItem.cue)
-        let endpoints = trackEndpoints
-        let endpointIndices = Set(endpoints.map(\.trackIndex))
-        if let selectedProfilePoint,
-           !endpointIndices.contains(selectedProfilePoint.trackIndex) {
-            items.append(.profile(selectedProfilePoint))
+        let sections = climbSections ?? []
+        // 오르막만 보기에서는 다운힐 구간을 뺀다.
+        let shownSections = climbsOnly ? sections.filter { !$0.isDownhill } : sections
+        let sectionCueIDs = Set(shownSections.flatMap { [$0.startCue.id, $0.summitCue?.id].compactMap { $0 } })
+        var items: [CueSheetListItem] = []
+
+        if groupsClimbSections {
+            items += shownSections.map(CueSheetListItem.section)
+            if !climbsOnly {
+                items += course.sortedCuePoints
+                    .filter { !sectionCueIDs.contains($0.id) }
+                    .map(CueSheetListItem.cue)
+            }
+        } else {
+            items += course.sortedCuePoints
+                .filter { !climbsOnly || sectionCueIDs.contains($0.id) }
+                .map(CueSheetListItem.cue)
         }
-        for endpoint in endpoints {
-            items.append(.endpoint(endpoint))
+
+        if !climbsOnly {
+            let endpoints = trackEndpoints
+            let endpointIndices = Set(endpoints.map(\.trackIndex))
+            if let selectedProfilePoint,
+               !endpointIndices.contains(selectedProfilePoint.trackIndex) {
+                items.append(.profile(selectedProfilePoint))
+            }
+            for endpoint in endpoints {
+                items.append(.endpoint(endpoint))
+            }
         }
         if let currentLocation {
             items.append(.currentLocation(currentLocation))
@@ -168,7 +231,16 @@ private enum CueSheetListItem: Identifiable {
     case endpoint(TrackEndpoint)
     case profile(CourseProfileSelection)
     case currentLocation(CourseProfileSelection)
+    case section(CourseClimbSection)
     case cue(CourseCuePoint)
+
+    /// 오르막만 보기에서 남는 항목인지. 큐 전체 보기에서는 목록에 남은 큐가 모두 구간을 이루는 큐다.
+    var isClimb: Bool {
+        switch self {
+        case .section, .cue: return true
+        case .endpoint, .profile, .currentLocation: return false
+        }
+    }
 
     var id: String {
         switch self {
@@ -178,6 +250,8 @@ private enum CueSheetListItem: Identifiable {
             return CueSheetListView.profileSelectionRowID
         case .currentLocation:
             return CueSheetListView.currentLocationRowID
+        case .section(let section):
+            return CueSheetListView.sectionRowID(section)
         case .cue(let cue):
             return cue.id.uuidString
         }
@@ -189,6 +263,8 @@ private enum CueSheetListItem: Identifiable {
             return endpoint.distanceKm
         case .profile(let selection), .currentLocation(let selection):
             return selection.distanceKm
+        case .section(let section):
+            return section.startKm
         case .cue(let cue):
             return cue.distanceKm
         }
@@ -203,7 +279,7 @@ private enum CueSheetListItem: Identifiable {
             return -0.5
         case .profile:
             return 0
-        case .cue:
+        case .section, .cue:
             return 1
         }
     }
