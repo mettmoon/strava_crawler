@@ -12,6 +12,8 @@ struct CourseViewerView: View {
     /// 큐나 지점을 선택할 때마다 증가한다. 지도는 이 값이 바뀔 때만 선택 위치로 이동한다.
     @State private var mapCenterRequest = 0
     @State private var locationTracker = CourseLocationTracker()
+    /// 오르막 구간. 트랙 전체를 훑으므로 코스마다 한 번 백그라운드에서 계산한다. nil이면 계산 중.
+    @State private var climbSections: (courseID: UUID, sections: [CourseClimbSection])?
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     /// 코스 위로 인식된 현재 위치. 코스 밖이거나 트래킹 중이 아니면 nil.
@@ -49,14 +51,9 @@ struct CourseViewerView: View {
                 }
                 .tag(CourseViewerTab.map)
 
-            ClimbSectionsTab(course: course)
-                .tabItem {
-                    Label("구간", systemImage: "mountain.2")
-                }
-                .tag(CourseViewerTab.sections)
-
             CourseCueSheetTab(
                 course: course,
+                climbSections: currentClimbSections,
                 selectedCueID: linkedCueSelection,
                 selectedProfilePoint: linkedProfileSelection,
                 currentLocation: currentRouteLocation
@@ -72,9 +69,21 @@ struct CourseViewerView: View {
             linkedCueSelection.wrappedValue = section.startCue.id
             selectedTab = .map
         }
+        .task(id: course.id) {
+            let course = course
+            let detected = await Task.detached(priority: .userInitiated) {
+                CourseClimbDetector.sections(in: course)
+            }.value
+            climbSections = (course.id, detected)
+        }
         .onDisappear {
             locationTracker.stop()
         }
+    }
+
+    private var currentClimbSections: [CourseClimbSection]? {
+        guard let climbSections, climbSections.courseID == course.id else { return nil }
+        return climbSections.sections
     }
 
     private var hidesNavigationBar: Bool {
@@ -108,7 +117,6 @@ struct CourseViewerView: View {
 private enum CourseViewerTab: Hashable {
     case summary
     case map
-    case sections
     case cueSheet
 }
 
@@ -344,29 +352,56 @@ private struct CourseMapTab: View {
 
 private struct CourseCueSheetTab: View {
     let course: LoadedCourse
+    let climbSections: [CourseClimbSection]?
     @Binding var selectedCueID: UUID?
     @Binding var selectedProfilePoint: CourseProfileSelection?
     let currentLocation: CourseProfileSelection?
+    /// true면 구간을 이루는 큐를 구간 행으로 묶어 보여주고, false면 큐를 모두 그대로 보여준다.
+    @AppStorage("cueSheetGroupsClimbSections") private var groupsClimbSections = true
+    @AppStorage("cueSheetClimbsOnly") private var climbsOnly = false
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
                     CueSheetListView(
                         course: course,
                         selectedCueID: cueSelectionBinding,
                         selectedProfilePoint: $selectedProfilePoint,
-                        currentLocation: currentLocation
+                        currentLocation: currentLocation,
+                        climbSections: climbSections,
+                        groupsClimbSections: groupsClimbSections,
+                        climbsOnly: climbsOnly
                     )
                 }
                 .padding(16)
             }
             .background(Color(.systemGroupedBackground))
+            // 보기를 바꾸면 리스트를 스크롤하므로 컨트롤은 리스트 위에 고정한다.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                controls
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.bar)
+            }
             .onChange(of: selectedCueID) { _, id in
                 guard let id else { return }
+                let rowID = CueSheetListView.rowID(
+                    forCueID: id,
+                    sections: climbSections,
+                    groupsClimbSections: groupsClimbSections
+                )
                 withAnimation(.easeInOut(duration: 0.25)) {
-                    proxy.scrollTo(id, anchor: .center)
+                    proxy.scrollTo(rowID, anchor: .center)
                 }
+            }
+            // 코스 앞부분에 구간이 없으면 보기를 바꿔도 화면에 보이는 행이 그대로라 바뀐 걸 알 수 없다.
+            // 보기를 바꾸면 첫 오르막 구간으로 스크롤해 바뀐 부분을 바로 보여준다.
+            .onChange(of: groupsClimbSections) {
+                scrollToFirstClimb(proxy)
+            }
+            .onChange(of: climbsOnly) {
+                scrollToFirstClimb(proxy)
             }
             .onChange(of: selectedProfilePoint) { _, selection in
                 guard let selection else { return }
@@ -376,6 +411,73 @@ private struct CourseCueSheetTab: View {
                 }
             }
         }
+    }
+
+    private func scrollToFirstClimb(_ proxy: ScrollViewProxy) {
+        let candidates = climbsOnly ? climbSections?.filter { !$0.isDownhill } : climbSections
+        guard let first = candidates?.min(by: { $0.startKm < $1.startKm }) else { return }
+        let rowID = CueSheetListView.rowID(
+            forCueID: first.startCue.id,
+            sections: climbSections,
+            groupsClimbSections: groupsClimbSections
+        )
+        // 바뀐 리스트가 그려진 다음에 스크롤해야 새 행을 찾는다.
+        Task { @MainActor in
+            withAnimation(.easeInOut(duration: 0.25)) {
+                proxy.scrollTo(rowID, anchor: .top)
+            }
+        }
+    }
+
+    private var controls: some View {
+        HStack(spacing: 8) {
+            Text(countText)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .lineLimit(1)
+
+            Spacer(minLength: 8)
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    climbsOnly.toggle()
+                }
+            } label: {
+                Label("오르막만", systemImage: climbsOnly ? "mountain.2.fill" : "mountain.2")
+            }
+            .tint(climbsOnly ? .accentColor : .secondary)
+            .accessibilityValue(climbsOnly ? "켜짐" : "꺼짐")
+
+            // 버튼 문구는 지금 보기가 아니라 누르면 바뀔 보기를 보여준다.
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    groupsClimbSections.toggle()
+                }
+            } label: {
+                Label(
+                    groupsClimbSections ? "큐 전체 보기" : "구간 보기",
+                    systemImage: "arrow.left.arrow.right"
+                )
+            }
+            .tint(.secondary)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .controlSize(.small)
+        .font(.footnote.weight(.semibold))
+        .padding(.horizontal, 4)
+    }
+
+    private var countText: String {
+        guard let climbSections else { return "큐 \(course.cuePoints.count)개" }
+        if climbsOnly {
+            return "오르막 \(climbSections.filter { !$0.isDownhill }.count)개"
+        }
+        if groupsClimbSections {
+            return "구간 \(climbSections.count)개"
+        }
+        return "큐 \(course.cuePoints.count)개"
     }
 
     private var cueSelectionBinding: Binding<UUID?> {

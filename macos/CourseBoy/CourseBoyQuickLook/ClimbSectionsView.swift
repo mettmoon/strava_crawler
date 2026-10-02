@@ -2,57 +2,6 @@ import CoursePreviewCore
 import MapKit
 import SwiftUI
 
-/// 큐시트의 HC·1~4등급 오르막 큐를 구간으로 묶어 보여주는 탭.
-struct ClimbSectionsTab: View {
-    let course: LoadedCourse
-
-    @State private var sections: [CourseClimbSection] = []
-    @State private var sectionsCourseID: UUID?
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
-                if sectionsCourseID != course.id {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, minHeight: 140)
-                } else if sections.isEmpty {
-                    ContentUnavailableView {
-                        Label("구간 없음", systemImage: "mountain.2")
-                    } description: {
-                        Text("큐시트에 HC·1~4등급 오르막 항목이 없습니다.")
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 140)
-                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
-                } else {
-                    Text("오르막 \(sections.count)개")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 4)
-
-                    LazyVStack(spacing: 8) {
-                        ForEach(sections) { section in
-                            NavigationLink(value: ClimbSectionRoute(section: section)) {
-                                ClimbSectionRow(section: section)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
-            .padding(16)
-        }
-        .background(Color(.systemGroupedBackground))
-        .task(id: course.id) {
-            let course = course
-            let detected = await Task.detached(priority: .userInitiated) {
-                CourseClimbDetector.sections(in: course)
-            }.value
-            sections = detected
-            sectionsCourseID = course.id
-        }
-    }
-}
-
 /// 구간 상세 화면으로 가는 경로. 같은 구간이면 같은 경로로 본다.
 struct ClimbSectionRoute: Hashable {
     var section: CourseClimbSection
@@ -78,12 +27,19 @@ extension View {
     }
 }
 
-private struct ClimbSectionRow: View {
+/// 큐시트 탭의 구간 행. 누르면 구간 상세로 이동한다.
+struct ClimbSectionRow: View {
     let section: CourseClimbSection
+    /// 지도·그래프에서 구간의 시작 큐나 정상 큐를 선택했을 때 강조한다.
+    var isSelected = false
+
+    private var glyph: CuePointGlyph {
+        sectionGlyph(for: section)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            CueGlyphView(glyph: cuePointGlyph(for: section.startCue.pointType))
+            CueGlyphView(glyph: glyph)
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -111,9 +67,8 @@ private struct ClimbSectionRow: View {
                 .minimumScaleFactor(0.8)
 
                 if let summit = section.summitCue {
-                    Label(summit.displayName, systemImage: "mountain.2.fill")
+                    SectionEndCueLabel(cue: summit)
                         .font(.caption)
-                        .foregroundStyle(.green)
                         .lineLimit(1)
                 }
             }
@@ -124,7 +79,14 @@ private struct ClimbSectionRow: View {
                 .padding(.top, 3)
         }
         .padding(12)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+        .background(
+            isSelected ? glyph.color.opacity(0.16) : Color(.secondarySystemGroupedBackground),
+            in: RoundedRectangle(cornerRadius: 8)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(isSelected ? glyph.color.opacity(0.65) : Color.clear, lineWidth: 1)
+        }
         .contentShape(RoundedRectangle(cornerRadius: 8))
     }
 }
@@ -188,21 +150,28 @@ struct ClimbSectionDetailView: View {
 
                 LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
                     MetricTile(title: "길이", value: formatRouteDistance(section.lengthKm), systemImage: "ruler")
-                    MetricTile(title: "고도차", value: formatElevationGain(section.elevationGain), systemImage: "arrow.up.right")
+                    MetricTile(
+                        title: "고도차",
+                        value: formatElevationGain(section.elevationGain),
+                        systemImage: section.isDownhill ? "arrow.down.right" : "arrow.up.right"
+                    )
                     MetricTile(title: "평균 경사", value: formatGrade(section.averageGrade), systemImage: "angle")
                     MetricTile(title: "최대 경사", value: formatGrade(section.maxGrade), systemImage: "exclamationmark.triangle")
                 }
 
                 ViewerSection(title: "상세 정보", systemImage: "info.circle") {
                     VStack(spacing: 0) {
-                        DetailRow(title: "등급", value: cuePointLabel(for: section.startCue.pointType))
+                        DetailRow(
+                            title: "등급",
+                            value: section.isDownhill ? section.category.label : cuePointLabel(for: section.startCue.pointType)
+                        )
                         DetailRow(title: "시작 위치", value: formatRouteDistance(section.startKm))
                         DetailRow(title: "종료 위치", value: formatRouteDistance(section.endKm))
                         DetailRow(title: "시작 고도", value: formatRouteElevation(section.startElevation))
-                        DetailRow(title: "정상 고도", value: formatRouteElevation(section.endElevation))
+                        DetailRow(title: section.isDownhill ? "종료 고도" : "정상 고도", value: formatRouteElevation(section.endElevation))
                         DetailRow(title: "누적 상승", value: formatRouteElevation(section.ascent))
                         DetailRow(title: "누적 하강", value: formatRouteElevation(section.descent))
-                        DetailRow(title: "정상 큐", value: summitDescription)
+                        DetailRow(title: section.isDownhill ? "종료 큐" : "정상 큐", value: summitDescription)
                         DetailRow(title: "종료 후 남은 거리", value: formatRouteDistance(max(0, course.totalDistanceKm - section.endKm)))
                     }
                     .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
@@ -239,7 +208,7 @@ struct ClimbSectionDetailView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            CueGlyphView(glyph: cuePointGlyph(for: section.startCue.pointType))
+            CueGlyphView(glyph: sectionGlyph(for: section))
             VStack(alignment: .leading, spacing: 3) {
                 Text(section.name)
                     .font(.title3.weight(.semibold))
@@ -249,9 +218,8 @@ struct ClimbSectionDetailView: View {
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
                 if let summit = section.summitCue {
-                    Label(summit.displayName, systemImage: "mountain.2.fill")
+                    SectionEndCueLabel(cue: summit)
                         .font(.subheadline)
-                        .foregroundStyle(.green)
                         .lineLimit(2)
                 }
             }
@@ -658,6 +626,23 @@ private struct ClimbProfile {
 }
 
 // MARK: - Formatting
+
+/// 다운힐의 시작 큐는 Straight라 큐 아이콘 대신 내리막 아이콘을 쓴다.
+private func sectionGlyph(for section: CourseClimbSection) -> CuePointGlyph {
+    guard section.isDownhill else { return cuePointGlyph(for: section.startCue.pointType) }
+    return CuePointGlyph(symbol: "arrow.down.right", text: nil, color: .teal, uiColor: .systemTeal)
+}
+
+/// 구간 끝 큐(정상·Valley)를 그 큐의 아이콘과 색으로 보여준다.
+private struct SectionEndCueLabel: View {
+    let cue: CourseCuePoint
+
+    var body: some View {
+        let glyph = cuePointGlyph(for: cue.pointType)
+        Label(cue.displayName, systemImage: glyph.symbol ?? "flag.checkered")
+            .foregroundStyle(glyph.color)
+    }
+}
 
 private func formatGrade(_ grade: Double?) -> String {
     guard let grade else { return "-" }
