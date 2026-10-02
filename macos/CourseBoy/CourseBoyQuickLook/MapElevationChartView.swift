@@ -24,6 +24,8 @@ struct MapElevationChartView: View {
     @State private var visibleStartKm: Double = 0
     @State private var pinchBase: (zoom: CGFloat, startKm: Double)?
     @State private var panBaseStartKm: Double?
+    /// 그래프 영역 폭. + 버튼으로 확대할 배율을 계산할 때 쓴다.
+    @State private var plotWidth: CGFloat = 0
     @State private var scrubFeedbackTrigger = 0
     @State private var cueSnapFeedbackTrigger = 0
 
@@ -44,6 +46,8 @@ struct MapElevationChartView: View {
             if let profile, profile.samples.count >= 2 {
                 GeometryReader { proxy in
                     chart(profile: profile, size: proxy.size)
+                        .onAppear { plotWidth = chartRect(in: proxy.size).width }
+                        .onChange(of: proxy.size) { _, size in plotWidth = chartRect(in: size).width }
                 }
                 .frame(height: chartHeight)
             } else {
@@ -59,7 +63,7 @@ struct MapElevationChartView: View {
         .floatingCardBackground(cornerRadius: isCompact ? Layout.compactCornerRadius : Layout.cornerRadius)
         .overlay(alignment: .topTrailing) {
             // 헤더가 없을 때는 상태 배지를 그래프 바로 위, 지도 쪽에 띄운다.
-            if isCompact, isOffRoute || isZoomed {
+            if isCompact, profile != nil {
                 HStack(spacing: 6) {
                     statusBadges
                 }
@@ -145,6 +149,17 @@ struct MapElevationChartView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("고도 그래프 전체 보기")
+        } else {
+            Button(action: zoomToDetail) {
+                Image(systemName: "plus")
+                    .font(.caption2.weight(.bold))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(Color(.secondarySystemFill), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(detailZoom <= zoom * 1.01)
+            .accessibilityLabel("고도 그래프 확대")
         }
     }
 
@@ -647,6 +662,26 @@ struct MapElevationChartView: View {
         }
     }
 
+    /// + 버튼 배율. 10pt에 1km가 들어가도록 확대한다.
+    private var detailZoom: CGFloat {
+        guard let profile, plotWidth > 0 else { return 1 }
+        let span = Double(plotWidth / Layout.detailPointsPerKm)
+        return min(max(1, CGFloat(profile.totalKm / span)), maxZoom(for: profile))
+    }
+
+    /// 선택한 지점이 있으면 그 지점을, 없으면 현재 화면 가운데를 중심으로 확대한다.
+    private func zoomToDetail() {
+        guard let profile else { return }
+        let window = visibleWindow(profile: profile)
+        let centerKm = focusedDistanceKm ?? (window.lowerBound + window.upperBound) / 2
+        let newZoom = detailZoom
+        let span = profile.totalKm / Double(newZoom)
+        withAnimation(.easeInOut(duration: 0.2)) {
+            zoom = newZoom
+            visibleStartKm = clampedStart(centerKm - span / 2, span: span, total: profile.totalKm)
+        }
+    }
+
     // MARK: - Helpers
 
     /// 아이콘을 그릴 큐 목록. 앞 아이콘과 겹치는 큐는 가이드 라인만 남기고 아이콘은 생략한다.
@@ -741,6 +776,7 @@ struct MapElevationChartView: View {
         static let bottomPad: CGFloat = 15
         static let cueIconRadius: CGFloat = 8
         static let minimumVisibleKm: Double = 0.5
+        static let detailPointsPerKm: CGFloat = 10
         static let minimumSegmentWidth: CGFloat = 2
         /// 큐 가이드 라인에서 이 거리 안으로 들어오면 큐에 달라붙고, release 거리 밖으로 나가야 떨어진다.
         static let cueMagnetCaptureDistance: CGFloat = 8
