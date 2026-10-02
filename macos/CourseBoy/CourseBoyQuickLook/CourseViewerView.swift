@@ -63,6 +63,9 @@ struct CourseViewerView: View {
                 }
                 .tag(CourseViewerTab.cueSheet)
         }
+        // 지도 탭은 지도를 화면 위까지 보이도록 제목을 빼고 바를 투명하게 둔다.
+        .navigationTitle(selectedTab == .map ? "" : course.title)
+        .navigationBarTitleDisplayMode(.inline)
         // 가로 모드 지도 탭은 세로 공간이 부족해 내비게이션 바를 숨기고 지도 위 뒤로가기 버튼으로 대신한다.
         .toolbar(hidesNavigationBar ? .hidden : .automatic, for: .navigationBar)
         .climbSectionDestination(course: course) { cue in
@@ -185,8 +188,9 @@ private struct CourseMapTab: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .toolbarBackground(.bar, for: .navigationBar, .tabBar)
-            .toolbarBackground(.visible, for: .navigationBar, .tabBar)
+            .toolbarBackground(.hidden, for: .navigationBar)
+            .toolbarBackground(.bar, for: .tabBar)
+            .toolbarBackground(.visible, for: .tabBar)
             .onChange(of: course.id, initial: true) { _, id in
                 cachedElevationProgress = (id, RouteElevationProgress(trackPoints: course.trackPoints))
             }
