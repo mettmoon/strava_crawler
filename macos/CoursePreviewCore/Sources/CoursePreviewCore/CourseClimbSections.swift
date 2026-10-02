@@ -1,8 +1,10 @@
 import Foundation
 
-/// 큐시트의 오르막 등급. HC가 가장 어렵다.
-/// 스프린트는 등급이 없는 구간이라, 그래프상 오르막일 때만 구간으로 쓴다.
+/// 큐시트 구간의 종류. 오르막은 HC가 가장 어렵다.
+/// 큐시트 생성기는 오르막 세그먼트 시작에 등급(등급이 없으면 Sprint)을, 내리막 세그먼트 끝에 Valley를 넣는다.
 public enum ClimbCategory: Int, CaseIterable, Comparable, Sendable {
+    /// 내리막 세그먼트. 시작 큐는 Straight라 PointType으로는 알 수 없고 Valley 큐와 짝지어 찾는다.
+    case downhill = -1
     case sprint = 0
     case fourth
     case third
@@ -25,6 +27,7 @@ public enum ClimbCategory: Int, CaseIterable, Comparable, Sendable {
 
     public var shortLabel: String {
         switch self {
+        case .downhill: return "↘"
         case .sprint: return "S"
         case .fourth: return "4"
         case .third: return "3"
@@ -36,6 +39,7 @@ public enum ClimbCategory: Int, CaseIterable, Comparable, Sendable {
 
     public var label: String {
         switch self {
+        case .downhill: return "다운힐"
         case .sprint: return "스프린트"
         case .hors: return "HC급"
         default: return "\(shortLabel)등급"
@@ -47,13 +51,15 @@ public enum ClimbCategory: Int, CaseIterable, Comparable, Sendable {
     }
 }
 
-/// 등급(또는 오르막 스프린트) 큐에서 시작해 고도 그래프상 오르막이 끝나는 지점까지의 구간.
+/// 큐시트로 인식한 구간.
+/// 오르막(등급·스프린트)은 시작 큐부터 고도 그래프상 오르막이 끝나는 지점까지,
+/// 다운힐은 시작 큐부터 짝지은 Valley 큐까지다.
 public struct CourseClimbSection: Identifiable, Equatable, Sendable {
     public var id: UUID { startCue.id }
 
     public var startCue: CourseCuePoint
     public var category: ClimbCategory
-    /// 오르막이 끝나는 지점 근처에서 찾은 정상(Summit) 큐.
+    /// 구간 끝 큐. 오르막은 끝 근처에서 찾은 정상(Summit) 큐, 다운힐은 Valley 큐다.
     public var summitCue: CourseCuePoint?
 
     public var startIndex: Int
@@ -64,8 +70,10 @@ public struct CourseClimbSection: Identifiable, Equatable, Sendable {
     public var endElevation: Double?
     public var ascent: Double
     public var descent: Double
-    /// 퍼센트 단위. 약 200m 구간 평균 중 가장 가파른 값.
+    /// 퍼센트 단위. 약 200m 구간 평균 중 가장 가파른 값. 다운힐은 가장 가파른 내리막(음수)이다.
     public var maxGrade: Double?
+
+    public var isDownhill: Bool { category == .downhill }
 
     public var name: String { startCue.displayName }
 
@@ -96,9 +104,6 @@ public enum CourseClimbDetector {
     /// 정상 이후 이 거리 동안 더 높은 곳이 없으면 오르막이 끝난 것으로 본다.
     static let plateauKm = 2.0
     static let maxGradeWindowKm = 0.2
-    /// 스프린트 큐는 그래프상 이만큼 오르는 오르막일 때만 구간으로 본다.
-    static let sprintMinimumGainMeters = 20.0
-    static let sprintMinimumAverageGrade = 2.0
     /// 거리 창 경계에 정확히 걸친 포인트가 부동소수점 오차로 빠지지 않게 한다.
     private static let epsilonKm = 1e-9
 
@@ -110,21 +115,32 @@ public enum CourseClimbDetector {
         let cues = course.sortedCuePoints
         let summits = cues.filter { canonicalCuePointType($0.pointType) == "Summit" }
 
-        return cues.compactMap { cue -> CourseClimbSection? in
+        let climbs = cues.compactMap { cue -> CourseClimbSection? in
             guard let category = ClimbCategory(pointType: cue.pointType),
                   let startIndex = cueTrackIndex(cue, in: points) else {
                 return nil
             }
-            let endIndex = climbEndIndex(from: startIndex, points: points, elevations: elevations)
+            let startKm = points[startIndex].cumKm
+            // 큐시트가 끝 지점을 알려 주면 그 정상 큐에서 끝내고, 아니면 고도 그래프로 끝을 찾는다.
+            let summit: CourseCuePoint?
+            let endIndex: Int
+            if let paired = pairedSummit(for: cue, startKm: startKm, in: summits),
+               let pairedIndex = cueTrackIndex(paired, in: points),
+               pairedIndex > startIndex {
+                summit = paired
+                endIndex = pairedIndex
+            } else {
+                endIndex = climbEndIndex(from: startIndex, points: points, elevations: elevations)
+                summit = matchSummit(for: cue, startKm: startKm, endKm: points[endIndex].cumKm, in: summits)
+            }
             let range = startIndex...endIndex
             let (ascent, descent) = elevationChange(points, in: range)
-            let startKm = points[startIndex].cumKm
             let endKm = points[endIndex].cumKm
 
             let section = CourseClimbSection(
                 startCue: cue,
                 category: category,
-                summitCue: matchSummit(for: cue, startKm: startKm, endKm: endKm, in: summits),
+                summitCue: summit,
                 startIndex: startIndex,
                 endIndex: endIndex,
                 startKm: startKm,
@@ -133,16 +149,64 @@ public enum CourseClimbDetector {
                 endElevation: points[endIndex].ele,
                 ascent: ascent,
                 descent: descent,
-                maxGrade: maxGrade(points, elevations: elevations, in: range)
+                maxGrade: steepestGrade(points, elevations: elevations, in: range, descending: false)
             )
-            if category == .sprint, !isUphill(section) { return nil }
             return section
+        }
+        let downhills = downhillSections(cues: cues, points: points, elevations: elevations)
+        return (climbs + downhills).sorted { $0.startKm < $1.startKm }
+    }
+
+    /// Valley 큐마다 앞쪽의 시작 큐를 찾아 다운힐 구간을 만든다. 시작 큐를 못 찾으면 구간으로 보지 않는다.
+    static func downhillSections(
+        cues: [CourseCuePoint],
+        points: [TrackPoint],
+        elevations: [Double?]
+    ) -> [CourseClimbSection] {
+        cues.indices.compactMap { valleyOffset -> CourseClimbSection? in
+            let valley = cues[valleyOffset]
+            guard canonicalCuePointType(valley.pointType) == "Valley",
+                  let start = matchDownhillStart(for: valleyOffset, in: cues),
+                  let startIndex = cueTrackIndex(start, in: points),
+                  let endIndex = cueTrackIndex(valley, in: points),
+                  endIndex > startIndex else {
+                return nil
+            }
+            let range = startIndex...endIndex
+            let (ascent, descent) = elevationChange(points, in: range)
+            return CourseClimbSection(
+                startCue: start,
+                category: .downhill,
+                summitCue: valley,
+                startIndex: startIndex,
+                endIndex: endIndex,
+                startKm: points[startIndex].cumKm,
+                endKm: points[endIndex].cumKm,
+                startElevation: points[startIndex].ele,
+                endElevation: points[endIndex].ele,
+                ascent: ascent,
+                descent: descent,
+                maxGrade: steepestGrade(points, elevations: elevations, in: range, descending: true)
+            )
         }
     }
 
-    static func isUphill(_ section: CourseClimbSection) -> Bool {
-        guard let gain = section.elevationGain, let grade = section.averageGrade else { return false }
-        return gain >= sprintMinimumGainMeters && grade >= sprintMinimumAverageGrade
+    /// Valley 큐("<이름> 종료")와 같은 이름의 앞쪽 큐를 먼저 찾는다.
+    /// RWGPS용 큐시트처럼 이름이 이어지지 않으면 "↘"로 시작하는 바로 앞 큐를 쓴다.
+    static func matchDownhillStart(for valleyOffset: Int, in cues: [CourseCuePoint]) -> CourseCuePoint? {
+        let valleyName = cues[valleyOffset].name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseName = valleyName.hasSuffix(" 종료") ? String(valleyName.dropLast(" 종료".count)) : valleyName
+        let before = cues[..<valleyOffset].reversed()
+        if !baseName.isEmpty,
+           let named = before.first(where: { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) == baseName }) {
+            return named
+        }
+        for cue in before {
+            // 다른 다운힐이 끝난 뒤의 큐만 본다.
+            if canonicalCuePointType(cue.pointType) == "Valley" { return nil }
+            if cue.name.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("↘") { return cue }
+        }
+        return nil
     }
 
     /// 시작점부터 앞으로 가며 가장 높은 지점을 따라가다가, 충분히 내려가거나 평지가 이어지면 멈춘다.
@@ -183,6 +247,38 @@ public enum CourseClimbDetector {
             cursor += 1
         }
         return best
+    }
+
+    /// 큐시트가 짝지어 둔 정상 큐. "<시작 큐 이름> 종료"를 먼저 찾고,
+    /// RWGPS용 큐시트처럼 시작 큐 이름이 "↗2.45km, 3.8%"면 그 길이만큼 간 곳의 정상 큐를 쓴다.
+    static func pairedSummit(
+        for cue: CourseCuePoint,
+        startKm: Double,
+        in summits: [CourseCuePoint]
+    ) -> CourseCuePoint? {
+        let after = summits.filter { $0.distanceKm > startKm }
+        let baseName = cue.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !baseName.isEmpty,
+           let named = after.first(where: {
+               $0.name.trimmingCharacters(in: .whitespacesAndNewlines) == "\(baseName) 종료"
+           }) {
+            return named
+        }
+        guard let lengthKm = arrowLengthKm(in: baseName) else { return nil }
+        let expectedKm = startKm + lengthKm
+        let tolerance = min(max(lengthKm * 0.2, 0.3), 1.0)
+        return after
+            .filter { abs($0.distanceKm - expectedKm) <= tolerance }
+            .min { abs($0.distanceKm - expectedKm) < abs($1.distanceKm - expectedKm) }
+    }
+
+    /// "↗509m, 2.7%"나 "↗2.45km, 3.8%"에서 길이(km)를 읽는다.
+    static func arrowLengthKm(in name: String) -> Double? {
+        guard name.hasPrefix("↗") else { return nil }
+        let body = name.dropFirst().prefix { $0 != "," }.trimmingCharacters(in: .whitespaces)
+        if body.hasSuffix("km"), let km = Double(body.dropLast(2)) { return km }
+        if body.hasSuffix("m"), let meters = Double(body.dropLast()) { return meters / 1_000 }
+        return nil
     }
 
     /// 오르막 끝 근처의 정상 큐. "<시작 큐 이름> 종료"처럼 이름이 이어지는 큐를 먼저 찾는다.
@@ -244,10 +340,12 @@ public enum CourseClimbDetector {
         return (up, down)
     }
 
-    private static func maxGrade(
+    /// 약 200m 창 평균 경사 중 가장 가파른 값. descending이면 가장 가파른 내리막(가장 작은 값)을 고른다.
+    private static func steepestGrade(
         _ points: [TrackPoint],
         elevations: [Double?],
-        in range: ClosedRange<Int>
+        in range: ClosedRange<Int>,
+        descending: Bool
     ) -> Double? {
         var best: Double?
         var ahead = range.lowerBound
@@ -262,7 +360,7 @@ public enum CourseClimbDetector {
             // 구간 끝에 가까워 창이 절반도 안 되면 짧은 구간의 튀는 값을 피하려고 건너뛴다.
             guard meters >= maxGradeWindowKm * 500, let end = elevations[ahead] else { continue }
             let grade = (end - start) / meters * 100
-            best = max(best ?? grade, grade)
+            best = descending ? min(best ?? grade, grade) : max(best ?? grade, grade)
         }
         return best
     }
