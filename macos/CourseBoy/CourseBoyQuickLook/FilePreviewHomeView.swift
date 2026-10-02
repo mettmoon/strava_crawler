@@ -14,8 +14,6 @@ struct FilePreviewHomeView: View {
                     CourseViewerView(course: loadedCourse) {
                         self.loadedCourse = nil
                     }
-                        .navigationTitle(loadedCourse.title)
-                        .navigationBarTitleDisplayMode(.inline)
                         .toolbar {
                             ToolbarItem(placement: .topBarLeading) {
                                 browserButton
