@@ -28,4 +28,18 @@ extension View {
                 }
         }
     }
+
+    /// 지도 위에 세로로 붙여 놓은 버튼 묶음의 배경.
+    @ViewBuilder
+    func floatingCapsuleBackground() -> some View {
+        if #available(iOS 26, *) {
+            glassEffect(.regular, in: Capsule())
+        } else {
+            background(.regularMaterial, in: Capsule())
+                .overlay {
+                    Capsule()
+                        .strokeBorder(Color(.separator), lineWidth: 0.5)
+                }
+        }
+    }
 }

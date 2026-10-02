@@ -160,6 +160,9 @@ private struct CourseMapTab: View {
     let mapCenterRequest: Int
     var onClose: () -> Void
     @AppStorage("mapShowsElevationChart") private var showsElevationChart = true
+    @AppStorage(CourseMapStyle.storageKey) private var mapStyle: CourseMapStyle = .standard
+    @State private var fitCourseRequest = 0
+    @State private var compassLink = CourseMapCompassLink()
     @State private var isScrubbingElevationChart = false
     /// 트랙 포인트 전체를 훑어 만들기 때문에 코스마다 한 번만 계산해 둔다.
     @State private var cachedElevationProgress: (courseID: UUID, progress: RouteElevationProgress)?
@@ -244,7 +247,10 @@ private struct CourseMapTab: View {
                     },
                     isScrubbingProfile: isScrubbingElevationChart,
                     centerRequest: mapCenterRequest,
-                    obscuredInsets: proxy.safeAreaInsets
+                    obscuredInsets: proxy.safeAreaInsets,
+                    mapStyle: mapStyle,
+                    fitCourseRequest: fitCourseRequest,
+                    compassLink: compassLink
                 )
                 // GeometryReader 자체는 safe area 안에 두어야 proxy가 가려지는 폭을 알려 준다.
                 .ignoresSafeArea(.container)
@@ -257,8 +263,18 @@ private struct CourseMapTab: View {
                     }
                     Spacer()
                     VStack(spacing: 8) {
-                        locateButton
+                        VStack(spacing: 0) {
+                            locateButton
+                            Divider()
+                                .frame(width: 28)
+                            fitCourseButton
+                        }
+                        .floatingCapsuleBackground()
+                        mapStyleButton
                         elevationChartButton
+                        // 회전하지 않았을 때는 숨어 있으므로 맨 아래에 두어 빈자리가 보이지 않게 한다.
+                        CourseMapCompassButton(link: compassLink)
+                            .frame(width: 44, height: 44)
                     }
                 }
                 Spacer()
@@ -330,6 +346,41 @@ private struct CourseMapTab: View {
         .accessibilityValue(showsElevationChart ? "표시 중" : "숨김")
     }
 
+    private var mapStyleButton: some View {
+        Menu {
+            Picker("지도 종류", selection: $mapStyle) {
+                ForEach(CourseMapStyle.allCases) { style in
+                    Label(style.label, systemImage: style.symbol)
+                        .tag(style)
+                }
+            }
+        } label: {
+            Image(systemName: mapStyle.symbol)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color.primary)
+                .frame(width: 44, height: 44)
+                .floatingCircleBackground()
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("지도 종류")
+        .accessibilityValue(mapStyle.label)
+    }
+
+    private var fitCourseButton: some View {
+        Button {
+            locationTracker.stopFollowing()
+            fitCourseRequest += 1
+        } label: {
+            Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color.primary)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("코스 전체 보기")
+    }
+
     private var locateButton: some View {
         Button {
             locationTracker.toggle(course: course)
@@ -338,7 +389,7 @@ private struct CourseMapTab: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(locationTracker.mode == .off ? Color.primary : Color.accentColor)
                 .frame(width: 44, height: 44)
-                .floatingCircleBackground()
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("내 위치")
