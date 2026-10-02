@@ -109,6 +109,8 @@ struct ClimbSectionDetailView: View {
     }
 
     @Environment(\.dismiss) private var dismiss
+    /// 고도 그래프에서 고른 지점. 구간 시작부터의 거리(km).
+    @State private var selectedOffsetKm: Double?
 
     private var columns: [GridItem] {
         [GridItem(.adaptive(minimum: 150), spacing: 8)]
@@ -126,7 +128,7 @@ struct ClimbSectionDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                ClimbSectionMapView(profile: profile)
+                ClimbSectionMapView(profile: profile, selectedOffsetKm: selectedOffsetKm)
                     .frame(height: 220)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
 
@@ -134,7 +136,8 @@ struct ClimbSectionDetailView: View {
 
                 ClimbProfileChartView(
                     profile: profile,
-                    summitOffsetKm: section.summitCue.map { $0.distanceKm - section.startKm }
+                    summitOffsetKm: section.summitCue.map { $0.distanceKm - section.startKm },
+                    selectedOffsetKm: $selectedOffsetKm
                 )
                     .padding(12)
                     .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
@@ -269,6 +272,7 @@ private struct SectionCueRow: View {
 /// 구간 경로를 100m 조각마다 경사 색으로 칠한 지도. 이동·확대·회전할 수 있고 버튼으로 구간 전체 보기로 돌아온다.
 private struct ClimbSectionMapView: View {
     let profile: ClimbProfile
+    var selectedOffsetKm: Double?
 
     @State private var position: MapCameraPosition = .automatic
 
@@ -304,6 +308,17 @@ private struct ClimbSectionMapView: View {
                         .frame(width: 20, height: 20)
                         .background(.black, in: Circle())
                         .overlay { Circle().strokeBorder(.white, lineWidth: 1.5) }
+                }
+                .annotationTitles(.hidden)
+            }
+
+            if let selectedOffsetKm {
+                Annotation("선택 지점", coordinate: profile.sample(atKm: selectedOffsetKm).coordinate, anchor: .center) {
+                    Circle()
+                        .fill(.cyan)
+                        .frame(width: 14, height: 14)
+                        .overlay { Circle().strokeBorder(.white, lineWidth: 2.5) }
+                        .shadow(color: .black.opacity(0.3), radius: 2)
                 }
                 .annotationTitles(.hidden)
             }
@@ -347,9 +362,13 @@ private struct ClimbSectionMapView: View {
 // MARK: - Chart
 
 /// 구간 고도 그래프. 100m 조각마다 평균 경사를 색으로 칠한다.
+/// 누르거나 가로로 끌면 그 지점의 거리·고도·경사를 보여준다.
 private struct ClimbProfileChartView: View {
     let profile: ClimbProfile
     let summitOffsetKm: Double?
+    @Binding var selectedOffsetKm: Double?
+
+    @State private var scrubFeedbackTrigger = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -359,9 +378,24 @@ private struct ClimbProfileChartView: View {
                     draw(size: size, context: context)
                 }
                 .frame(height: Layout.height)
+                .overlay {
+                    GeometryReader { proxy in
+                        let rect = plotRect(in: proxy.size)
+                        // 세로 스크롤과 겹치지 않게 UIKit 인식기로 탭과 가로 끌기만 받는다.
+                        ProfileScrubGestureView(
+                            onTap: { x in select(atX: x, rect: rect) },
+                            onDrag: { state, x in
+                                if state == .began { scrubFeedbackTrigger += 1 }
+                                select(atX: x, rect: rect)
+                            }
+                        )
+                    }
+                }
+                .sensoryFeedback(.impact(weight: .medium), trigger: scrubFeedbackTrigger)
                 .accessibilityElement()
                 .accessibilityLabel("구간 고도 그래프")
                 .accessibilityValue(profile.accessibilitySummary)
+                .accessibilityHint("누르거나 가로로 끌면 해당 지점의 거리와 경사를 보여주고 지도에 표시합니다.")
             } else {
                 Text("고도 데이터 없음")
                     .font(.footnote)
@@ -371,13 +405,22 @@ private struct ClimbProfileChartView: View {
         }
     }
 
-    private func draw(size: CGSize, context: GraphicsContext) {
-        let rect = CGRect(
+    private func plotRect(in size: CGSize) -> CGRect {
+        CGRect(
             x: Layout.leftPad,
             y: Layout.topPad,
             width: max(1, size.width - Layout.leftPad - Layout.rightPad),
             height: max(1, size.height - Layout.topPad - Layout.bottomPad)
         )
+    }
+
+    private func select(atX x: CGFloat, rect: CGRect) {
+        let ratio = min(max((x - rect.minX) / rect.width, 0), 1)
+        selectedOffsetKm = Double(ratio) * profile.lengthKm
+    }
+
+    private func draw(size: CGSize, context: GraphicsContext) {
+        let rect = plotRect(in: size)
         let length = max(profile.lengthKm, 0.001)
         let eleSpan = max(profile.maxEle - profile.minEle, 1)
 
@@ -415,6 +458,55 @@ private struct ClimbProfileChartView: View {
         context.stroke(line, with: .color(.primary.opacity(0.6)), style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
 
         drawSummit(rect: rect, context: context, x: x, y: y)
+
+        if let selectedOffsetKm {
+            drawSelection(at: selectedOffsetKm, rect: rect, context: context, x: x, y: y)
+        }
+    }
+
+    /// 지도 탭 고도 그래프와 같은 모양으로 선택 지점과 거리·고도·경사 말풍선을 그린다.
+    private func drawSelection(
+        at offsetKm: Double,
+        rect: CGRect,
+        context: GraphicsContext,
+        x: (Double) -> CGFloat,
+        y: (Double) -> CGFloat
+    ) {
+        let sample = profile.sample(atKm: offsetKm)
+        let pointX = x(offsetKm)
+        let pointY = y(sample.ele)
+
+        var guide = Path()
+        guide.move(to: CGPoint(x: pointX, y: rect.minY))
+        guide.addLine(to: CGPoint(x: pointX, y: rect.maxY))
+        context.stroke(guide, with: .color(.cyan), lineWidth: 1.5)
+
+        let dot = CGRect(x: pointX - 4.5, y: pointY - 4.5, width: 9, height: 9)
+        context.fill(Path(ellipseIn: dot), with: .color(.cyan))
+        context.stroke(Path(ellipseIn: dot), with: .color(.white), lineWidth: 1.5)
+
+        let grade = String(format: "%+.1f%%", profile.grade(atKm: offsetKm))
+        let label = context.resolve(
+            Text("\(formatRouteDistance(offsetKm)) · \(formatRouteElevation(sample.ele)) · \(grade)")
+                .font(.caption2.weight(.semibold).monospacedDigit())
+                .foregroundStyle(.primary)
+        )
+        let textSize = label.measure(in: CGSize(width: 300, height: 30))
+        let bubbleSize = CGSize(width: textSize.width + 12, height: textSize.height + 6)
+        var origin = CGPoint(x: pointX - bubbleSize.width / 2, y: rect.minY + 3)
+        origin.x = min(max(origin.x, rect.minX + 2), rect.maxX - bubbleSize.width - 2)
+        // 점과 겹치면 아래쪽으로 내린다.
+        if pointY < origin.y + bubbleSize.height + 6 {
+            origin.y = min(rect.maxY - bubbleSize.height - 3, pointY + 8)
+        }
+        let bubble = Path(roundedRect: CGRect(origin: origin, size: bubbleSize), cornerRadius: 5)
+        context.fill(bubble, with: .color(Color(.systemBackground).opacity(0.92)))
+        context.stroke(bubble, with: .color(Color.cyan.opacity(0.7)), lineWidth: 0.8)
+        context.draw(
+            label,
+            at: CGPoint(x: origin.x + bubbleSize.width / 2, y: origin.y + bubbleSize.height / 2),
+            anchor: .center
+        )
     }
 
     private func drawGrid(
@@ -495,6 +587,56 @@ private struct ClimbProfileChartView: View {
         static let rightPad: CGFloat = 6
         static let topPad: CGFloat = 16
         static let bottomPad: CGFloat = 16
+    }
+}
+
+/// 탭과 가로 끌기만 받는 제스처 뷰. 세로로 끌면 바깥 스크롤 뷰가 받는다.
+private struct ProfileScrubGestureView: UIViewRepresentable {
+    var onTap: (CGFloat) -> Void
+    var onDrag: (UIGestureRecognizer.State, CGFloat) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+
+        let coordinator = context.coordinator
+        let tap = UITapGestureRecognizer(target: coordinator, action: #selector(Coordinator.handleTap(_:)))
+        let pan = UIPanGestureRecognizer(target: coordinator, action: #selector(Coordinator.handlePan(_:)))
+        pan.maximumNumberOfTouches = 1
+        pan.delegate = coordinator
+        [tap, pan].forEach(view.addGestureRecognizer)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.parent = self
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var parent: ProfileScrubGestureView
+
+        init(parent: ProfileScrubGestureView) {
+            self.parent = parent
+        }
+
+        @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
+            guard recognizer.state == .ended else { return }
+            parent.onTap(recognizer.location(in: recognizer.view).x)
+        }
+
+        @objc func handlePan(_ recognizer: UIPanGestureRecognizer) {
+            parent.onDrag(recognizer.state, recognizer.location(in: recognizer.view).x)
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+            let velocity = pan.velocity(in: pan.view)
+            return abs(velocity.x) > abs(velocity.y)
+        }
     }
 }
 
@@ -591,6 +733,18 @@ private struct ClimbProfile {
         let pad = max((high - low) * 0.12, 10)
         minEle = max(0, ((low - pad) / 10).rounded(.down) * 10)
         maxEle = ((high + pad) / 10).rounded(.up) * 10
+    }
+
+    /// 구간 시작부터 km 지점의 보간 샘플.
+    func sample(atKm km: Double) -> Sample {
+        Self.sample(at: km, in: samples)
+    }
+
+    /// km 지점이 속한 100m 조각의 평균 경사. 그래프 색과 같은 값이다.
+    func grade(atKm km: Double) -> Double {
+        let index = min(max(Int(km / Self.bucketKm), 0), buckets.count - 1)
+        guard buckets.indices.contains(index) else { return 0 }
+        return buckets[index].grade
     }
 
     var accessibilitySummary: String {
