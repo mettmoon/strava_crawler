@@ -832,7 +832,8 @@ private enum CourseShareElevationRenderer {
                 totalKm: totalKm,
                 minimumElevation: minimumElevation,
                 maximumElevation: maximumElevation,
-                palette: palette
+                palette: palette,
+                transparentBackground: transparentBackground
             )
             drawElevationPaths(
                 sectionTrackPoints: snapshot.sectionTrackPoints,
@@ -860,12 +861,23 @@ private enum CourseShareElevationRenderer {
         totalKm: Double,
         minimumElevation: Double,
         maximumElevation: Double,
-        palette: Palette
+        palette: Palette,
+        transparentBackground: Bool
     ) {
-        let labelAttributes: [NSAttributedString.Key: Any] = [
+        var labelAttributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
             .foregroundColor: palette.secondaryText,
         ]
+        // Without a background the axis labels can land on any color, so give
+        // them a halo in the palette's background color to keep them legible.
+        if transparentBackground {
+            let halo = NSShadow()
+            halo.shadowColor = palette.background.withAlphaComponent(0.95)
+            halo.shadowBlurRadius = 3
+            halo.shadowOffset = .zero
+            labelAttributes[.shadow] = halo
+            labelAttributes[.foregroundColor] = palette.primaryText
+        }
 
         for index in 0 ... 4 {
             let ratio = CGFloat(index) / 4

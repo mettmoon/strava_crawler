@@ -353,7 +353,7 @@ private struct CourseShareTransparencyCheckerboard: View {
                 }
             }
         }
-        .background(Color.primary.opacity(0.04))
+        .background(Color(nsColor: .textBackgroundColor))
     }
 }
 
