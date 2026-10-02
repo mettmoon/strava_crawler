@@ -403,10 +403,7 @@ private struct SelectedCueOverlay: View {
 
     var body: some View {
         SelectedPointCard(
-            glyph: cuePointGlyph(for: cue.pointType),
-            title: cue.displayName,
-            detail: "\(cuePointLabel(for: cue.pointType)) · 누적 상승 \(formatRouteElevation(progress?.ascentFromStart))",
-            remaining: "남은 \(formatRouteDistance(remainingDistanceKm)) · 남은 상승 \(formatRouteElevation(progress?.ascentToEnd))",
+            detail: "누적 상승 \(formatRouteElevation(progress?.ascentFromStart)) · 남은 \(formatRouteDistance(remainingDistanceKm)) · 남은 상승 \(formatRouteElevation(progress?.ascentToEnd))",
             isCompact: isCompact,
             onClose: onClose
         )
@@ -424,87 +421,28 @@ private struct SelectedProfilePointOverlay: View {
         max(0, course.totalDistanceKm - selection.distanceKm)
     }
 
-    private var endpointKind: CourseTrackEndpointKind? {
-        selection.endpointKind(in: course)
-    }
-
-    private var titleText: String {
-        endpointKind?.title ?? "그래프 선택 위치"
-    }
-
-    private var accentColor: Color {
-        switch endpointKind {
-        case .start: return .green
-        case .end: return .red
-        case .none: return .cyan
-        }
-    }
-
-    private var symbolName: String {
-        switch endpointKind {
-        case .start: return "flag.fill"
-        case .end: return "flag.checkered"
-        case .none: return "scope"
-        }
-    }
-
     var body: some View {
         SelectedPointCard(
-            glyph: CuePointGlyph(symbol: symbolName, color: accentColor, uiColor: UIColor(accentColor)),
-            title: titleText,
-            detail: "고도 \(formatRouteElevation(selection.elevationMeters)) · 누적 상승 \(formatRouteElevation(progress?.ascentFromStart))",
-            remaining: "남은 \(formatRouteDistance(remainingDistanceKm)) · 남은 상승 \(formatRouteElevation(progress?.ascentToEnd))",
+            detail: "누적 상승 \(formatRouteElevation(progress?.ascentFromStart)) · 남은 \(formatRouteDistance(remainingDistanceKm)) · 남은 상승 \(formatRouteElevation(progress?.ascentToEnd))",
             isCompact: isCompact,
             onClose: onClose
         )
     }
 }
 
-/// 지도 하단 선택 카드. 세로 모드는 3줄, 가로 모드(isCompact)는 높이를 아끼려고 한 줄로 그린다.
+/// 지도 하단 선택 카드. 선택 지점의 이름과 종류는 지도 핀 말풍선에 나오므로 진행 수치만 한 줄로 그린다.
 private struct SelectedPointCard: View {
-    let glyph: CuePointGlyph
-    let title: String
     let detail: String
-    let remaining: String
     let isCompact: Bool
     var onClose: () -> Void
 
     var body: some View {
         HStack(spacing: isCompact ? 10 : 12) {
-            glyphView
-
-            if isCompact {
-                HStack(spacing: 8) {
-                    // 이름은 최대 120pt까지 먼저 자리를 잡고, 남는 폭을 수치에 준다.
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                        .frame(maxWidth: 120, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .layoutPriority(1)
-                    Text("\(detail) · \(remaining)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(.headline)
-                        .lineLimit(1)
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                    Text(remaining)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                }
-            }
+            Text(detail)
+                .font(isCompact ? .caption : .subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
 
             Spacer(minLength: 0)
 
@@ -517,25 +455,6 @@ private struct SelectedPointCard: View {
         .padding(.horizontal, 12)
         .padding(.vertical, isCompact ? 8 : 12)
         .floatingCardBackground(cornerRadius: isCompact ? 16 : 20)
-    }
-
-    private var glyphView: some View {
-        ZStack {
-            Circle()
-                .fill(glyph.color.opacity(0.16))
-            if let symbol = glyph.symbol {
-                Image(systemName: symbol)
-                    .font(.system(size: isCompact ? 12 : 15, weight: .semibold))
-                    .foregroundStyle(glyph.color)
-            } else if let text = glyph.text {
-                Text(text)
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(glyph.color)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-        }
-        .frame(width: isCompact ? 26 : 34, height: isCompact ? 26 : 34)
     }
 }
 

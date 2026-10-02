@@ -649,8 +649,10 @@ private final class CourseCueAnnotation: NSObject, MKAnnotation {
     init(cue: CourseCuePoint) {
         self.cue = cue
         self.coordinate = cue.coordinate
-        self.title = cue.displayName
-        self.subtitle = "\(formatRouteDistance(cue.distanceKm)) · \(cuePointLabel(for: cue.pointType))"
+        // 말풍선은 타입을 제목으로, 이름을 부제로 보여준다. 이름이 없으면 타입만 둔다.
+        self.title = cuePointLabel(for: cue.pointType)
+        let name = cue.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.subtitle = name.isEmpty ? nil : name
     }
 }
 
@@ -675,7 +677,7 @@ private final class CourseProfileSelectionAnnotation: NSObject, MKAnnotation {
 
     private func updateTitle() {
         title = "그래프 선택 위치"
-        subtitle = "\(formatRouteDistance(selection.distanceKm)) · \(formatRouteElevation(selection.elevationMeters))"
+        subtitle = nil
     }
 }
 
