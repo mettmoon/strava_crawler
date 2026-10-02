@@ -295,11 +295,7 @@ private struct CourseMapTab: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(Color.primary)
                 .frame(width: 44, height: 44)
-                .background(.regularMaterial, in: Circle())
-                .overlay {
-                    Circle()
-                        .strokeBorder(Color(.separator), lineWidth: 0.5)
-                }
+                .floatingCircleBackground()
         }
         .buttonStyle(.plain)
         .accessibilityLabel("파일 브라우저로 돌아가기")
@@ -315,11 +311,7 @@ private struct CourseMapTab: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(showsElevationChart ? Color.accentColor : Color.primary)
                 .frame(width: 44, height: 44)
-                .background(.regularMaterial, in: Circle())
-                .overlay {
-                    Circle()
-                        .strokeBorder(Color(.separator), lineWidth: 0.5)
-                }
+                .floatingCircleBackground()
         }
         .buttonStyle(.plain)
         .accessibilityLabel("고도 그래프")
@@ -334,11 +326,7 @@ private struct CourseMapTab: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(locationTracker.mode == .off ? Color.primary : Color.accentColor)
                 .frame(width: 44, height: 44)
-                .background(.regularMaterial, in: Circle())
-                .overlay {
-                    Circle()
-                        .strokeBorder(Color(.separator), lineWidth: 0.5)
-                }
+                .floatingCircleBackground()
         }
         .buttonStyle(.plain)
         .accessibilityLabel("내 위치")
@@ -528,11 +516,7 @@ private struct SelectedPointCard: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, isCompact ? 8 : 12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(Color(.separator), lineWidth: 0.5)
-        }
+        .floatingCardBackground(cornerRadius: isCompact ? 16 : 20)
     }
 
     private var glyphView: some View {
