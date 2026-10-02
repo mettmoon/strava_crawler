@@ -3,6 +3,8 @@ import SwiftUI
 
 struct CourseViewerView: View {
     let course: LoadedCourse
+    /// 파일 브라우저로 돌아간다. 내비게이션 바를 숨긴 가로 지도 화면의 뒤로가기 버튼이 쓴다.
+    var onClose: () -> Void = {}
 
     @State private var selectedCueID: UUID?
     @State private var selectedProfilePoint: CourseProfileSelection?
@@ -10,6 +12,7 @@ struct CourseViewerView: View {
     /// 큐나 지점을 선택할 때마다 증가한다. 지도는 이 값이 바뀔 때만 선택 위치로 이동한다.
     @State private var mapCenterRequest = 0
     @State private var locationTracker = CourseLocationTracker()
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     /// 코스 위로 인식된 현재 위치. 코스 밖이거나 트래킹 중이 아니면 nil.
     private var currentRouteLocation: CourseProfileSelection? {
@@ -38,7 +41,8 @@ struct CourseViewerView: View {
                 selectedCueID: linkedCueSelection,
                 selectedProfilePoint: linkedProfileSelection,
                 locationTracker: locationTracker,
-                mapCenterRequest: mapCenterRequest
+                mapCenterRequest: mapCenterRequest,
+                onClose: onClose
             )
                 .tabItem {
                     Label("지도", systemImage: "map")
@@ -62,6 +66,8 @@ struct CourseViewerView: View {
                 }
                 .tag(CourseViewerTab.cueSheet)
         }
+        // 가로 모드 지도 탭은 세로 공간이 부족해 내비게이션 바를 숨기고 지도 위 뒤로가기 버튼으로 대신한다.
+        .toolbar(hidesNavigationBar ? .hidden : .automatic, for: .navigationBar)
         .climbSectionDestination(course: course) { section in
             linkedCueSelection.wrappedValue = section.startCue.id
             selectedTab = .map
@@ -69,6 +75,10 @@ struct CourseViewerView: View {
         .onDisappear {
             locationTracker.stop()
         }
+    }
+
+    private var hidesNavigationBar: Bool {
+        selectedTab == .map && verticalSizeClass == .compact
     }
 
     private var linkedCueSelection: Binding<UUID?> {
@@ -137,49 +147,64 @@ private struct CourseMapTab: View {
     @Binding var selectedProfilePoint: CourseProfileSelection?
     @Bindable var locationTracker: CourseLocationTracker
     let mapCenterRequest: Int
+    var onClose: () -> Void
     @AppStorage("mapShowsElevationChart") private var showsElevationChart = true
     @State private var isScrubbingElevationChart = false
     /// 트랙 포인트 전체를 훑어 만들기 때문에 코스마다 한 번만 계산해 둔다.
     @State private var cachedElevationProgress: (courseID: UUID, progress: RouteElevationProgress)?
     @Environment(\.openURL) private var openURL
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     private var selectedCue: CourseCuePoint? {
         guard let selectedCueID else { return nil }
         return course.cuePoints.first { $0.id == selectedCueID }
     }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            mapLayer
+    /// iPhone 가로 모드. 그래프와 선택 카드를 낮게 그리고 내비게이션 바 대신 뒤로가기 버튼을 띄운다.
+    private var isCompactHeight: Bool {
+        verticalSizeClass == .compact
+    }
 
-            if showsElevationChart {
-                MapElevationChartView(
-                    course: course,
-                    selectedCueID: $selectedCueID,
-                    selectedProfilePoint: $selectedProfilePoint,
-                    currentLocation: locationTracker.currentLocation?.routeMatch,
-                    isOffRoute: locationTracker.isOffRoute,
-                    lastRouteLocation: locationTracker.lastRouteMatch,
-                    onScrubbingChanged: { isScrubbingElevationChart = $0 }
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .toolbarBackground(.bar, for: .navigationBar, .tabBar)
-        .toolbarBackground(.visible, for: .navigationBar, .tabBar)
-        .onChange(of: course.id, initial: true) { _, id in
-            cachedElevationProgress = (id, RouteElevationProgress(trackPoints: course.trackPoints))
-        }
-        .alert("위치 권한이 필요합니다", isPresented: $locationTracker.showsAuthorizationDeniedAlert) {
-            Button("설정 열기") {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    openURL(url)
+    var body: some View {
+        // 고도 그래프는 지도 위에 떠 있는 카드다. safeAreaInset으로 넣어 지도는 그 뒤까지 깔리고,
+        // 지도 위 버튼과 선택 카드, 센터링 기준 영역은 그래프 위로 올라가게 한다.
+        mapLayer
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if showsElevationChart {
+                    elevationChart
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 8)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            Button("취소", role: .cancel) {}
-        } message: {
-            Text("현재 위치를 표시하려면 설정에서 위치 접근을 허용해 주세요.")
-        }
+            .toolbarBackground(.bar, for: .navigationBar, .tabBar)
+            .toolbarBackground(.visible, for: .navigationBar, .tabBar)
+            .onChange(of: course.id, initial: true) { _, id in
+                cachedElevationProgress = (id, RouteElevationProgress(trackPoints: course.trackPoints))
+            }
+            .alert("위치 권한이 필요합니다", isPresented: $locationTracker.showsAuthorizationDeniedAlert) {
+                Button("설정 열기") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        openURL(url)
+                    }
+                }
+                Button("취소", role: .cancel) {}
+            } message: {
+                Text("현재 위치를 표시하려면 설정에서 위치 접근을 허용해 주세요.")
+            }
+    }
+
+    private var elevationChart: some View {
+        MapElevationChartView(
+            course: course,
+            selectedCueID: $selectedCueID,
+            selectedProfilePoint: $selectedProfilePoint,
+            currentLocation: locationTracker.currentLocation?.routeMatch,
+            isOffRoute: locationTracker.isOffRoute,
+            lastRouteLocation: locationTracker.lastRouteMatch,
+            onScrubbingChanged: { isScrubbingElevationChart = $0 },
+            isCompact: isCompactHeight
+        )
     }
 
     private var elevationProgress: RouteElevationProgress {
@@ -195,21 +220,29 @@ private struct CourseMapTab: View {
 
     private var mapLayer: some View {
         ZStack {
-            CourseMapView(
-                course: course,
-                selectedCueID: $selectedCueID,
-                selectedProfilePoint: $selectedProfilePoint,
-                trackingMode: locationTracker.mode,
-                onUserStopFollowing: { [locationTracker] in
-                    locationTracker.stopFollowing()
-                },
-                isScrubbingProfile: isScrubbingElevationChart,
-                centerRequest: mapCenterRequest
-            )
-            .ignoresSafeArea(.container, edges: [.top, .bottom])
+            // 지도는 화면 끝까지 깔고, 내비게이션 바·그래프 카드·탭 바에 가려지는 폭은 safe area로 받아 넘긴다.
+            GeometryReader { proxy in
+                CourseMapView(
+                    course: course,
+                    selectedCueID: $selectedCueID,
+                    selectedProfilePoint: $selectedProfilePoint,
+                    trackingMode: locationTracker.mode,
+                    onUserStopFollowing: { [locationTracker] in
+                        locationTracker.stopFollowing()
+                    },
+                    isScrubbingProfile: isScrubbingElevationChart,
+                    centerRequest: mapCenterRequest,
+                    obscuredInsets: proxy.safeAreaInsets
+                )
+                // GeometryReader 자체는 safe area 안에 두어야 proxy가 가려지는 폭을 알려 준다.
+                .ignoresSafeArea(.container)
+            }
 
             VStack {
-                HStack {
+                HStack(alignment: .top) {
+                    if isCompactHeight {
+                        backButton
+                    }
                     Spacer()
                     VStack(spacing: 8) {
                         locateButton
@@ -219,33 +252,57 @@ private struct CourseMapTab: View {
                 Spacer()
             }
             .padding(.top, 12)
-            .padding(.trailing, 12)
+            .padding(.horizontal, 12)
 
             VStack {
                 Spacer()
-                if let selectedCue {
-                    SelectedCueOverlay(
-                        course: course,
-                        cue: selectedCue,
-                        progress: progressStats(atDistanceKm: selectedCue.distanceKm)
-                    ) {
-                        selectedCueID = nil
-                    }
+                selectionOverlay
+                    // 가로 모드는 폭이 남으므로 카드를 왼쪽에 좁게 두어 지도 중앙을 가리지 않는다.
+                    .frame(maxWidth: isCompactHeight ? 520 : .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
-                    .padding(.bottom, 16)
-                } else if let profilePoint = selectedProfilePoint {
-                    SelectedProfilePointOverlay(
-                        course: course,
-                        selection: profilePoint,
-                        progress: progressStats(atDistanceKm: profilePoint.distanceKm)
-                    ) {
-                        selectedProfilePoint = nil
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 16)
-                }
+                    .padding(.bottom, isCompactHeight ? 10 : 16)
             }
         }
+    }
+
+    @ViewBuilder
+    private var selectionOverlay: some View {
+        if let selectedCue {
+            SelectedCueOverlay(
+                course: course,
+                cue: selectedCue,
+                progress: progressStats(atDistanceKm: selectedCue.distanceKm),
+                isCompact: isCompactHeight
+            ) {
+                selectedCueID = nil
+            }
+        } else if let profilePoint = selectedProfilePoint {
+            SelectedProfilePointOverlay(
+                course: course,
+                selection: profilePoint,
+                progress: progressStats(atDistanceKm: profilePoint.distanceKm),
+                isCompact: isCompactHeight
+            ) {
+                selectedProfilePoint = nil
+            }
+        }
+    }
+
+    private var backButton: some View {
+        Button(action: onClose) {
+            Image(systemName: "chevron.backward")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Color.primary)
+                .frame(width: 44, height: 44)
+                .background(.regularMaterial, in: Circle())
+                .overlay {
+                    Circle()
+                        .strokeBorder(Color(.separator), lineWidth: 0.5)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("파일 브라우저로 돌아가기")
     }
 
     private var elevationChartButton: some View {
@@ -349,64 +406,22 @@ private struct SelectedCueOverlay: View {
     let course: LoadedCourse
     let cue: CourseCuePoint
     let progress: RouteElevationProgressStats?
+    var isCompact = false
     var onClose: () -> Void
-
-    private var glyph: CuePointGlyph {
-        cuePointGlyph(for: cue.pointType)
-    }
 
     private var remainingDistanceKm: Double {
         max(0, course.totalDistanceKm - cue.distanceKm)
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(glyph.color.opacity(0.16))
-                if let symbol = glyph.symbol {
-                    Image(systemName: symbol)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(glyph.color)
-                } else if let text = glyph.text {
-                    Text(text)
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(glyph.color)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                }
-            }
-            .frame(width: 34, height: 34)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(cue.displayName)
-                    .font(.headline)
-                    .lineLimit(1)
-                Text("\(formatRouteDistance(cue.distanceKm)) · \(cuePointLabel(for: cue.pointType))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Text("남은 \(formatRouteDistance(remainingDistanceKm)) · 남은 상승 \(formatRouteElevation(progress?.ascentToEnd))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-
-            Spacer()
-
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel("선택 해제")
-        }
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(Color(.separator), lineWidth: 0.5)
-        }
+        SelectedPointCard(
+            glyph: cuePointGlyph(for: cue.pointType),
+            title: cue.displayName,
+            detail: "\(cuePointLabel(for: cue.pointType)) · 누적 상승 \(formatRouteElevation(progress?.ascentFromStart))",
+            remaining: "남은 \(formatRouteDistance(remainingDistanceKm)) · 남은 상승 \(formatRouteElevation(progress?.ascentToEnd))",
+            isCompact: isCompact,
+            onClose: onClose
+        )
     }
 }
 
@@ -414,6 +429,7 @@ private struct SelectedProfilePointOverlay: View {
     let course: LoadedCourse
     let selection: CourseProfileSelection
     let progress: RouteElevationProgressStats?
+    var isCompact = false
     var onClose: () -> Void
 
     private var remainingDistanceKm: Double {
@@ -445,32 +461,64 @@ private struct SelectedProfilePointOverlay: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(accentColor.opacity(0.16))
-                Image(systemName: symbolName)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(accentColor)
-            }
-            .frame(width: 34, height: 34)
+        SelectedPointCard(
+            glyph: CuePointGlyph(symbol: symbolName, color: accentColor, uiColor: UIColor(accentColor)),
+            title: titleText,
+            detail: "고도 \(formatRouteElevation(selection.elevationMeters)) · 누적 상승 \(formatRouteElevation(progress?.ascentFromStart))",
+            remaining: "남은 \(formatRouteDistance(remainingDistanceKm)) · 남은 상승 \(formatRouteElevation(progress?.ascentToEnd))",
+            isCompact: isCompact,
+            onClose: onClose
+        )
+    }
+}
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(titleText)
-                    .font(.headline)
-                    .lineLimit(1)
-                Text("\(formatRouteDistance(selection.distanceKm)) · \(formatRouteElevation(selection.elevationMeters))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Text("남은 \(formatRouteDistance(remainingDistanceKm)) · 남은 상승 \(formatRouteElevation(progress?.ascentToEnd))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+/// 지도 하단 선택 카드. 세로 모드는 3줄, 가로 모드(isCompact)는 높이를 아끼려고 한 줄로 그린다.
+private struct SelectedPointCard: View {
+    let glyph: CuePointGlyph
+    let title: String
+    let detail: String
+    let remaining: String
+    let isCompact: Bool
+    var onClose: () -> Void
+
+    var body: some View {
+        HStack(spacing: isCompact ? 10 : 12) {
+            glyphView
+
+            if isCompact {
+                HStack(spacing: 8) {
+                    // 이름은 최대 120pt까지 먼저 자리를 잡고, 남는 폭을 수치에 준다.
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                        .frame(maxWidth: 120, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .layoutPriority(1)
+                    Text("\(detail) · \(remaining)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.headline)
+                        .lineLimit(1)
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Text(remaining)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
             }
 
-            Spacer()
+            Spacer(minLength: 0)
 
             Button(action: onClose) {
                 Image(systemName: "xmark")
@@ -478,12 +526,32 @@ private struct SelectedProfilePointOverlay: View {
             .buttonStyle(.borderless)
             .accessibilityLabel("선택 해제")
         }
-        .padding(12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, isCompact ? 8 : 12)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(Color(.separator), lineWidth: 0.5)
         }
+    }
+
+    private var glyphView: some View {
+        ZStack {
+            Circle()
+                .fill(glyph.color.opacity(0.16))
+            if let symbol = glyph.symbol {
+                Image(systemName: symbol)
+                    .font(.system(size: isCompact ? 12 : 15, weight: .semibold))
+                    .foregroundStyle(glyph.color)
+            } else if let text = glyph.text {
+                Text(text)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(glyph.color)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+        }
+        .frame(width: isCompact ? 26 : 34, height: isCompact ? 26 : 34)
     }
 }
 

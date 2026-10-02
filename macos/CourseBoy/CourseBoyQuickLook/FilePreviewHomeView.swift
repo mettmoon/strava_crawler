@@ -11,7 +11,9 @@ struct FilePreviewHomeView: View {
         Group {
             if let loadedCourse {
                 NavigationStack {
-                    CourseViewerView(course: loadedCourse)
+                    CourseViewerView(course: loadedCourse) {
+                        self.loadedCourse = nil
+                    }
                         .navigationTitle(loadedCourse.title)
                         .navigationBarTitleDisplayMode(.inline)
                         .toolbar {
