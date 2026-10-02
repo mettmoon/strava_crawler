@@ -17,6 +17,11 @@ struct CourseMapView: UIViewRepresentable {
     /// 지도 위를 덮는 내비게이션 바·고도 그래프 카드·탭 바의 폭.
     /// 지도는 그 뒤까지 깔리지만 센터링과 코스 맞춤은 가려지지 않는 영역을 기준으로 한다(layoutMargins로 전달).
     var obscuredInsets = EdgeInsets()
+    var mapStyle: CourseMapStyle = .standard
+    /// 누를 때마다 증가하는 값. 바뀐 경우에만 코스 전체가 보이게 1회 맞춘다.
+    var fitCourseRequest = 0
+    /// 지도 탭의 나침반 버튼에 이 지도를 연결한다.
+    var compassLink: CourseMapCompassLink?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -33,11 +38,12 @@ struct CourseMapView: UIViewRepresentable {
             coordinator.applyPendingFitIfPossible(in: map)
         }
         map.delegate = context.coordinator
-        map.showsCompass = true
+        // 나침반은 지도 탭의 버튼 열에 MKCompassButton으로 따로 띄운다.
+        map.showsCompass = false
         map.showsScale = true
-        map.pointOfInterestFilter = .excludingAll
-        map.preferredConfiguration = MKStandardMapConfiguration(elevationStyle: .realistic)
+        context.coordinator.syncMapStyle(mapStyle, in: map)
         context.coordinator.attach(map)
+        compassLink?.mapView = map
         return map
     }
 
@@ -58,6 +64,7 @@ struct CourseMapView: UIViewRepresentable {
             ),
             in: map
         )
+        context.coordinator.syncMapStyle(mapStyle, in: map)
         context.coordinator.syncCourse(course, in: map)
         context.coordinator.syncTrackingMode(trackingMode, in: map)
         context.coordinator.syncSelectedCue(selectedCueID, in: map)
@@ -67,6 +74,7 @@ struct CourseMapView: UIViewRepresentable {
             animated: !isScrubbingProfile,
             in: map
         )
+        context.coordinator.fitCourse(ifRequested: fitCourseRequest, in: map)
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate {
@@ -82,6 +90,10 @@ struct CourseMapView: UIViewRepresentable {
         private var endpointAnnotations: [CourseEndpointAnnotation] = []
         private var profileSelectionAnnotation: CourseProfileSelectionAnnotation?
         private var handledCenterRequest = 0
+        private var handledFitCourseRequest = 0
+        /// 코스 전체 보기에 쓰는 여백을 둔 코스 영역.
+        private var courseFitRect: MKMapRect?
+        private var appliedMapStyle: CourseMapStyle?
         /// 줌에 따라 두께를 맞출 코스 라인 렌더러(경사 색 구간들과 화살표).
         private let routeRenderers = NSHashTable<MKOverlayPathRenderer>.weakObjects()
         private var trackingMode: CourseLocationTracker.Mode = .off
@@ -174,6 +186,18 @@ struct CourseMapView: UIViewRepresentable {
             syncTrackingMode(mode, in: map)
         }
 
+        func syncMapStyle(_ style: CourseMapStyle, in map: MKMapView) {
+            guard style != appliedMapStyle else { return }
+            appliedMapStyle = style
+            let configuration = style.makeConfiguration()
+            // 백그라운드에서는 평면 지도로 바꿔 두었으므로 복귀할 때 쓸 구성을 바꾼다.
+            if savedConfiguration != nil {
+                savedConfiguration = configuration
+            } else {
+                map.preferredConfiguration = configuration
+            }
+        }
+
         func syncObscuredInsets(_ insets: UIEdgeInsets, in map: MKMapView) {
             guard insets != obscuredInsets else { return }
             obscuredInsets = insets
@@ -200,6 +224,7 @@ struct CourseMapView: UIViewRepresentable {
             loadedCourseID = course.id
             cueAnnotations = []
             endpointAnnotations = []
+            courseFitRect = nil
             profileSelectionAnnotation = nil
 
             map.removeOverlays(map.overlays)
@@ -225,7 +250,8 @@ struct CourseMapView: UIViewRepresentable {
                 let route = CourseRoutePolyline(coordinates: coordinates, count: coordinates.count)
                 map.addOverlay(route, level: .aboveRoads)
 
-                pendingFitRect = paddedRect(for: route.boundingMapRect)
+                courseFitRect = paddedRect(for: route.boundingMapRect)
+                pendingFitRect = courseFitRect
                 applyPendingFitIfPossible(in: map)
             }
 
@@ -345,6 +371,19 @@ struct CourseMapView: UIViewRepresentable {
             if !map.selectedAnnotations.contains(where: { $0 === annotation }) {
                 map.selectAnnotation(annotation, animated: true)
             }
+        }
+
+        func fitCourse(ifRequested request: Int, in map: MKMapView) {
+            guard request != handledFitCourseRequest else { return }
+            handledFitCourseRequest = request
+            guard let courseFitRect else { return }
+            // 따라가기를 켜며 시작한 확대가 끝나도 다시 따라가지 않게 한다.
+            needsFollowZoom = false
+            pendingFollowAfterZoom = false
+            if map.userTrackingMode != .none {
+                setUserTrackingMode(.none, in: map)
+            }
+            map.setVisibleMapRect(courseFitRect, animated: true)
         }
 
         func centerOnSelection(ifRequested request: Int, animated: Bool, in map: MKMapView) {
