@@ -616,7 +616,7 @@ private final class CourseRoutePolyline: MKPolyline {
 
 /// 코스 라인 위에 진행 방향 화살표(›)를 일정한 화면 간격으로 그린다. 라인 자체는 CourseGradeMultiPolyline이 그린다.
 private final class CourseRouteRenderer: MKPolylineRenderer {
-    private static let arrowSpacing: CGFloat = 72
+    private static let arrowSpacing: CGFloat = 216
     /// lineWidth 대비 화살표 크기 비율.
     private static let arrowArmRatio: CGFloat = 0.15
     private static let arrowLineWidthRatio: CGFloat = 0.09
@@ -626,6 +626,10 @@ private final class CourseRouteRenderer: MKPolylineRenderer {
     private static let thinZoomLevel: CGFloat = 9
     private static let fullWidthZoomLevel: CGFloat = 13
     private static let minimumWidthFactor: CGFloat = 0.45
+    /// 확대할수록 라인 대비 화살표가 커 보여서, shrinkArrowZoomLevel부터 smallestArrowZoomLevel까지 화살표를 smallestArrowFactor 배까지 줄인다.
+    private static let shrinkArrowZoomLevel: CGFloat = 15
+    private static let smallestArrowZoomLevel: CGFloat = 18
+    private static let smallestArrowFactor: CGFloat = 0.6
 
     /// 경로 시작점부터 각 포인트까지의 누적 길이(맵 포인트 단위).
     private let cumulativeLengths: [Double]
@@ -654,6 +658,12 @@ private final class CourseRouteRenderer: MKPolylineRenderer {
         return (baseLineWidth * factor * 2).rounded() / 2
     }
 
+    private static func arrowSizeFactor(forZoomScale zoomScale: MKZoomScale) -> CGFloat {
+        let zoomLevel = 20 + log2(zoomScale)
+        let progress = (zoomLevel - shrinkArrowZoomLevel) / (smallestArrowZoomLevel - shrinkArrowZoomLevel)
+        return 1 - (1 - smallestArrowFactor) * min(max(progress, 0), 1)
+    }
+
     override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
         // 라인은 그리지 않고 화살표만 그린다.
         drawArrows(mapRect, zoomScale: zoomScale, in: context)
@@ -667,8 +677,8 @@ private final class CourseRouteRenderer: MKPolylineRenderer {
         let spacing = Double(Self.arrowSpacing / zoomScale)
         guard totalLength >= spacing * Double(Self.minimumArrowCount) else { return }
 
-        // 라인과 같은 배율(MKRoadWidthAtZoomScale)을 써서 확대 수준과 관계없이 라인 대비 크기를 유지한다.
-        let unit = lineWidth * MKRoadWidthAtZoomScale(zoomScale)
+        // 라인과 같은 배율(MKRoadWidthAtZoomScale)을 기준으로 하되, 많이 확대하면 라인 대비 조금 작게 그린다.
+        let unit = lineWidth * MKRoadWidthAtZoomScale(zoomScale) * Self.arrowSizeFactor(forZoomScale: zoomScale)
         let arm = Double(unit * Self.arrowArmRatio)
         let margin = arm * 2
         let clipRect = mapRect.insetBy(dx: -margin, dy: -margin)
