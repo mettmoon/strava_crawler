@@ -516,8 +516,10 @@ struct MapElevationChartView: View {
         selectProfilePoint(atX: x, profile: profile, window: window, rect: rect)
     }
 
-    /// x 근처에 아이콘이 그려진 큐가 있으면 반환한다.
-    /// 이미 붙어 있는 큐(holding)는 더 넓은 범위까지 유지해서 경계에서 깜빡이지 않게 한다.
+    /// x에 가장 가까운 큐를 매번 다시 판단해 반환한다.
+    /// 이미 붙어 있는 큐(holding)는 더 넓은 범위까지 유지하되, 다른 큐가 margin 이상
+    /// 더 가까워지면 넘어간다. margin은 두 큐 간격의 1/4을 넘지 않게 해서, 촘촘한 큐도
+    /// 손가락이 그 큐에 닿기 전에 반드시 넘어가 건너뛰지 않고 경계에서도 깜빡이지 않게 한다.
     private func magnetCue(
         atX x: CGFloat,
         window: ClosedRange<Double>,
@@ -525,16 +527,23 @@ struct MapElevationChartView: View {
         holding heldID: UUID?
     ) -> CourseCuePoint? {
         let icons = cueIcons(window: window, rect: rect)
+        let nearest = icons
+            .map { (cue: $0.cue, x: $0.x, dx: abs($0.x - x)) }
+            .min { $0.dx < $1.dx }
         if let heldID,
-           let held = icons.first(where: { $0.cue.id == heldID }),
-           abs(held.x - x) <= Layout.cueMagnetReleaseDistance {
-            return held.cue
+           let held = icons.first(where: { $0.cue.id == heldID }) {
+            let heldDx = abs(held.x - x)
+            let keepsHeld = nearest.map { candidate in
+                guard candidate.cue.id != heldID else { return true }
+                let margin = min(Layout.cueMagnetSwitchMargin, abs(candidate.x - held.x) / 4)
+                return candidate.dx + margin >= heldDx
+            } ?? true
+            if heldDx <= Layout.cueMagnetReleaseDistance, keepsHeld {
+                return held.cue
+            }
         }
-        return icons
-            .map { (cue: $0.cue, dx: abs($0.x - x)) }
-            .filter { $0.dx <= Layout.cueMagnetCaptureDistance }
-            .min { $0.dx < $1.dx }?
-            .cue
+        guard let nearest, nearest.dx <= Layout.cueMagnetCaptureDistance else { return nil }
+        return nearest.cue
     }
 
     private func selectCue(_ cue: CourseCuePoint) {
@@ -736,6 +745,7 @@ struct MapElevationChartView: View {
         /// 큐 가이드 라인에서 이 거리 안으로 들어오면 큐에 달라붙고, release 거리 밖으로 나가야 떨어진다.
         static let cueMagnetCaptureDistance: CGFloat = 8
         static let cueMagnetReleaseDistance: CGFloat = 14
+        static let cueMagnetSwitchMargin: CGFloat = 3
     }
 
     static func niceStep(
