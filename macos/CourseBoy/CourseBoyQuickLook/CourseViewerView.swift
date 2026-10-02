@@ -139,6 +139,8 @@ private struct CourseMapTab: View {
     let mapCenterRequest: Int
     @AppStorage("mapShowsElevationChart") private var showsElevationChart = true
     @State private var isScrubbingElevationChart = false
+    /// 트랙 포인트 전체를 훑어 만들기 때문에 코스마다 한 번만 계산해 둔다.
+    @State private var cachedElevationProgress: (courseID: UUID, progress: RouteElevationProgress)?
     @Environment(\.openURL) private var openURL
 
     private var selectedCue: CourseCuePoint? {
@@ -165,6 +167,9 @@ private struct CourseMapTab: View {
         }
         .toolbarBackground(.bar, for: .navigationBar, .tabBar)
         .toolbarBackground(.visible, for: .navigationBar, .tabBar)
+        .onChange(of: course.id, initial: true) { _, id in
+            cachedElevationProgress = (id, RouteElevationProgress(trackPoints: course.trackPoints))
+        }
         .alert("위치 권한이 필요합니다", isPresented: $locationTracker.showsAuthorizationDeniedAlert) {
             Button("설정 열기") {
                 if let url = URL(string: UIApplication.openSettingsURLString) {
@@ -175,6 +180,17 @@ private struct CourseMapTab: View {
         } message: {
             Text("현재 위치를 표시하려면 설정에서 위치 접근을 허용해 주세요.")
         }
+    }
+
+    private var elevationProgress: RouteElevationProgress {
+        if let cachedElevationProgress, cachedElevationProgress.courseID == course.id {
+            return cachedElevationProgress.progress
+        }
+        return RouteElevationProgress(trackPoints: course.trackPoints)
+    }
+
+    private func progressStats(atDistanceKm distanceKm: Double) -> RouteElevationProgressStats? {
+        elevationProgress.stats(atDistanceKm: distanceKm, trackPoints: course.trackPoints)
     }
 
     private var mapLayer: some View {
@@ -208,13 +224,21 @@ private struct CourseMapTab: View {
             VStack {
                 Spacer()
                 if let selectedCue {
-                    SelectedCueOverlay(course: course, cue: selectedCue) {
+                    SelectedCueOverlay(
+                        course: course,
+                        cue: selectedCue,
+                        progress: progressStats(atDistanceKm: selectedCue.distanceKm)
+                    ) {
                         selectedCueID = nil
                     }
                     .padding(.horizontal, 16)
                     .padding(.bottom, 16)
                 } else if let profilePoint = selectedProfilePoint {
-                    SelectedProfilePointOverlay(course: course, selection: profilePoint) {
+                    SelectedProfilePointOverlay(
+                        course: course,
+                        selection: profilePoint,
+                        progress: progressStats(atDistanceKm: profilePoint.distanceKm)
+                    ) {
                         selectedProfilePoint = nil
                     }
                     .padding(.horizontal, 16)
@@ -324,15 +348,11 @@ private struct CourseCueSheetTab: View {
 private struct SelectedCueOverlay: View {
     let course: LoadedCourse
     let cue: CourseCuePoint
+    let progress: RouteElevationProgressStats?
     var onClose: () -> Void
 
     private var glyph: CuePointGlyph {
         cuePointGlyph(for: cue.pointType)
-    }
-
-    private var progress: RouteElevationProgressStats? {
-        RouteElevationProgress(trackPoints: course.trackPoints)
-            .stats(atDistanceKm: cue.distanceKm, trackPoints: course.trackPoints)
     }
 
     private var remainingDistanceKm: Double {
@@ -393,12 +413,8 @@ private struct SelectedCueOverlay: View {
 private struct SelectedProfilePointOverlay: View {
     let course: LoadedCourse
     let selection: CourseProfileSelection
+    let progress: RouteElevationProgressStats?
     var onClose: () -> Void
-
-    private var progress: RouteElevationProgressStats? {
-        RouteElevationProgress(trackPoints: course.trackPoints)
-            .stats(atDistanceKm: selection.distanceKm, trackPoints: course.trackPoints)
-    }
 
     private var remainingDistanceKm: Double {
         max(0, course.totalDistanceKm - selection.distanceKm)
