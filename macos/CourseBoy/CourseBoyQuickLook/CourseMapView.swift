@@ -11,6 +11,9 @@ struct CourseMapView: UIViewRepresentable {
     var onUserStopFollowing: () -> Void = {}
     /// 고도 그래프를 길게 눌러 조정하는 중이면 지도가 손가락을 바로 따라오도록 애니메이션 없이 이동한다.
     var isScrubbingProfile = false
+    /// 선택할 때마다 증가하는 값. 바뀐 경우에만 선택 지점으로 1회 이동한다.
+    /// updateUIView는 위치 갱신 등으로 자주 불리므로, 매번 센터링하면 사용자의 지도 이동이나 따라가기를 방해한다.
+    var centerRequest = 0
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -41,9 +44,10 @@ struct CourseMapView: UIViewRepresentable {
         context.coordinator.onUserStopFollowing = onUserStopFollowing
         context.coordinator.syncCourse(course, in: map)
         context.coordinator.syncTrackingMode(trackingMode, in: map)
-        context.coordinator.syncSelectedCue(selectedCueID, animated: !isScrubbingProfile, in: map)
-        context.coordinator.syncProfileSelection(
-            selectedProfilePoint,
+        context.coordinator.syncSelectedCue(selectedCueID, in: map)
+        context.coordinator.syncProfileSelection(selectedProfilePoint, in: map)
+        context.coordinator.centerOnSelection(
+            ifRequested: centerRequest,
             animated: !isScrubbingProfile,
             in: map
         )
@@ -61,6 +65,7 @@ struct CourseMapView: UIViewRepresentable {
         private var cueAnnotations: [CourseCueAnnotation] = []
         private var endpointAnnotations: [CourseEndpointAnnotation] = []
         private var profileSelectionAnnotation: CourseProfileSelectionAnnotation?
+        private var handledCenterRequest = 0
         private weak var routeRenderer: CourseRouteRenderer?
         private var trackingMode: CourseLocationTracker.Mode = .off
         private var needsFollowZoom = false
@@ -166,8 +171,10 @@ struct CourseMapView: UIViewRepresentable {
 
                 let rect = paddedRect(for: route.boundingMapRect)
                 if map.bounds.size == .zero {
-                    DispatchQueue.main.async {
+                    DispatchQueue.main.async { [weak self] in
                         map.setVisibleMapRect(rect, animated: false)
+                        // 첫 배치 전에 이미 선택이 있었으면(구간 탭에서 진입 등) 코스 맞춤 뒤 다시 센터링한다.
+                        self?.centerOnCurrentSelection(animated: false, in: map)
                     }
                 } else {
                     map.setVisibleMapRect(rect, animated: false)
@@ -239,7 +246,7 @@ struct CourseMapView: UIViewRepresentable {
             isChangingTrackingModeProgrammatically = false
         }
 
-        func syncSelectedCue(_ id: UUID?, animated: Bool = true, in map: MKMapView) {
+        func syncSelectedCue(_ id: UUID?, in map: MKMapView) {
             guard let id,
                   let annotation = cueAnnotations.first(where: { $0.cue.id == id }) else {
                 if let selected = map.selectedAnnotations.first as? CourseCueAnnotation {
@@ -251,10 +258,9 @@ struct CourseMapView: UIViewRepresentable {
             if !map.selectedAnnotations.contains(where: { ($0 as? CourseCueAnnotation)?.cue.id == id }) {
                 map.selectAnnotation(annotation, animated: true)
             }
-            map.setCenter(annotation.coordinate, animated: animated)
         }
 
-        func syncProfileSelection(_ selection: CourseProfileSelection?, animated: Bool = true, in map: MKMapView) {
+        func syncProfileSelection(_ selection: CourseProfileSelection?, in map: MKMapView) {
             guard let selection else {
                 if let profileSelectionAnnotation {
                     map.removeAnnotation(profileSelectionAnnotation)
@@ -273,9 +279,6 @@ struct CourseMapView: UIViewRepresentable {
                     deselectEndpointAnnotations(in: map, except: endpoint)
                     map.selectAnnotation(endpoint, animated: true)
                 }
-                if selectedCueID.wrappedValue == nil {
-                    map.setCenter(endpoint.coordinate, animated: animated)
-                }
                 return
             }
 
@@ -289,7 +292,19 @@ struct CourseMapView: UIViewRepresentable {
                 map.addAnnotation(annotation)
             }
 
-            if selectedCueID.wrappedValue == nil {
+        }
+
+        func centerOnSelection(ifRequested request: Int, animated: Bool, in map: MKMapView) {
+            guard request != handledCenterRequest else { return }
+            handledCenterRequest = request
+            centerOnCurrentSelection(animated: animated, in: map)
+        }
+
+        private func centerOnCurrentSelection(animated: Bool, in map: MKMapView) {
+            if let id = selectedCueID.wrappedValue,
+               let annotation = cueAnnotations.first(where: { $0.cue.id == id }) {
+                map.setCenter(annotation.coordinate, animated: animated)
+            } else if let selection = selectedProfilePoint.wrappedValue {
                 map.setCenter(selection.coordinate, animated: animated)
             }
         }
