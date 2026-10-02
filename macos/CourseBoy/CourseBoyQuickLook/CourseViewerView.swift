@@ -7,6 +7,8 @@ struct CourseViewerView: View {
     @State private var selectedCueID: UUID?
     @State private var selectedProfilePoint: CourseProfileSelection?
     @State private var selectedTab: CourseViewerTab = .summary
+    /// 큐나 지점을 선택할 때마다 증가한다. 지도는 이 값이 바뀔 때만 선택 위치로 이동한다.
+    @State private var mapCenterRequest = 0
     @State private var locationTracker = CourseLocationTracker()
 
     /// 코스 위로 인식된 현재 위치. 코스 밖이거나 트래킹 중이 아니면 nil.
@@ -34,8 +36,9 @@ struct CourseViewerView: View {
             CourseMapTab(
                 course: course,
                 selectedCueID: linkedCueSelection,
-                selectedProfilePoint: $selectedProfilePoint,
-                locationTracker: locationTracker
+                selectedProfilePoint: linkedProfileSelection,
+                locationTracker: locationTracker,
+                mapCenterRequest: mapCenterRequest
             )
                 .tabItem {
                     Label("지도", systemImage: "map")
@@ -51,7 +54,7 @@ struct CourseViewerView: View {
             CourseCueSheetTab(
                 course: course,
                 selectedCueID: linkedCueSelection,
-                selectedProfilePoint: $selectedProfilePoint,
+                selectedProfilePoint: linkedProfileSelection,
                 currentLocation: currentRouteLocation
             )
                 .tabItem {
@@ -74,8 +77,20 @@ struct CourseViewerView: View {
         } set: { id in
             if id != nil {
                 selectedProfilePoint = nil
+                mapCenterRequest += 1
             }
             selectedCueID = id
+        }
+    }
+
+    private var linkedProfileSelection: Binding<CourseProfileSelection?> {
+        Binding {
+            selectedProfilePoint
+        } set: { selection in
+            if selection != nil {
+                mapCenterRequest += 1
+            }
+            selectedProfilePoint = selection
         }
     }
 }
@@ -121,6 +136,7 @@ private struct CourseMapTab: View {
     @Binding var selectedCueID: UUID?
     @Binding var selectedProfilePoint: CourseProfileSelection?
     @Bindable var locationTracker: CourseLocationTracker
+    let mapCenterRequest: Int
     @AppStorage("mapShowsElevationChart") private var showsElevationChart = true
     @State private var isScrubbingElevationChart = false
     @Environment(\.openURL) private var openURL
@@ -169,7 +185,8 @@ private struct CourseMapTab: View {
                 onUserStopFollowing: { [locationTracker] in
                     locationTracker.stopFollowing()
                 },
-                isScrubbingProfile: isScrubbingElevationChart
+                isScrubbingProfile: isScrubbingElevationChart,
+                centerRequest: mapCenterRequest
             )
             .ignoresSafeArea(.container, edges: [.top, .bottom])
 
