@@ -156,6 +156,8 @@ private struct CourseMapTab: View {
                     selectedCueID: $selectedCueID,
                     selectedProfilePoint: $selectedProfilePoint,
                     currentLocation: locationTracker.currentLocation?.routeMatch,
+                    isOffRoute: locationTracker.isOffRoute,
+                    lastRouteLocation: locationTracker.lastRouteMatch,
                     onScrubbingChanged: { isScrubbingElevationChart = $0 }
                 )
                 .transition(.move(edge: .bottom).combined(with: .opacity))
