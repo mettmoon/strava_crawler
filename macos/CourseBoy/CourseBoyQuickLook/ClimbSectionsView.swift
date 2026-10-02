@@ -19,10 +19,10 @@ extension View {
     /// TabView 안쪽에 둔 navigationDestination은 바깥 NavigationStack이 찾지 못하므로 TabView에 붙인다.
     func climbSectionDestination(
         course: LoadedCourse,
-        onShowOnMap: @escaping (CourseClimbSection) -> Void
+        onShowCueOnMap: @escaping (CourseCuePoint) -> Void
     ) -> some View {
         navigationDestination(for: ClimbSectionRoute.self) { route in
-            ClimbSectionDetailView(course: course, section: route.section, onShowOnMap: onShowOnMap)
+            ClimbSectionDetailView(course: course, section: route.section, onShowCueOnMap: onShowCueOnMap)
         }
     }
 }
@@ -96,15 +96,15 @@ struct ClimbSectionRow: View {
 struct ClimbSectionDetailView: View {
     let course: LoadedCourse
     let section: CourseClimbSection
-    /// 구간 시작 큐를 선택하고 지도 탭으로 옮긴다. 상세 화면은 닫는다.
-    var onShowOnMap: (CourseClimbSection) -> Void
+    /// 큐를 선택하고 지도 탭으로 옮긴다. 상세 화면은 닫는다.
+    var onShowCueOnMap: (CourseCuePoint) -> Void
 
     private let profile: ClimbProfile
 
-    init(course: LoadedCourse, section: CourseClimbSection, onShowOnMap: @escaping (CourseClimbSection) -> Void) {
+    init(course: LoadedCourse, section: CourseClimbSection, onShowCueOnMap: @escaping (CourseCuePoint) -> Void) {
         self.course = course
         self.section = section
-        self.onShowOnMap = onShowOnMap
+        self.onShowCueOnMap = onShowCueOnMap
         profile = ClimbProfile(trackPoints: course.trackPoints, section: section)
     }
 
@@ -114,11 +114,12 @@ struct ClimbSectionDetailView: View {
         [GridItem(.adaptive(minimum: 150), spacing: 8)]
     }
 
-    /// 구간 안에 있는 다른 큐. 시작 큐와 매칭된 정상 큐도 위치 확인용으로 함께 보여준다.
+    /// 구간 시작 큐와 구간 안에 있는 큐. 매칭된 정상 큐도 위치 확인용으로 함께 보여준다.
     private var cuesInSection: [CourseCuePoint] {
         course.sortedCuePoints.filter {
-            $0.id != section.startCue.id
-                && (section.contains(distanceKm: $0.distanceKm) || $0.id == section.summitCue?.id)
+            $0.id == section.startCue.id
+                || section.contains(distanceKm: $0.distanceKm)
+                || $0.id == section.summitCue?.id
         }
     }
 
@@ -130,16 +131,6 @@ struct ClimbSectionDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 header
-
-                Button {
-                    dismiss()
-                    onShowOnMap(section)
-                } label: {
-                    Label("지도탭에서 보기", systemImage: "map")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
 
                 ClimbProfileChartView(
                     profile: profile,
@@ -192,7 +183,13 @@ struct ClimbSectionDetailView: View {
                     ViewerSection(title: "구간 내 큐시트", systemImage: "list.bullet.rectangle") {
                         VStack(spacing: 0) {
                             ForEach(cuesInSection) { cue in
-                                SectionCueRow(cue: cue, offsetKm: cue.distanceKm - section.startKm)
+                                Button {
+                                    dismiss()
+                                    onShowCueOnMap(cue)
+                                } label: {
+                                    SectionCueRow(cue: cue, offsetKm: cue.distanceKm - section.startKm)
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
                         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
@@ -254,12 +251,16 @@ private struct SectionCueRow: View {
                 .font(.callout)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .overlay(alignment: .bottom) {
             Divider().padding(.leading, 50)
         }
+        .contentShape(Rectangle())
     }
 }
 

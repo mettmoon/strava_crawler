@@ -65,8 +65,8 @@ struct CourseViewerView: View {
         }
         // 가로 모드 지도 탭은 세로 공간이 부족해 내비게이션 바를 숨기고 지도 위 뒤로가기 버튼으로 대신한다.
         .toolbar(hidesNavigationBar ? .hidden : .automatic, for: .navigationBar)
-        .climbSectionDestination(course: course) { section in
-            linkedCueSelection.wrappedValue = section.startCue.id
+        .climbSectionDestination(course: course) { cue in
+            linkedCueSelection.wrappedValue = cue.id
             selectedTab = .map
         }
         .task(id: course.id) {
