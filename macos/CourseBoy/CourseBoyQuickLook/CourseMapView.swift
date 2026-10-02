@@ -284,14 +284,19 @@ struct CourseMapView: UIViewRepresentable {
 
             deselectEndpointAnnotations(in: map)
 
-            if let annotation = profileSelectionAnnotation {
-                annotation.update(selection: selection)
+            let annotation: CourseProfileSelectionAnnotation
+            if let existing = profileSelectionAnnotation {
+                existing.update(selection: selection)
+                annotation = existing
             } else {
-                let annotation = CourseProfileSelectionAnnotation(selection: selection)
+                annotation = CourseProfileSelectionAnnotation(selection: selection)
                 profileSelectionAnnotation = annotation
                 map.addAnnotation(annotation)
             }
-
+            // 큐 마커처럼 선택 상태로 둬서, 지도 빈 곳을 누르면 선택이 풀리게 한다.
+            if !map.selectedAnnotations.contains(where: { $0 === annotation }) {
+                map.selectAnnotation(annotation, animated: true)
+            }
         }
 
         func centerOnSelection(ifRequested request: Int, animated: Bool, in map: MKMapView) {
@@ -422,6 +427,11 @@ struct CourseMapView: UIViewRepresentable {
                selectedProfilePoint.wrappedValue?.trackIndex == endpoint.trackIndex {
                 selectedProfilePoint.wrappedValue = nil
                 return
+            }
+            // 시작/종료점으로 바뀌며 마커가 제거될 때는 마커가 가진 선택이 현재 선택과 달라서 건너뛴다.
+            if let profileAnnotation = view.annotation as? CourseProfileSelectionAnnotation,
+               selectedProfilePoint.wrappedValue == profileAnnotation.selection {
+                selectedProfilePoint.wrappedValue = nil
             }
         }
 
