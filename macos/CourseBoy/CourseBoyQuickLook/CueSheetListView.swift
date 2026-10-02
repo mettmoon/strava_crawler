@@ -21,11 +21,25 @@ struct CueSheetListView: View {
     /// 코스 위로 인식된 현재 위치. 선택 지점과 별개의 항목으로 표시한다.
     var currentLocation: CourseProfileSelection? = nil
 
+    /// 트랙 포인트 전체를 훑어 만들기 때문에 코스마다 한 번만 계산해 둔다. 행마다 새로 만들지 않는다.
+    @State private var cachedProgress: (courseID: UUID, progress: RouteElevationProgress)?
+
     private var progress: RouteElevationProgress {
-        RouteElevationProgress(trackPoints: course.trackPoints)
+        if let cachedProgress, cachedProgress.courseID == course.id {
+            return cachedProgress.progress
+        }
+        return RouteElevationProgress(trackPoints: course.trackPoints)
     }
 
     var body: some View {
+        content
+            .onChange(of: course.id, initial: true) { _, id in
+                cachedProgress = (id, RouteElevationProgress(trackPoints: course.trackPoints))
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if listItems.isEmpty {
             ContentUnavailableView {
                 Label("큐시트 없음", systemImage: "list.bullet")
