@@ -386,47 +386,42 @@ struct CourseMapView: UIViewRepresentable {
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
             if let endpoint = annotation as? CourseEndpointAnnotation {
-                let identifier = "endpoint"
-                let view = mapView.dequeueReusableAnnotationView(
-                    withIdentifier: identifier
-                ) as? MKMarkerAnnotationView ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: identifier)
-                view.annotation = annotation
-                view.canShowCallout = true
-                view.markerTintColor = endpoint.kind == .start ? .systemGreen : .systemRed
-                view.glyphImage = UIImage(systemName: endpoint.kind == .start ? "flag.fill" : "flag.checkered")
-                view.displayPriority = .required
+                let view = glyphView(for: annotation, identifier: "endpoint", in: mapView)
+                view.configure(
+                    color: endpoint.kind == .start ? .systemGreen : .systemRed,
+                    symbol: endpoint.kind == .start ? "flag.fill" : "flag.checkered"
+                )
                 return view
             }
 
             if let cueAnnotation = annotation as? CourseCueAnnotation {
-                let identifier = "cue"
-                let view = mapView.dequeueReusableAnnotationView(
-                    withIdentifier: identifier
-                ) as? MKMarkerAnnotationView ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: identifier)
                 let glyph = cuePointGlyph(for: cueAnnotation.cue.pointType)
-                view.annotation = annotation
-                view.canShowCallout = true
-                view.markerTintColor = glyph.uiColor
-                view.glyphImage = glyph.symbol.flatMap { UIImage(systemName: $0) }
-                view.glyphText = glyph.text
-                view.displayPriority = .required
+                let view = glyphView(for: annotation, identifier: "cue", in: mapView)
+                view.configure(color: glyph.uiColor, symbol: glyph.symbol, text: glyph.text)
                 return view
             }
 
-            if let profileAnnotation = annotation as? CourseProfileSelectionAnnotation {
-                let identifier = "profile-selection"
-                let view = mapView.dequeueReusableAnnotationView(
-                    withIdentifier: identifier
-                ) as? MKMarkerAnnotationView ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: identifier)
-                view.annotation = profileAnnotation
-                view.canShowCallout = true
-                view.markerTintColor = .systemCyan
-                view.glyphImage = UIImage(systemName: "scope")
-                view.displayPriority = .required
+            if annotation is CourseProfileSelectionAnnotation {
+                let view = glyphView(for: annotation, identifier: "profile-selection", in: mapView)
+                view.configure(color: .systemCyan, style: .dot)
                 return view
             }
 
             return nil
+        }
+
+        private func glyphView(
+            for annotation: MKAnnotation,
+            identifier: String,
+            in mapView: MKMapView
+        ) -> CourseGlyphAnnotationView {
+            let view = mapView.dequeueReusableAnnotationView(
+                withIdentifier: identifier
+            ) as? CourseGlyphAnnotationView ?? CourseGlyphAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+            view.annotation = annotation
+            view.canShowCallout = true
+            view.displayPriority = .required
+            return view
         }
 
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
@@ -681,5 +676,113 @@ private final class CourseProfileSelectionAnnotation: NSObject, MKAnnotation {
     private func updateTitle() {
         title = "그래프 선택 위치"
         subtitle = "\(formatRouteDistance(selection.distanceKm)) · \(formatRouteElevation(selection.elevationMeters))"
+    }
+}
+
+/// 고도 그래프의 큐 아이콘과 같은 모양의 작은 원형 지도 마커.
+/// 기본 풍선 마커는 크기를 줄일 수 없어 코스 선을 많이 가리므로 직접 그린다.
+private final class CourseGlyphAnnotationView: MKAnnotationView {
+    enum Style {
+        /// 색 원 안에 심볼이나 글자를 넣는다.
+        case icon
+        /// 아이콘 없이 작은 점만 찍는다. 그래프 선택 위치처럼 위치만 알리면 되는 경우.
+        case dot
+    }
+
+    private static let iconDiameter: CGFloat = 22
+    private static let dotDiameter: CGFloat = 14
+    private static let selectedScale: CGFloat = 30 / 22
+
+    private let circleView = UIView()
+    private let imageView = UIImageView()
+    private let label = UILabel()
+    private var style: Style = .icon
+
+    override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
+        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+        collisionMode = .circle
+        backgroundColor = .clear
+
+        circleView.layer.borderColor = UIColor.white.cgColor
+        circleView.layer.shadowColor = UIColor.black.cgColor
+        circleView.layer.shadowOpacity = 0.3
+        circleView.layer.shadowRadius = 2
+        circleView.layer.shadowOffset = CGSize(width: 0, height: 1)
+        addSubview(circleView)
+
+        imageView.contentMode = .scaleAspectFit
+        imageView.tintColor = .white
+        circleView.addSubview(imageView)
+
+        label.textColor = .white
+        label.textAlignment = .center
+        label.adjustsFontSizeToFitWidth = true
+        label.minimumScaleFactor = 0.6
+        circleView.addSubview(label)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(color: UIColor, symbol: String? = nil, text: String? = nil, style: Style = .icon) {
+        self.style = style
+        circleView.backgroundColor = color
+        let diameter = style == .icon ? Self.iconDiameter : Self.dotDiameter
+        // 선택 시 커지는 크기만큼 영역을 미리 잡아 콜아웃이 확대된 원 바로 위에 붙게 한다.
+        let side = diameter * Self.selectedScale
+        bounds = CGRect(x: 0, y: 0, width: side, height: side)
+        circleView.bounds = CGRect(x: 0, y: 0, width: diameter, height: diameter)
+        circleView.center = CGPoint(x: side / 2, y: side / 2)
+        circleView.layer.cornerRadius = diameter / 2
+        circleView.layer.borderWidth = style == .icon ? 1.5 : 2
+
+        let iconSide = diameter * 0.55
+        let iconFrame = CGRect(
+            x: (diameter - iconSide) / 2,
+            y: (diameter - iconSide) / 2,
+            width: iconSide,
+            height: iconSide
+        )
+        imageView.frame = iconFrame
+        label.frame = iconFrame.insetBy(dx: -2, dy: 0)
+        if style == .icon, let symbol {
+            imageView.image = UIImage(
+                systemName: symbol,
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: iconSide, weight: .semibold)
+            )
+            imageView.isHidden = false
+        } else {
+            imageView.image = nil
+            imageView.isHidden = true
+        }
+        label.font = .systemFont(ofSize: diameter * 0.5, weight: .bold)
+        label.text = style == .icon && symbol == nil ? text : nil
+        label.isHidden = label.text == nil
+        applySelection(animated: false)
+    }
+
+    override func setSelected(_ selected: Bool, animated: Bool) {
+        super.setSelected(selected, animated: animated)
+        applySelection(animated: animated)
+    }
+
+    private func applySelection(animated: Bool) {
+        let transform = isSelected
+            ? CGAffineTransform(scaleX: Self.selectedScale, y: Self.selectedScale)
+            : .identity
+        guard animated else {
+            circleView.transform = transform
+            return
+        }
+        UIView.animate(
+            withDuration: 0.25,
+            delay: 0,
+            usingSpringWithDamping: 0.7,
+            initialSpringVelocity: 0
+        ) {
+            self.circleView.transform = transform
+        }
     }
 }
