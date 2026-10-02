@@ -967,19 +967,3 @@ struct MapElevationProfile {
         return km - before.km <= after.km - km ? before : after
     }
 }
-
-private extension View {
-    /// iOS 26 이상은 Liquid Glass, 그 이전은 머티리얼 카드로 지도 위에 띄운다.
-    @ViewBuilder
-    func floatingCardBackground(cornerRadius: CGFloat) -> some View {
-        if #available(iOS 26, *) {
-            glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        } else {
-            background(
-                .regularMaterial,
-                in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            )
-            .shadow(color: .black.opacity(0.15), radius: 10, y: 3)
-        }
-    }
-}
