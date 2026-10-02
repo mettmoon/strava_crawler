@@ -9,6 +9,9 @@ struct MapElevationChartView: View {
     @Binding var selectedCueID: UUID?
     @Binding var selectedProfilePoint: CourseProfileSelection?
     var currentLocation: CourseProfileSelection? = nil
+    /// 현재 위치가 코스를 벗어났는지와, 벗어나기 전 마지막으로 코스 위에서 인식된 지점.
+    var isOffRoute = false
+    var lastRouteLocation: CourseProfileSelection? = nil
     /// 길게 눌러 위치를 조정하기 시작하거나 끝낼 때 호출된다.
     var onScrubbingChanged: (Bool) -> Void = { _ in }
 
@@ -82,6 +85,18 @@ struct MapElevationChartView: View {
             .accessibilityLabel("경사도 범례")
 
             Spacer(minLength: 4)
+
+            if isOffRoute {
+                Label("코스 이탈", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.orange)
+                    .labelStyle(.titleAndIcon)
+                    .lineLimit(1)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Color.orange.opacity(0.15), in: Capsule())
+                    .accessibilityLabel("현재 위치가 코스를 벗어났습니다")
+            }
 
             if zoom > 1.01 {
                 Button {
@@ -204,6 +219,8 @@ struct MapElevationChartView: View {
 
         if let currentLocation, window.contains(currentLocation.distanceKm) {
             drawCurrentLocation(currentLocation, profile: profile, rect: rect, context: context, x: x, y: y)
+        } else if isOffRoute, let lastRouteLocation, window.contains(lastRouteLocation.distanceKm) {
+            drawLastRouteLocation(lastRouteLocation, profile: profile, rect: rect, context: context, x: x, y: y)
         }
 
         if let selection = displayedSelection, window.contains(selection.distanceKm) {
@@ -401,6 +418,29 @@ struct MapElevationChartView: View {
         let dot = CGRect(x: pointX - 5, y: pointY - 5, width: 10, height: 10)
         context.fill(Path(ellipseIn: dot), with: .color(.blue))
         context.stroke(Path(ellipseIn: dot), with: .color(.white), lineWidth: 2)
+    }
+
+    /// 코스를 벗어나기 전 마지막 지점. 현재 위치와 구분되도록 속이 빈 회색 점으로 그린다.
+    private func drawLastRouteLocation(
+        _ location: CourseProfileSelection,
+        profile: MapElevationProfile,
+        rect: CGRect,
+        context: GraphicsContext,
+        x: (Double) -> CGFloat,
+        y: (Double) -> CGFloat
+    ) {
+        let pointX = x(location.distanceKm)
+        let elevation = location.elevationMeters ?? profile.sample(nearestKm: location.distanceKm).ele
+        let pointY = y(elevation)
+
+        var guide = Path()
+        guide.move(to: CGPoint(x: pointX, y: rect.minY))
+        guide.addLine(to: CGPoint(x: pointX, y: rect.maxY))
+        context.stroke(guide, with: .color(.gray.opacity(0.6)), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+
+        let dot = CGRect(x: pointX - 5, y: pointY - 5, width: 10, height: 10)
+        context.fill(Path(ellipseIn: dot), with: .color(Color(.systemBackground)))
+        context.stroke(Path(ellipseIn: dot), with: .color(.gray), lineWidth: 2)
     }
 
     // MARK: - Interaction

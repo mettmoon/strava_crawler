@@ -33,7 +33,14 @@ final class CourseLocationTracker: NSObject, CLLocationManagerDelegate {
 
     private(set) var mode: Mode = .off
     private(set) var currentLocation: CourseCurrentLocation?
+    /// 마지막으로 코스 위에서 인식된 지점. 코스를 벗어나도 유지해서 이탈 지점 표시와 복귀 시 구간 연속성에 쓴다.
+    private(set) var lastRouteMatch: CourseProfileSelection?
     var showsAuthorizationDeniedAlert = false
+
+    /// 위치는 받고 있지만 코스 허용 오차 밖에 있는 상태.
+    var isOffRoute: Bool {
+        currentLocation != nil && currentLocation?.routeMatch == nil
+    }
 
     @ObservationIgnored private var trackPoints: [TrackPoint] = []
     @ObservationIgnored private lazy var manager: CLLocationManager = {
@@ -96,6 +103,7 @@ final class CourseLocationTracker: NSObject, CLLocationManagerDelegate {
         guard mode != .off else { return }
         mode = .off
         currentLocation = nil
+        lastRouteMatch = nil
         manager.stopUpdatingLocation()
     }
 
@@ -144,8 +152,11 @@ final class CourseLocationTracker: NSObject, CLLocationManagerDelegate {
             coordinate: location.coordinate,
             trackPoints: trackPoints,
             toleranceMeters: Self.routeToleranceMeters,
-            preferredDistanceKm: currentLocation?.routeMatch?.distanceKm
+            preferredDistanceKm: lastRouteMatch?.distanceKm
         )
+        if let match {
+            lastRouteMatch = match.selection
+        }
         currentLocation = CourseCurrentLocation(
             lat: location.coordinate.latitude,
             lon: location.coordinate.longitude,
