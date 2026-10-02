@@ -14,6 +14,9 @@ struct CourseMapView: UIViewRepresentable {
     /// 선택할 때마다 증가하는 값. 바뀐 경우에만 선택 지점으로 1회 이동한다.
     /// updateUIView는 위치 갱신 등으로 자주 불리므로, 매번 센터링하면 사용자의 지도 이동이나 따라가기를 방해한다.
     var centerRequest = 0
+    /// 지도 위를 덮는 내비게이션 바·고도 그래프 카드·탭 바의 폭.
+    /// 지도는 그 뒤까지 깔리지만 센터링과 코스 맞춤은 가려지지 않는 영역을 기준으로 한다(layoutMargins로 전달).
+    var obscuredInsets = EdgeInsets()
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -24,7 +27,11 @@ struct CourseMapView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> MKMapView {
-        let map = MKMapView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+        let map = LayoutObservingMapView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+        map.onLayout = { [weak coordinator = context.coordinator, weak map] in
+            guard let coordinator, let map else { return }
+            coordinator.applyPendingFitIfPossible(in: map)
+        }
         map.delegate = context.coordinator
         map.showsCompass = true
         map.showsScale = true
@@ -42,6 +49,15 @@ struct CourseMapView: UIViewRepresentable {
         context.coordinator.selectedCueID = $selectedCueID
         context.coordinator.selectedProfilePoint = $selectedProfilePoint
         context.coordinator.onUserStopFollowing = onUserStopFollowing
+        context.coordinator.syncObscuredInsets(
+            UIEdgeInsets(
+                top: obscuredInsets.top,
+                left: obscuredInsets.leading,
+                bottom: obscuredInsets.bottom,
+                right: obscuredInsets.trailing
+            ),
+            in: map
+        )
         context.coordinator.syncCourse(course, in: map)
         context.coordinator.syncTrackingMode(trackingMode, in: map)
         context.coordinator.syncSelectedCue(selectedCueID, in: map)
@@ -77,6 +93,9 @@ struct CourseMapView: UIViewRepresentable {
         private var didEnterBackgroundObserver: NSObjectProtocol?
         private var willEnterForegroundObserver: NSObjectProtocol?
         private var savedConfiguration: MKMapConfiguration?
+        private var obscuredInsets = UIEdgeInsets.zero
+        /// 지도가 아직 배치되지 않아 맞추지 못한 코스 영역. 배치가 끝나면 적용한다.
+        private var pendingFitRect: MKMapRect?
 
         init(
             selectedCueID: Binding<UUID?>,
@@ -154,6 +173,27 @@ struct CourseMapView: UIViewRepresentable {
             syncTrackingMode(mode, in: map)
         }
 
+        func syncObscuredInsets(_ insets: UIEdgeInsets, in map: MKMapView) {
+            guard insets != obscuredInsets else { return }
+            obscuredInsets = insets
+            // MKMapView는 layoutMargins 안쪽을 보이는 영역으로 본다. setCenter, setVisibleMapRect,
+            // 따라가기 센터링과 Legal·나침반·축척 위치가 모두 이 영역을 기준으로 맞춰진다.
+            map.insetsLayoutMarginsFromSafeArea = false
+            map.layoutMargins = insets
+        }
+
+        /// 가려지는 폭을 빼고도 코스를 보여 줄 만큼 지도가 커졌을 때 코스 전체에 맞춘다.
+        /// 크기가 0인 상태에서 layoutMargins가 걸린 채 맞추면 지도가 최대로 축소되어 버린다.
+        func applyPendingFitIfPossible(in map: MKMapView) {
+            guard let rect = pendingFitRect,
+                  map.bounds.width > obscuredInsets.left + obscuredInsets.right + 44,
+                  map.bounds.height > obscuredInsets.top + obscuredInsets.bottom + 44 else { return }
+            pendingFitRect = nil
+            map.setVisibleMapRect(rect, animated: false)
+            // 첫 배치 전에 이미 선택이 있었으면(구간 탭에서 진입 등) 코스 맞춤 뒤 다시 센터링한다.
+            centerOnCurrentSelection(animated: false, in: map)
+        }
+
         func syncCourse(_ course: LoadedCourse, in map: MKMapView) {
             guard loadedCourseID != course.id else { return }
             loadedCourseID = course.id
@@ -169,16 +209,8 @@ struct CourseMapView: UIViewRepresentable {
                 let route = CourseRoutePolyline(coordinates: coordinates, count: coordinates.count)
                 map.addOverlay(route, level: .aboveRoads)
 
-                let rect = paddedRect(for: route.boundingMapRect)
-                if map.bounds.size == .zero {
-                    DispatchQueue.main.async { [weak self] in
-                        map.setVisibleMapRect(rect, animated: false)
-                        // 첫 배치 전에 이미 선택이 있었으면(구간 탭에서 진입 등) 코스 맞춤 뒤 다시 센터링한다.
-                        self?.centerOnCurrentSelection(animated: false, in: map)
-                    }
-                } else {
-                    map.setVisibleMapRect(rect, animated: false)
-                }
+                pendingFitRect = paddedRect(for: route.boundingMapRect)
+                applyPendingFitIfPossible(in: map)
             }
 
             if let first = course.trackPoints.first {
@@ -466,6 +498,16 @@ struct CourseMapView: UIViewRepresentable {
             let paddingY = max(rect.height * 0.12, 1200)
             return rect.insetBy(dx: -paddingX, dy: -paddingY)
         }
+    }
+}
+
+/// 배치가 끝날 때마다 알려 주는 지도. 첫 배치 뒤에 코스 맞춤을 하기 위해 쓴다.
+private final class LayoutObservingMapView: MKMapView {
+    var onLayout: () -> Void = {}
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayout()
     }
 }
 

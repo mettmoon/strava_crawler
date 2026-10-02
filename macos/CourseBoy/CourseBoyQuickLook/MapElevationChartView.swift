@@ -2,7 +2,7 @@ import CoursePreviewCore
 import SwiftUI
 import UIKit
 
-/// 지도 탭 하단에 붙는 가로형 고도 그래프.
+/// 지도 탭 하단에 떠 있는 가로형 고도 그래프 카드.
 /// 경사도 구간별 색상, 큐시트 표시, 핀치 줌/드래그 이동, 탭 선택을 지원한다.
 struct MapElevationChartView: View {
     let course: LoadedCourse
@@ -14,6 +14,8 @@ struct MapElevationChartView: View {
     var lastRouteLocation: CourseProfileSelection? = nil
     /// 길게 눌러 위치를 조정하기 시작하거나 끝낼 때 호출된다.
     var onScrubbingChanged: (Bool) -> Void = { _ in }
+    /// 가로 모드처럼 세로 공간이 부족할 때 범례를 숨기고 차트를 낮게 그린다.
+    var isCompact = false
 
     @State private var profile: MapElevationProfile?
     @State private var profileCourseID: UUID?
@@ -36,25 +38,36 @@ struct MapElevationChartView: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            header
+            if !isCompact {
+                header
+            }
             if let profile, profile.samples.count >= 2 {
                 GeometryReader { proxy in
                     chart(profile: profile, size: proxy.size)
                 }
-                .frame(height: Layout.chartHeight)
+                .frame(height: chartHeight)
             } else {
                 Text("고도 데이터 없음")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: Layout.chartHeight)
+                    .frame(maxWidth: .infinity, minHeight: chartHeight)
             }
         }
         .padding(.horizontal, 12)
-        .padding(.top, 8)
-        .padding(.bottom, 6)
-        .background(Color(.systemBackground))
-        .overlay(alignment: .top) {
-            Divider()
+        .padding(.top, isCompact ? 6 : 10)
+        .padding(.bottom, isCompact ? 4 : 8)
+        .floatingCardBackground(cornerRadius: isCompact ? Layout.compactCornerRadius : Layout.cornerRadius)
+        .overlay(alignment: .topTrailing) {
+            // 헤더가 없을 때는 상태 배지를 그래프 바로 위, 지도 쪽에 띄운다.
+            if isCompact, isOffRoute || isZoomed {
+                HStack(spacing: 6) {
+                    statusBadges
+                }
+                .padding(4)
+                .background(.regularMaterial, in: Capsule())
+                .alignmentGuide(.top) { $0[.bottom] + 6 }
+                .padding(.trailing, 8)
+            }
         }
         .onAppear(perform: loadProfileIfNeeded)
         .onChange(of: course.id) { _, _ in loadProfileIfNeeded() }
@@ -86,40 +99,53 @@ struct MapElevationChartView: View {
 
             Spacer(minLength: 4)
 
-            if isOffRoute {
-                Label("코스 이탈", systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.orange)
-                    .labelStyle(.titleAndIcon)
-                    .lineLimit(1)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(Color.orange.opacity(0.15), in: Capsule())
-                    .accessibilityLabel("현재 위치가 코스를 벗어났습니다")
-            }
-
-            if zoom > 1.01 {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        zoom = 1
-                        visibleStartKm = 0
-                    }
-                } label: {
-                    HStack(spacing: 3) {
-                        Text(String(format: "×%.1f", zoom))
-                            .monospacedDigit()
-                        Image(systemName: "arrow.down.right.and.arrow.up.left")
-                    }
-                    .font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(Color(.secondarySystemFill), in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("고도 그래프 전체 보기")
-            }
+            statusBadges
         }
         .frame(height: 18)
+    }
+
+    private var isZoomed: Bool {
+        zoom > 1.01
+    }
+
+    private var chartHeight: CGFloat {
+        isCompact ? Layout.compactChartHeight : Layout.chartHeight
+    }
+
+    @ViewBuilder
+    private var statusBadges: some View {
+        if isOffRoute {
+            Label("코스 이탈", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.orange)
+                .labelStyle(.titleAndIcon)
+                .lineLimit(1)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(Color.orange.opacity(0.15), in: Capsule())
+                .accessibilityLabel("현재 위치가 코스를 벗어났습니다")
+        }
+
+        if isZoomed {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    zoom = 1
+                    visibleStartKm = 0
+                }
+            } label: {
+                HStack(spacing: 3) {
+                    Text(String(format: "×%.1f", zoom))
+                        .monospacedDigit()
+                    Image(systemName: "arrow.down.right.and.arrow.up.left")
+                }
+                .font(.caption2.weight(.semibold))
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(Color(.secondarySystemFill), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("고도 그래프 전체 보기")
+        }
     }
 
     // MARK: - Chart
@@ -700,6 +726,10 @@ struct MapElevationChartView: View {
 
     private enum Layout {
         static let chartHeight: CGFloat = 132
+        /// 가로 모드용. 큐 띠와 x축 라벨(37pt)을 빼고도 그래프가 40pt 가까이 남는다.
+        static let compactChartHeight: CGFloat = 76
+        static let cornerRadius: CGFloat = 22
+        static let compactCornerRadius: CGFloat = 18
         static let leftPad: CGFloat = 30
         static let rightPad: CGFloat = 4
         static let cueBandHeight: CGFloat = 22
@@ -935,5 +965,21 @@ struct MapElevationProfile {
         let before = samples[index - 1]
         let after = samples[index]
         return km - before.km <= after.km - km ? before : after
+    }
+}
+
+private extension View {
+    /// iOS 26 이상은 Liquid Glass, 그 이전은 머티리얼 카드로 지도 위에 띄운다.
+    @ViewBuilder
+    func floatingCardBackground(cornerRadius: CGFloat) -> some View {
+        if #available(iOS 26, *) {
+            glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        } else {
+            background(
+                .regularMaterial,
+                in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            )
+            .shadow(color: .black.opacity(0.15), radius: 10, y: 3)
+        }
     }
 }
