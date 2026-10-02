@@ -86,15 +86,80 @@ final class CourseClimbSectionsTests: XCTestCase {
         XCTAssertNil(farSummit.first?.summitCue)
     }
 
-    func testIncludesSprintOnlyWhenUphill() {
+    func testIncludesEverySprintCue() {
         let sections = CourseClimbDetector.sections(in: course(cues: [
             cue("평지 스프린트", "Sprint", km: 8.2),
             cue("오르막 스프린트", "Sprint", km: 3),
             cue("내리막 스프린트", "Sprint", km: 6),
         ]))
 
-        XCTAssertEqual(sections.map(\.name), ["오르막 스프린트"])
+        XCTAssertEqual(sections.map(\.name), ["오르막 스프린트", "내리막 스프린트", "평지 스프린트"])
         XCTAssertEqual(sections.first?.category, .sprint)
         XCTAssertEqual(sections.first?.category.label, "스프린트")
+    }
+
+    func testNamedSummitEndsSection() throws {
+        let section = try XCTUnwrap(CourseClimbDetector.sections(in: course(cues: [
+            cue("업힐", "Sprint", km: 2),
+            cue("업힐 종료", "Summit", km: 3.5),
+        ])).first)
+
+        XCTAssertEqual(section.summitCue?.name, "업힐 종료")
+        XCTAssertEqual(section.endKm, 3.5, accuracy: 0.001)
+    }
+
+    func testArrowLengthPairsSummit() throws {
+        XCTAssertEqual(try XCTUnwrap(CourseClimbDetector.arrowLengthKm(in: "↗2.45km, 3.8%")), 2.45, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(CourseClimbDetector.arrowLengthKm(in: "↗509m, 2.7%")), 0.509, accuracy: 0.0001)
+        XCTAssertNil(CourseClimbDetector.arrowLengthKm(in: "업힐"))
+
+        let sections = CourseClimbDetector.sections(in: course(cues: [
+            cue("↗3.00km, 7.0%", "3rd Category", km: 2),
+            cue("↗500m, 9.0%", "Sprint", km: 4),
+            cue("작은 고개", "Summit", km: 4.5),
+            cue("큰 고개", "Summit", km: 5),
+        ]))
+
+        XCTAssertEqual(sections.map(\.summitCue?.name), ["큰 고개", "작은 고개"])
+        XCTAssertEqual(sections[0].endKm, 5, accuracy: 0.001)
+        XCTAssertEqual(sections[1].endKm, 4.5, accuracy: 0.001)
+    }
+
+    func testDownhillPairsValleyWithSameNamedStart() throws {
+        let sections = CourseClimbDetector.sections(in: course(cues: [
+            cue("고개 북측 다운", "Straight", km: 5),
+            cue("고개 북측 다운 종료", "Valley", km: 8),
+        ]))
+
+        let section = try XCTUnwrap(sections.first)
+        XCTAssertEqual(sections.count, 1)
+        XCTAssertEqual(section.category, .downhill)
+        XCTAssertTrue(section.isDownhill)
+        XCTAssertEqual(section.name, "고개 북측 다운")
+        XCTAssertEqual(section.summitCue?.name, "고개 북측 다운 종료")
+        XCTAssertEqual(section.startKm, 5, accuracy: 0.001)
+        XCTAssertEqual(section.endKm, 8, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(section.elevationGain), -270, accuracy: 6)
+        XCTAssertEqual(try XCTUnwrap(section.maxGrade), -9, accuracy: 0.5)
+    }
+
+    func testDownhillFallsBackToArrowPrefixedStart() {
+        let sections = CourseClimbDetector.sections(in: course(cues: [
+            cue("↘3.00km, -9.0%", "Straight", km: 5),
+            cue("우회전", "Right", km: 6),
+            cue("🏁고개", "Valley", km: 8),
+        ]))
+
+        XCTAssertEqual(sections.map(\.name), ["↘3.00km, -9.0%"])
+        XCTAssertEqual(sections.first?.summitCue?.name, "🏁고개")
+    }
+
+    func testIgnoresValleyWithoutStart() {
+        let sections = CourseClimbDetector.sections(in: course(cues: [
+            cue("직진", "Straight", km: 5),
+            cue("계곡", "Valley", km: 8),
+        ]))
+
+        XCTAssertTrue(sections.isEmpty)
     }
 }
