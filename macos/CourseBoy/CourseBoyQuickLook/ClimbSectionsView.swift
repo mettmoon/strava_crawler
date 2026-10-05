@@ -283,7 +283,7 @@ private struct SectionCueRow: View {
 
 // MARK: - Map
 
-/// 구간 경로를 100m 조각마다 경사 색으로 칠한 지도. 이동·확대·회전할 수 있고 버튼으로 구간 전체 보기로 돌아온다.
+/// 구간 경로를 200m 조각마다 경사 색으로 칠한 지도. 이동·확대·회전할 수 있고 버튼으로 구간 전체 보기로 돌아온다.
 private struct ClimbSectionMapView: View {
     let profile: ClimbProfile
     var selectedOffsetKm: Double?
@@ -375,7 +375,7 @@ private struct ClimbSectionMapView: View {
 
 // MARK: - Chart
 
-/// 구간 고도 그래프. 100m 조각마다 평균 경사를 색으로 칠한다.
+/// 구간 고도 그래프. 200m 조각마다 평균 경사를 색으로 칠한다.
 /// 누르거나 가로로 끌면 그 지점의 거리·고도·경사를 보여준다.
 private struct ClimbProfileChartView: View {
     let profile: ClimbProfile
@@ -386,7 +386,6 @@ private struct ClimbProfileChartView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            GradeLegendView(caption: "100 m 단위 경사")
             if profile.samples.count >= 2 {
                 Canvas { context, size in
                     draw(size: size, context: context)
@@ -654,36 +653,9 @@ private struct ProfileScrubGestureView: UIViewRepresentable {
     }
 }
 
-private struct GradeLegendView: View {
-    let caption: String
-
-    var body: some View {
-        HStack(spacing: 7) {
-            ForEach(GradeBand.allCases, id: \.self) { band in
-                HStack(spacing: 3) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(band.color)
-                        .frame(width: 8, height: 8)
-                    Text(band.legendLabel)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            Spacer(minLength: 0)
-            Text(caption)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("경사도 범례")
-    }
-}
-
 // MARK: - Profile data
 
-/// 구간의 고도 샘플과 100m 조각별 평균 경사. 지도와 고도 그래프가 같은 조각을 쓴다.
+/// 구간의 고도 샘플과 200m 조각별 평균 경사. 지도와 고도 그래프가 같은 조각을 쓴다.
 private struct ClimbProfile {
     struct Sample {
         var offsetKm: Double
@@ -698,7 +670,7 @@ private struct ClimbProfile {
         var grade: Double
     }
 
-    static let bucketKm = 0.1
+    static let bucketKm = 0.2
 
     let samples: [Sample]
     let buckets: [Bucket]
@@ -754,7 +726,7 @@ private struct ClimbProfile {
         Self.sample(at: km, in: samples)
     }
 
-    /// km 지점이 속한 100m 조각의 평균 경사. 그래프 색과 같은 값이다.
+    /// km 지점이 속한 200m 조각의 평균 경사. 그래프 색과 같은 값이다.
     func grade(atKm km: Double) -> Double {
         let index = min(max(Int(km / Self.bucketKm), 0), buckets.count - 1)
         guard buckets.indices.contains(index) else { return 0 }
@@ -763,7 +735,7 @@ private struct ClimbProfile {
 
     var accessibilitySummary: String {
         guard let steepest = buckets.map(\.grade).max() else { return "" }
-        return String(format: "100 m 단위 최대 경사 %.1f%%", steepest)
+        return String(format: "200 m 단위 최대 경사 %.1f%%", steepest)
     }
 
     /// 거리 위치의 고도와 좌표를 앞뒤 샘플 사이에서 선형 보간한다.
