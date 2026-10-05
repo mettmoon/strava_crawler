@@ -81,14 +81,27 @@ struct CueSheetListView: View {
             .frame(maxWidth: .infinity, minHeight: 140)
             .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
         } else {
+            let reference = selectionReference
             LazyVStack(spacing: 8) {
                 ForEach(listItems) { item in
                     switch item {
                     case .endpoint(let endpoint):
+                        let isSelected = isEndpointSelected(endpoint)
+                        let stats = progress.stats(at: endpoint.trackIndex)
                         TrackEndpointRow(
                             endpoint: endpoint,
-                            remainingDistanceKm: remainingDistanceKm(from: endpoint.distanceKm),
-                            isSelected: isEndpointSelected(endpoint)
+                            isSelected: isSelected,
+                            info: CueSheetRowInfo(
+                                distanceKm: endpoint.distanceKm,
+                                elevationMeters: endpoint.elevation,
+                                progress: stats,
+                                remainingDistanceKm: remainingDistanceKm(from: endpoint.distanceKm),
+                                showsProgressFromStart: endpoint.kind != .start,
+                                showsProgressToEnd: endpoint.kind != .end,
+                                selectionOffset: isSelected
+                                    ? nil
+                                    : selectionOffset(at: endpoint.distanceKm, stats: stats, reference: reference)
+                            )
                         )
                         .id(endpoint.rowID)
                         .onTapGesture {
@@ -99,37 +112,63 @@ struct CueSheetListView: View {
 
                     case .profile(let selection):
                         ProfileSelectionCueSheetRow(
-                            selection: selection,
-                            progress: profileProgress(selection),
-                            remainingDistanceKm: remainingDistanceKm(from: selection.distanceKm)
+                            info: CueSheetRowInfo(
+                                distanceKm: selection.distanceKm,
+                                elevationMeters: selection.elevationMeters,
+                                progress: profileProgress(selection),
+                                remainingDistanceKm: remainingDistanceKm(from: selection.distanceKm),
+                                selectionOffset: nil
+                            )
                         )
                         .id(Self.profileSelectionRowID)
 
                     case .currentLocation(let location):
+                        let stats = profileProgress(location)
                         CurrentLocationCueSheetRow(
-                            location: location,
-                            progress: profileProgress(location),
-                            remainingDistanceKm: remainingDistanceKm(from: location.distanceKm)
+                            info: CueSheetRowInfo(
+                                distanceKm: location.distanceKm,
+                                elevationMeters: location.elevationMeters,
+                                progress: stats,
+                                remainingDistanceKm: remainingDistanceKm(from: location.distanceKm),
+                                selectionOffset: selectionOffset(at: location.distanceKm, stats: stats, reference: reference)
+                            )
                         )
                         .id(Self.currentLocationRowID)
 
                     case .section(let section):
+                        let isSelected = selectedCueID == section.startCue.id
+                            || (selectedCueID != nil && selectedCueID == section.summitCue?.id)
                         NavigationLink(value: ClimbSectionRoute(section: section)) {
                             ClimbSectionRow(
                                 section: section,
-                                isSelected: selectedCueID == section.startCue.id
-                                    || (selectedCueID != nil && selectedCueID == section.summitCue?.id)
+                                isSelected: isSelected,
+                                selectionOffset: isSelected
+                                    ? nil
+                                    : selectionOffset(
+                                        at: section.startKm,
+                                        stats: progress.stats(atDistanceKm: section.startKm, trackPoints: course.trackPoints),
+                                        reference: reference
+                                    )
                             )
                         }
                         .buttonStyle(.plain)
                         .id(Self.sectionRowID(section))
 
                     case .cue(let cue):
+                        let stats = cueProgress(cue)
+                        let isSelected = cue.id == selectedCueID
                         CueSheetRow(
                             cue: cue,
-                            isSelected: cue.id == selectedCueID,
-                            progress: cueProgress(cue),
-                            remainingDistanceKm: remainingDistanceKm(from: cue.distanceKm)
+                            isSelected: isSelected,
+                            info: CueSheetRowInfo(
+                                distanceKm: cue.distanceKm,
+                                elevationMeters: cueElevation(cue),
+                                progress: stats,
+                                remainingDistanceKm: remainingDistanceKm(from: cue.distanceKm),
+                                selectionOffset: isSelected
+                                    ? nil
+                                    : selectionOffset(at: cue.distanceKm, stats: stats, reference: reference)
+                            )
                         )
                         .id(cue.id)
                         .onTapGesture {
@@ -213,9 +252,14 @@ struct CueSheetListView: View {
         }
     }
 
+    /// 왕복·루프 코스에서는 같은 자리를 두 번 지나므로 좌표가 아니라 큐의 누적 거리로 트랙 위치를 찾는다.
     private func cueProgress(_ cue: CourseCuePoint) -> RouteElevationProgressStats? {
-        let index = Geo.nearestIndex(course.trackPoints, lat: cue.lat, lon: cue.lon)
-        return progress.stats(at: index)
+        progress.stats(atDistanceKm: cue.distanceKm, trackPoints: course.trackPoints)
+    }
+
+    private func cueElevation(_ cue: CourseCuePoint) -> Double? {
+        Geo.nearestIndex(course.trackPoints, distanceKm: cue.distanceKm)
+            .flatMap { course.trackPoints[$0].ele }
     }
 
     private func profileProgress(_ selection: CourseProfileSelection) -> RouteElevationProgressStats? {
@@ -224,6 +268,38 @@ struct CueSheetListView: View {
 
     private func remainingDistanceKm(from distanceKm: Double) -> Double {
         max(0, course.totalDistanceKm - distanceKm)
+    }
+
+    /// 셋째 줄의 기준 위치. 그래프 선택 지점이 없으면 선택한 큐를 기준으로 삼는다.
+    private var selectionReference: CueSheetSelectionReference? {
+        if let selectedProfilePoint {
+            return CueSheetSelectionReference(
+                distanceKm: selectedProfilePoint.distanceKm,
+                stats: profileProgress(selectedProfilePoint)
+            )
+        }
+        if let selectedCueID,
+           let cue = course.cuePoints.first(where: { $0.id == selectedCueID }) {
+            return CueSheetSelectionReference(distanceKm: cue.distanceKm, stats: cueProgress(cue))
+        }
+        return nil
+    }
+
+    /// 기준 위치에서 이 항목까지의 거리(앞이면 +)와 그 사이의 누적 상승.
+    private func selectionOffset(
+        at distanceKm: Double,
+        stats: RouteElevationProgressStats?,
+        reference: CueSheetSelectionReference?
+    ) -> CueSheetSelectionOffset? {
+        guard let reference else { return nil }
+        var ascent: Double?
+        if let stats, let referenceStats = reference.stats {
+            ascent = abs(stats.ascentFromStart - referenceStats.ascentFromStart)
+        }
+        return CueSheetSelectionOffset(
+            distanceKm: distanceKm - reference.distanceKm,
+            ascentMeters: ascent
+        )
     }
 }
 
@@ -328,51 +404,132 @@ private struct TrackEndpoint {
     var rowID: String { kind.rowID }
 }
 
+private struct CueSheetSelectionReference {
+    var distanceKm: Double
+    var stats: RouteElevationProgressStats?
+}
+
+struct CueSheetSelectionOffset {
+    var distanceKm: Double
+    var ascentMeters: Double?
+}
+
+private struct CueSheetRowInfo {
+    var distanceKm: Double
+    var elevationMeters: Double?
+    var progress: RouteElevationProgressStats?
+    var remainingDistanceKm: Double
+    /// 시작점에서는 누적 값이 늘 0이라 숨긴다.
+    var showsProgressFromStart = true
+    /// 종료점에서는 남은 값이 늘 0이라 숨긴다.
+    var showsProgressToEnd = true
+    var selectionOffset: CueSheetSelectionOffset?
+}
+
+/// 큐시트 항목 공통 레이아웃: 아이콘 아래에 고도, 제목 줄 오른쪽에 거리, 아래에 누적·남은·선택 지점 기준 값.
+private struct CueSheetRowContent<Icon: View>: View {
+    let title: String
+    var titleLineLimit = 2
+    let info: CueSheetRowInfo
+    @ViewBuilder let icon: Icon
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(spacing: 4) {
+                icon
+                    .frame(width: 34, height: 34)
+                if let elevation = info.elevationMeters {
+                    Text(formatCueSheetElevation(elevation))
+                        .font(.caption2)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+            }
+            .frame(width: 44)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(title)
+                        .font(.headline)
+                        .lineLimit(titleLineLimit)
+                    Spacer(minLength: 8)
+                    Text(formatCueSheetDistance(info.distanceKm))
+                        .font(.subheadline.weight(.medium))
+                        .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+                }
+
+                Group {
+                    if info.showsProgressFromStart, let progress = info.progress {
+                        Text("누적 상승 \(formatCueSheetElevation(progress.ascentFromStart))")
+                    }
+                    if info.showsProgressToEnd {
+                        if let progress = info.progress {
+                            Text("종료점까지 \(formatCueSheetDistance(info.remainingDistanceKm)) · \(formatCueSheetElevation(progress.ascentToEnd))")
+                        } else {
+                            Text("종료점까지 \(formatCueSheetDistance(info.remainingDistanceKm))")
+                        }
+                    }
+                    if let offset = info.selectionOffset {
+                        CueSheetSelectionOffsetText(offset: offset)
+                    }
+                }
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+        }
+    }
+}
+
+/// 보조텍스트 셋째 줄: 선택 지점(또는 선택한 큐)에서 이 항목까지의 거리와 그 사이 누적 상승.
+struct CueSheetSelectionOffsetText: View {
+    let offset: CueSheetSelectionOffset
+
+    var body: some View {
+        Group {
+            if let ascent = offset.ascentMeters {
+                Text("선택 지점 기준 \(formatCueSheetSignedDistance(offset.distanceKm)) / 상승 \(formatCueSheetElevation(ascent))")
+            } else {
+                Text("선택 지점 기준 \(formatCueSheetSignedDistance(offset.distanceKm))")
+            }
+        }
+        .foregroundStyle(.cyan)
+    }
+}
+
+private func formatCueSheetDistance(_ km: Double) -> String {
+    if abs(km) < 1 {
+        return "\(Int((km * 1_000).rounded()).formatted())m"
+    }
+    return "\(km.formatted(.number.precision(.fractionLength(1))))km"
+}
+
+private func formatCueSheetSignedDistance(_ km: Double) -> String {
+    let isPositive = (km * 1_000).rounded() > 0
+    return (isPositive ? "+" : "") + formatCueSheetDistance(km)
+}
+
+private func formatCueSheetElevation(_ meters: Double) -> String {
+    "\(Int(meters.rounded()).formatted())m"
+}
+
 private struct CueSheetRow: View {
     let cue: CourseCuePoint
     let isSelected: Bool
-    let progress: RouteElevationProgressStats?
-    let remainingDistanceKm: Double
+    let info: CueSheetRowInfo
 
     private var glyph: CuePointGlyph {
         cuePointGlyph(for: cue.pointType)
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        CueSheetRowContent(title: cue.displayName, info: info) {
             CueGlyphView(glyph: glyph)
-
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(cue.displayName)
-                        .font(.headline)
-                        .lineLimit(2)
-                    Spacer(minLength: 8)
-                    Text(formatRouteDistance(cue.distanceKm))
-                        .font(.subheadline.weight(.medium))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack(spacing: 8) {
-                    Text(cuePointLabel(for: cue.pointType))
-                    if let progress {
-                        Text("남은 \(formatRouteDistance(remainingDistanceKm))")
-                        Text("남은 상승 \(formatRouteElevation(progress.ascentToEnd))")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-
-                if !cue.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(cue.notes)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(isSelected ? 4 : 2)
-                }
-            }
         }
         .padding(12)
         .background(
@@ -387,44 +544,16 @@ private struct CueSheetRow: View {
 }
 
 private struct ProfileSelectionCueSheetRow: View {
-    let selection: CourseProfileSelection
-    let progress: RouteElevationProgressStats?
-    let remainingDistanceKm: Double
+    let info: CueSheetRowInfo
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        CueSheetRowContent(title: "그래프 선택 위치", info: info) {
             ZStack {
                 Circle()
                     .fill(Color.cyan.opacity(0.16))
                 Image(systemName: "scope")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.cyan)
-            }
-            .frame(width: 34, height: 34)
-
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("그래프 선택 위치")
-                        .font(.headline)
-                        .lineLimit(2)
-                    Spacer(minLength: 8)
-                    Text(formatRouteDistance(selection.distanceKm))
-                        .font(.subheadline.weight(.medium))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack(spacing: 8) {
-                    Text("고도 \(formatRouteElevation(selection.elevationMeters))")
-                    if let progress {
-                        Text("남은 \(formatRouteDistance(remainingDistanceKm))")
-                        Text("남은 상승 \(formatRouteElevation(progress.ascentToEnd))")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
             }
         }
         .padding(12)
@@ -437,44 +566,16 @@ private struct ProfileSelectionCueSheetRow: View {
 }
 
 private struct CurrentLocationCueSheetRow: View {
-    let location: CourseProfileSelection
-    let progress: RouteElevationProgressStats?
-    let remainingDistanceKm: Double
+    let info: CueSheetRowInfo
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        CueSheetRowContent(title: "현재 위치", titleLineLimit: 1, info: info) {
             ZStack {
                 Circle()
                     .fill(Color.blue)
                 Image(systemName: "location.fill")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
-            }
-            .frame(width: 34, height: 34)
-
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("현재 위치")
-                        .font(.headline)
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    Text(formatRouteDistance(location.distanceKm))
-                        .font(.subheadline.weight(.medium))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack(spacing: 8) {
-                    Text("고도 \(formatRouteElevation(location.elevationMeters))")
-                    Text("남은 \(formatRouteDistance(remainingDistanceKm))")
-                    if let progress {
-                        Text("남은 상승 \(formatRouteElevation(progress.ascentToEnd))")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
             }
         }
         .padding(12)
@@ -489,42 +590,17 @@ private struct CurrentLocationCueSheetRow: View {
 
 private struct TrackEndpointRow: View {
     let endpoint: TrackEndpoint
-    let remainingDistanceKm: Double
     let isSelected: Bool
+    let info: CueSheetRowInfo
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        CueSheetRowContent(title: endpoint.kind.title, titleLineLimit: 1, info: info) {
             ZStack {
                 Circle()
                     .fill(endpoint.kind.color.opacity(0.16))
                 Image(systemName: endpoint.kind.symbol)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(endpoint.kind.color)
-            }
-            .frame(width: 34, height: 34)
-
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(endpoint.kind.title)
-                        .font(.headline)
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    Text(formatRouteDistance(endpoint.distanceKm))
-                        .font(.subheadline.weight(.medium))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack(spacing: 8) {
-                    Text("고도 \(formatRouteElevation(endpoint.elevation))")
-                    if endpoint.kind == .start {
-                        Text("남은 \(formatRouteDistance(remainingDistanceKm))")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
             }
         }
         .padding(12)

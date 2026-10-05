@@ -32,6 +32,8 @@ struct ClimbSectionRow: View {
     let section: CourseClimbSection
     /// 지도·그래프에서 구간의 시작 큐나 정상 큐를 선택했을 때 강조한다.
     var isSelected = false
+    /// 큐시트에서 선택 지점(또는 선택한 큐)을 기준으로 한 구간 시작점의 거리·상승.
+    var selectionOffset: CueSheetSelectionOffset? = nil
 
     private var glyph: CuePointGlyph {
         sectionGlyph(for: section)
@@ -69,6 +71,13 @@ struct ClimbSectionRow: View {
                 if let summit = section.summitCue {
                     SectionEndCueLabel(cue: summit)
                         .font(.caption)
+                        .lineLimit(1)
+                }
+
+                if let selectionOffset {
+                    CueSheetSelectionOffsetText(offset: selectionOffset)
+                        .font(.caption)
+                        .monospacedDigit()
                         .lineLimit(1)
                 }
             }
