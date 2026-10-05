@@ -27,7 +27,7 @@ extension View {
     }
 }
 
-/// 큐시트 탭의 구간 행. 누르면 구간 상세로 이동한다.
+/// 큐시트 탭의 구간 행. 행을 누르면 다른 큐처럼 선택되고, 오른쪽 버튼으로 구간 상세로 이동한다.
 struct ClimbSectionRow: View {
     let section: CourseClimbSection
     /// 지도·그래프에서 구간의 시작 큐나 정상 큐를 선택했을 때 강조한다.
@@ -82,10 +82,15 @@ struct ClimbSectionRow: View {
                 }
             }
 
-            Image(systemName: "chevron.right")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.tertiary)
-                .padding(.top, 3)
+            NavigationLink(value: ClimbSectionRoute(section: section)) {
+                Image(systemName: "info.circle")
+                    .font(.title3)
+                    .foregroundStyle(glyph.color)
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("구간 상세")
         }
         .padding(12)
         .background(
