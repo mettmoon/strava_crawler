@@ -19,8 +19,8 @@ struct CourseViewerView: View {
     @State private var climbSections: (courseID: UUID, sections: [CourseClimbSection])?
     /// 넓은 화면 사이드바에 띄울 패널. 지도는 항상 옆에 보이므로 큐시트를 기본으로 둔다.
     @State private var sidebarPanel: CourseSidebarPanel = .cueSheet
-    /// 탭 배치에서 시트로 띄운 구간 상세. 화면 이동으로 열면 DocumentGroup 바와 상세 화면 바가 두 줄로 쌓인다.
-    @State private var presentedClimbSection: ClimbSectionRoute?
+    /// 시트로 띄운 구간 상세. 화면 이동으로 열면 DocumentGroup 바와 상세 화면 바가 두 줄로 쌓인다.
+    @State private var presentedClimbSection: CourseClimbSection?
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -39,29 +39,8 @@ struct CourseViewerView: View {
             if usesSidebarLayout {
                 sidebarLayout
             } else {
-                // DocumentGroup이 바를 두므로 내비게이션 스택 없이 두고, 구간 상세는 시트로 띄운다.
+                // DocumentGroup이 바를 두므로 내비게이션 스택 없이 둔다.
                 tabLayout
-                    .environment(\.showClimbSectionDetail) { section in
-                        presentedClimbSection = ClimbSectionRoute(section: section)
-                    }
-                    .sheet(item: $presentedClimbSection) { route in
-                        NavigationStack {
-                            ClimbSectionDetailView(course: course, section: route.section) { cue in
-                                linkedCueSelection.wrappedValue = cue.id
-                                selectedTab = .map
-                            }
-                            .navigationBarTitleDisplayMode(.inline)
-                            // DocumentGroup이 시트 바에도 뒤로가기 버튼을 붙이므로 숨기고 닫기 버튼만 둔다.
-                            .navigationBarBackButtonHidden(true)
-                            .toolbar {
-                                ToolbarItem(placement: .topBarTrailing) {
-                                    Button("닫기", systemImage: "xmark") {
-                                        presentedClimbSection = nil
-                                    }
-                                }
-                            }
-                        }
-                    }
                     .toolbar {
                         if selectedTab == .cueSheet {
                             ToolbarItem(placement: .topBarTrailing) {
@@ -69,6 +48,28 @@ struct CourseViewerView: View {
                             }
                         }
                     }
+            }
+        }
+        // 구간 상세는 두 배치 모두 시트로 띄운다.
+        .environment(\.showClimbSectionDetail) { section in
+            presentedClimbSection = section
+        }
+        .sheet(item: $presentedClimbSection) { section in
+            NavigationStack {
+                ClimbSectionDetailView(course: course, section: section) { cue in
+                    linkedCueSelection.wrappedValue = cue.id
+                    showMapIfNeeded()
+                }
+                .navigationBarTitleDisplayMode(.inline)
+                // DocumentGroup이 시트 바에도 뒤로가기 버튼을 붙이므로 숨기고 닫기 버튼만 둔다.
+                .navigationBarBackButtonHidden(true)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("닫기", systemImage: "xmark") {
+                            presentedClimbSection = nil
+                        }
+                    }
+                }
             }
         }
         .task(id: course.id) {
@@ -149,12 +150,7 @@ struct CourseViewerView: View {
     private var sidebarLayout: some View {
         GeometryReader { proxy in
             HStack(spacing: 0) {
-                // 상세 화면은 사이드바 스택 안에서 열려 지도가 계속 옆에 보인다.
-                // 루트는 DocumentGroup 바와 겹치지 않게 자기 바를 숨긴다.
-                NavigationStack {
-                    sidebar
-                        .toolbar(.hidden, for: .navigationBar)
-                }
+                sidebar
                 .frame(width: Self.sidebarWidth(forTotalWidth: proxy.size.width))
 
                 Divider()
@@ -199,10 +195,6 @@ struct CourseViewerView: View {
             }
         }
         .background(Color(.systemGroupedBackground))
-        // 지도가 이미 옆에 있으므로 선택만 바꾸면 지도가 그 큐로 이동한다.
-        .climbSectionDestination(course: course) { cue in
-            linkedCueSelection.wrappedValue = cue.id
-        }
     }
 
     // MARK: - Tab layout
@@ -999,9 +991,4 @@ struct DetailRow: View {
             Divider().padding(.leading, 12)
         }
     }
-}
-
-/// 탭 배치에서 구간 상세를 sheet(item:)로 띄우기 위한 식별자.
-extension ClimbSectionRoute: Identifiable {
-    var id: UUID { section.id }
 }

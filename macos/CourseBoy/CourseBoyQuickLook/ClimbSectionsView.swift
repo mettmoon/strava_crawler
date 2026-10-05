@@ -2,38 +2,12 @@ import CoursePreviewCore
 import MapKit
 import SwiftUI
 
-/// 구간 상세 화면으로 가는 경로. 같은 구간이면 같은 경로로 본다.
-struct ClimbSectionRoute: Hashable {
-    var section: CourseClimbSection
-
-    static func == (lhs: ClimbSectionRoute, rhs: ClimbSectionRoute) -> Bool {
-        lhs.section.id == rhs.section.id
-    }
-
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(section.id)
-    }
-}
-
-extension View {
-    /// TabView 안쪽에 둔 navigationDestination은 바깥 NavigationStack이 찾지 못하므로 TabView에 붙인다.
-    func climbSectionDestination(
-        course: LoadedCourse,
-        onShowCueOnMap: @escaping (CourseCuePoint) -> Void
-    ) -> some View {
-        navigationDestination(for: ClimbSectionRoute.self) { route in
-            ClimbSectionDetailView(course: course, section: route.section, onShowCueOnMap: onShowCueOnMap)
-        }
-    }
-}
-
 extension EnvironmentValues {
-    /// 설정되어 있으면 구간 행의 상세 버튼이 화면 이동 대신 이 동작으로 상세를 연다.
-    /// DocumentGroup 바와 겹치지 않게 탭 배치는 내비게이션 스택 없이 시트로 띄운다.
+    /// 구간 행의 상세 버튼이 부르는 동작. DocumentGroup 바와 겹치지 않게 뷰어가 시트로 띄운다.
     @Entry var showClimbSectionDetail: ((CourseClimbSection) -> Void)? = nil
 }
 
-/// 큐시트 탭의 구간 행. 행을 누르면 다른 큐처럼 선택되고, 오른쪽 버튼으로 구간 상세로 이동한다.
+/// 큐시트 탭의 구간 행. 행을 누르면 다른 큐처럼 선택되고, 오른쪽 버튼으로 구간 상세를 연다.
 struct ClimbSectionRow: View {
     let section: CourseClimbSection
     /// 지도·그래프에서 구간의 시작 큐나 정상 큐를 선택했을 때 강조한다.
@@ -89,18 +63,10 @@ struct ClimbSectionRow: View {
                 }
             }
 
-            Group {
-                if let showDetail {
-                    Button {
-                        showDetail(section)
-                    } label: {
-                        detailIcon
-                    }
-                } else {
-                    NavigationLink(value: ClimbSectionRoute(section: section)) {
-                        detailIcon
-                    }
-                }
+            Button {
+                showDetail?(section)
+            } label: {
+                detailIcon
             }
             .buttonStyle(.plain)
             .accessibilityLabel("구간 상세")
