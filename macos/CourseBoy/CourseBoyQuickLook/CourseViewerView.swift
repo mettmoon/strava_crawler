@@ -11,6 +11,9 @@ struct CourseViewerView: View {
     @State private var selectedTab: CourseViewerTab = .summary
     /// 큐나 지점을 선택할 때마다 증가한다. 지도는 이 값이 바뀔 때만 선택 위치로 이동한다.
     @State private var mapCenterRequest = 0
+    /// 지도를 코스 전체 보기로 되돌릴 때마다 증가한다. 지도 버튼과 키보드 단축키가 함께 쓴다.
+    @State private var fitCourseRequest = 0
+    @AppStorage("mapShowsElevationChart") private var showsElevationChart = true
     @State private var locationTracker = CourseLocationTracker()
     /// 오르막 구간. 트랙 전체를 훑으므로 코스마다 한 번 백그라운드에서 계산한다. nil이면 계산 중.
     @State private var climbSections: (courseID: UUID, sections: [CourseClimbSection])?
@@ -53,6 +56,61 @@ struct CourseViewerView: View {
         }
         .onDisappear {
             locationTracker.stop()
+        }
+        .focusedSceneValue(\.courseViewerCommandHandler, commandHandler)
+    }
+
+    // MARK: - Keyboard commands
+
+    private var commandHandler: CourseViewerCommandHandler {
+        CourseViewerCommandHandler(
+            selectPreviousCue: { selectAdjacentCue(forward: false) },
+            selectNextCue: { selectAdjacentCue(forward: true) },
+            clearSelection: {
+                selectedCueID = nil
+                selectedProfilePoint = nil
+            },
+            fitCourse: {
+                showMapIfNeeded()
+                locationTracker.stopFollowing()
+                fitCourseRequest += 1
+            },
+            toggleLocation: {
+                showMapIfNeeded()
+                locationTracker.toggle(course: course)
+            },
+            toggleElevationChart: {
+                showMapIfNeeded()
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showsElevationChart.toggle()
+                }
+            },
+            hasCues: !course.cuePoints.isEmpty,
+            hasSelection: selectedCueID != nil || selectedProfilePoint != nil,
+            showsElevationChart: showsElevationChart
+        )
+    }
+
+    /// 선택한 큐(없으면 선택 지점) 앞뒤의 큐를 고른다. 아무것도 없으면 처음이나 마지막 큐.
+    private func selectAdjacentCue(forward: Bool) {
+        let cues = course.sortedCuePoints
+        let target: CourseCuePoint?
+        if let selectedCueID, let index = cues.firstIndex(where: { $0.id == selectedCueID }) {
+            let adjacent = forward ? index + 1 : index - 1
+            target = cues.indices.contains(adjacent) ? cues[adjacent] : nil
+        } else if let km = selectedProfilePoint?.distanceKm {
+            target = forward ? cues.first { $0.distanceKm > km } : cues.last { $0.distanceKm < km }
+        } else {
+            target = forward ? cues.first : cues.last
+        }
+        guard let target else { return }
+        linkedCueSelection.wrappedValue = target.id
+    }
+
+    /// 탭 배치에서는 지도 조작 단축키를 누르면 결과가 보이도록 지도 탭으로 옮긴다.
+    private func showMapIfNeeded() {
+        if !usesSidebarLayout {
+            selectedTab = .map
         }
     }
 
@@ -150,6 +208,7 @@ struct CourseViewerView: View {
             selectedProfilePoint: linkedProfileSelection,
             locationTracker: locationTracker,
             mapCenterRequest: mapCenterRequest,
+            fitCourseRequest: $fitCourseRequest,
             isRegularWidth: isRegularWidth,
             onClose: onClose
         )
@@ -291,12 +350,12 @@ private struct CourseMapTab: View {
     @Binding var selectedProfilePoint: CourseProfileSelection?
     @Bindable var locationTracker: CourseLocationTracker
     let mapCenterRequest: Int
+    @Binding var fitCourseRequest: Int
     /// iPad 사이드바 배치. 지도 폭이 넓어 선택 카드를 좁게 둔다.
     var isRegularWidth = false
     var onClose: () -> Void
     @AppStorage("mapShowsElevationChart") private var showsElevationChart = true
     @AppStorage(CourseMapStyle.storageKey) private var mapStyle: CourseMapStyle = .standard
-    @State private var fitCourseRequest = 0
     @State private var compassLink = CourseMapCompassLink()
     @State private var isScrubbingElevationChart = false
     /// 트랙 포인트 전체를 훑어 만들기 때문에 코스마다 한 번만 계산해 둔다.
