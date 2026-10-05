@@ -448,8 +448,12 @@ struct CourseMapView: UIViewRepresentable {
                 let view = glyphView(for: annotation, identifier: "endpoint", in: mapView)
                 view.configure(
                     color: endpoint.kind == .start ? .systemGreen : .systemRed,
-                    symbol: endpoint.kind == .start ? "flag.fill" : "flag.checkered"
+                    symbol: endpoint.kind == .start ? "flag.fill" : "flag.checkered",
+                    style: .prominentIcon
                 )
+                // 출발·도착은 코스 선, 큐 마커, 그래프 선택 위치보다 위에 그린다.
+                view.zPriority = .max
+                view.selectedZPriority = .max
                 return view
             }
 
@@ -845,11 +849,14 @@ private final class CourseGlyphAnnotationView: MKAnnotationView {
     enum Style {
         /// 색 원 안에 심볼이나 글자를 넣는다.
         case icon
+        /// `icon`보다 조금 큰 원. 출발·도착처럼 잘 보여야 하는 마커.
+        case prominentIcon
         /// 아이콘 없이 작은 점만 찍는다. 그래프 선택 위치처럼 위치만 알리면 되는 경우.
         case dot
     }
 
     private static let iconDiameter: CGFloat = 22
+    private static let prominentIconDiameter: CGFloat = 28
     private static let dotDiameter: CGFloat = 14
     private static let selectedScale: CGFloat = 30 / 22
 
@@ -889,14 +896,22 @@ private final class CourseGlyphAnnotationView: MKAnnotationView {
     func configure(color: UIColor, symbol: String? = nil, text: String? = nil, style: Style = .icon) {
         self.style = style
         circleView.backgroundColor = color
-        let diameter = style == .icon ? Self.iconDiameter : Self.dotDiameter
+        let isIcon = style != .dot
+        let diameter: CGFloat = switch style {
+        case .icon: Self.iconDiameter
+        case .prominentIcon: Self.prominentIconDiameter
+        case .dot: Self.dotDiameter
+        }
         // 선택 시 커지는 크기만큼 영역을 미리 잡아 콜아웃이 확대된 원 바로 위에 붙게 한다.
         let side = diameter * Self.selectedScale
         bounds = CGRect(x: 0, y: 0, width: side, height: side)
         circleView.bounds = CGRect(x: 0, y: 0, width: diameter, height: diameter)
         circleView.center = CGPoint(x: side / 2, y: side / 2)
         circleView.layer.cornerRadius = diameter / 2
-        circleView.layer.borderWidth = style == .icon ? 1.5 : 2
+        circleView.layer.borderWidth = switch style {
+        case .icon: 1.5
+        case .prominentIcon, .dot: 2
+        }
 
         let iconSide = diameter * 0.55
         let iconFrame = CGRect(
@@ -907,7 +922,7 @@ private final class CourseGlyphAnnotationView: MKAnnotationView {
         )
         imageView.frame = iconFrame
         label.frame = iconFrame.insetBy(dx: -2, dy: 0)
-        if style == .icon, let symbol {
+        if isIcon, let symbol {
             imageView.image = UIImage(
                 systemName: symbol,
                 withConfiguration: UIImage.SymbolConfiguration(pointSize: iconSide, weight: .semibold)
@@ -918,7 +933,7 @@ private final class CourseGlyphAnnotationView: MKAnnotationView {
             imageView.isHidden = true
         }
         label.font = .systemFont(ofSize: diameter * 0.5, weight: .bold)
-        label.text = style == .icon && symbol == nil ? text : nil
+        label.text = isIcon && symbol == nil ? text : nil
         label.isHidden = label.text == nil
         applySelection(animated: false)
     }
