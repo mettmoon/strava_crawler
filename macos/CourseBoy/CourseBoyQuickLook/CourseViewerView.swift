@@ -753,6 +753,7 @@ private struct SelectedCueDetailRows: View {
                 if !selectedCue.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     DetailRow(title: "메모", value: selectedCue.notes)
                 }
+                progressRows(atDistanceKm: selectedCue.distanceKm)
             }
             if let selectedProfilePoint {
                 let endpoint = selectedProfilePoint.endpointKind(in: course)
@@ -764,9 +765,23 @@ private struct SelectedCueDetailRows: View {
                     title: endpoint.map { "\($0.title) 고도" } ?? "그래프 선택 고도",
                     value: formatRouteElevation(selectedProfilePoint.elevationMeters)
                 )
+                progressRows(atDistanceKm: selectedProfilePoint.distanceKm)
             }
         }
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// 선택 위치 기준 출발점부터의 누적 상승·하강과 종료점까지 남은 거리·상승·하강.
+    @ViewBuilder
+    private func progressRows(atDistanceKm distanceKm: Double) -> some View {
+        // 왕복·루프 코스에서도 맞도록 좌표가 아니라 누적 거리로 트랙 위치를 찾는다.
+        let stats = RouteElevationProgress(trackPoints: course.trackPoints)
+            .stats(atDistanceKm: distanceKm, trackPoints: course.trackPoints)
+        DetailRow(title: "누적 상승", value: formatRouteElevation(stats?.ascentFromStart))
+        DetailRow(title: "누적 하강", value: formatRouteElevation(stats?.descentFromStart))
+        DetailRow(title: "남은 거리", value: formatRouteDistance(max(0, course.totalDistanceKm - distanceKm)))
+        DetailRow(title: "남은 상승", value: formatRouteElevation(stats?.ascentToEnd))
+        DetailRow(title: "남은 하강", value: formatRouteElevation(stats?.descentToEnd))
     }
 
     private var selectedCueElevation: Double? {
