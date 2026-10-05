@@ -138,21 +138,23 @@ struct CueSheetListView: View {
                     case .section(let section):
                         let isSelected = selectedCueID == section.startCue.id
                             || (selectedCueID != nil && selectedCueID == section.summitCue?.id)
-                        NavigationLink(value: ClimbSectionRoute(section: section)) {
-                            ClimbSectionRow(
-                                section: section,
-                                isSelected: isSelected,
-                                selectionOffset: isSelected
-                                    ? nil
-                                    : selectionOffset(
-                                        at: section.startKm,
-                                        stats: progress.stats(atDistanceKm: section.startKm, trackPoints: course.trackPoints),
-                                        reference: reference
-                                    )
-                            )
-                        }
-                        .buttonStyle(.plain)
+                        ClimbSectionRow(
+                            section: section,
+                            isSelected: isSelected,
+                            selectionOffset: isSelected
+                                ? nil
+                                : selectionOffset(
+                                    at: section.startKm,
+                                    stats: progress.stats(atDistanceKm: section.startKm, trackPoints: course.trackPoints),
+                                    reference: reference
+                                )
+                        )
                         .id(Self.sectionRowID(section))
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedCueID = isSelected ? nil : section.startCue.id
+                            }
+                        }
 
                     case .cue(let cue):
                         let stats = cueProgress(cue)
