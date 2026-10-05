@@ -10,15 +10,9 @@ struct FilePreviewHomeView: View {
     var body: some View {
         Group {
             if let loadedCourse {
-                NavigationStack {
-                    CourseViewerView(course: loadedCourse) {
-                        self.loadedCourse = nil
-                    }
-                        .toolbar {
-                            ToolbarItem(placement: .topBarLeading) {
-                                browserButton
-                            }
-                        }
+                // 내비게이션 스택은 화면 크기에 따라 배치를 고르는 뷰어가 직접 둔다.
+                CourseViewerView(course: loadedCourse) {
+                    self.loadedCourse = nil
                 }
             } else {
                 CourseDocumentBrowserView(
@@ -40,16 +34,6 @@ struct FilePreviewHomeView: View {
         .onOpenURL { url in
             openFile(url)
         }
-    }
-
-    private var browserButton: some View {
-        Button {
-            loadedCourse = nil
-        } label: {
-            Image(systemName: "chevron.backward")
-                .font(.body.weight(.semibold))
-        }
-        .accessibilityLabel("파일 브라우저로 돌아가기")
     }
 
     private func openFile(_ url: URL) {

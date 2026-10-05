@@ -14,7 +14,10 @@ struct CourseViewerView: View {
     @State private var locationTracker = CourseLocationTracker()
     /// 오르막 구간. 트랙 전체를 훑으므로 코스마다 한 번 백그라운드에서 계산한다. nil이면 계산 중.
     @State private var climbSections: (courseID: UUID, sections: [CourseClimbSection])?
+    /// 넓은 화면 사이드바에 띄울 패널. 지도는 항상 옆에 보이므로 큐시트를 기본으로 둔다.
+    @State private var sidebarPanel: CourseSidebarPanel = .cueSheet
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     /// 코스 위로 인식된 현재 위치. 코스 밖이거나 트래킹 중이 아니면 nil.
     private var currentRouteLocation: CourseProfileSelection? {
@@ -27,37 +30,156 @@ struct CourseViewerView: View {
     }
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            CourseSummaryTab(
-                course: course,
-                selectedCue: selectedCue,
-                selectedProfilePoint: selectedProfilePoint
-            )
-            .tabItem {
-                Label("요약", systemImage: "chart.bar.doc.horizontal")
+        Group {
+            if usesSidebarLayout {
+                sidebarLayout
+            } else {
+                NavigationStack {
+                    tabLayout
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) {
+                                browserButton
+                            }
+                        }
+                }
             }
-            .tag(CourseViewerTab.summary)
+        }
+        .task(id: course.id) {
+            let course = course
+            let detected = await Task.detached(priority: .userInitiated) {
+                CourseClimbDetector.sections(in: course)
+            }.value
+            climbSections = (course.id, detected)
+        }
+        .onDisappear {
+            locationTracker.stop()
+        }
+    }
 
-            CourseMapTab(
-                course: course,
-                selectedCueID: linkedCueSelection,
-                selectedProfilePoint: linkedProfileSelection,
-                locationTracker: locationTracker,
-                mapCenterRequest: mapCenterRequest,
-                onClose: onClose
-            )
+    /// iPad처럼 가로·세로 모두 넉넉하면 탭 대신 사이드바와 지도를 함께 보여준다.
+    /// 큰 iPhone 가로 모드도 가로는 regular지만 세로가 낮아 기존 탭 배치를 쓴다.
+    private var usesSidebarLayout: Bool {
+        horizontalSizeClass == .regular && verticalSizeClass == .regular
+    }
+
+    private var browserButton: some View {
+        Button(action: onClose) {
+            Image(systemName: "chevron.backward")
+                .font(.body.weight(.semibold))
+        }
+        .accessibilityLabel("파일 브라우저로 돌아가기")
+    }
+
+    // MARK: - Sidebar layout
+
+    private var sidebarLayout: some View {
+        GeometryReader { proxy in
+            HStack(spacing: 0) {
+                // 상세 화면은 사이드바 스택 안에서 열려 지도가 계속 옆에 보인다.
+                NavigationStack {
+                    sidebar
+                }
+                .frame(width: Self.sidebarWidth(forTotalWidth: proxy.size.width))
+
+                Divider()
+                    .ignoresSafeArea()
+
+                mapTab(isRegularWidth: true)
+            }
+        }
+    }
+
+    /// 지도 폭을 넉넉히 남기도록 화면의 38% 안팎으로 잡되 큐 행이 읽히는 폭은 지킨다.
+    private static func sidebarWidth(forTotalWidth width: CGFloat) -> CGFloat {
+        min(400, max(320, width * 0.38))
+    }
+
+    private var sidebar: some View {
+        VStack(spacing: 0) {
+            Picker("보기", selection: $sidebarPanel) {
+                ForEach(CourseSidebarPanel.allCases) { panel in
+                    Text(panel.title).tag(panel)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+
+            switch sidebarPanel {
+            case .summary:
+                summaryTab
+            case .cueSheet:
+                cueSheetTab
+            }
+        }
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle(course.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                browserButton
+            }
+            if sidebarPanel == .cueSheet {
+                ToolbarItem(placement: .topBarTrailing) {
+                    CueSheetFilterMenu()
+                }
+            }
+        }
+        // 지도가 이미 옆에 있으므로 선택만 바꾸면 지도가 그 큐로 이동한다.
+        .climbSectionDestination(course: course) { cue in
+            linkedCueSelection.wrappedValue = cue.id
+        }
+    }
+
+    // MARK: - Tab layout
+
+    private var summaryTab: some View {
+        CourseSummaryTab(
+            course: course,
+            selectedCue: selectedCue,
+            selectedProfilePoint: selectedProfilePoint
+        )
+    }
+
+    private func mapTab(isRegularWidth: Bool) -> some View {
+        CourseMapTab(
+            course: course,
+            selectedCueID: linkedCueSelection,
+            selectedProfilePoint: linkedProfileSelection,
+            locationTracker: locationTracker,
+            mapCenterRequest: mapCenterRequest,
+            isRegularWidth: isRegularWidth,
+            onClose: onClose
+        )
+    }
+
+    private var cueSheetTab: some View {
+        CourseCueSheetTab(
+            course: course,
+            climbSections: currentClimbSections,
+            selectedCueID: linkedCueSelection,
+            selectedProfilePoint: linkedProfileSelection,
+            currentLocation: currentRouteLocation
+        )
+    }
+
+    private var tabLayout: some View {
+        TabView(selection: $selectedTab) {
+            summaryTab
+                .tabItem {
+                    Label("요약", systemImage: "chart.bar.doc.horizontal")
+                }
+                .tag(CourseViewerTab.summary)
+
+            mapTab(isRegularWidth: false)
                 .tabItem {
                     Label("지도", systemImage: "map")
                 }
                 .tag(CourseViewerTab.map)
 
-            CourseCueSheetTab(
-                course: course,
-                climbSections: currentClimbSections,
-                selectedCueID: linkedCueSelection,
-                selectedProfilePoint: linkedProfileSelection,
-                currentLocation: currentRouteLocation
-            )
+            cueSheetTab
                 .tabItem {
                     Label("큐시트", systemImage: "list.bullet.rectangle")
                 }
@@ -78,16 +200,6 @@ struct CourseViewerView: View {
         .climbSectionDestination(course: course) { cue in
             linkedCueSelection.wrappedValue = cue.id
             selectedTab = .map
-        }
-        .task(id: course.id) {
-            let course = course
-            let detected = await Task.detached(priority: .userInitiated) {
-                CourseClimbDetector.sections(in: course)
-            }.value
-            climbSections = (course.id, detected)
-        }
-        .onDisappear {
-            locationTracker.stop()
         }
     }
 
@@ -130,6 +242,20 @@ private enum CourseViewerTab: Hashable {
     case cueSheet
 }
 
+private enum CourseSidebarPanel: CaseIterable, Identifiable {
+    case summary
+    case cueSheet
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .summary: return "요약"
+        case .cueSheet: return "큐시트"
+        }
+    }
+}
+
 private struct CourseSummaryTab: View {
     let course: LoadedCourse
     let selectedCue: CourseCuePoint?
@@ -165,6 +291,8 @@ private struct CourseMapTab: View {
     @Binding var selectedProfilePoint: CourseProfileSelection?
     @Bindable var locationTracker: CourseLocationTracker
     let mapCenterRequest: Int
+    /// iPad 사이드바 배치. 지도 폭이 넓어 선택 카드를 좁게 둔다.
+    var isRegularWidth = false
     var onClose: () -> Void
     @AppStorage("mapShowsElevationChart") private var showsElevationChart = true
     @AppStorage(CourseMapStyle.storageKey) private var mapStyle: CourseMapStyle = .standard
@@ -292,8 +420,8 @@ private struct CourseMapTab: View {
             VStack {
                 Spacer()
                 selectionOverlay
-                    // 가로 모드는 폭이 남으므로 카드를 왼쪽에 좁게 두어 지도 중앙을 가리지 않는다.
-                    .frame(maxWidth: isCompactHeight ? 520 : .infinity, alignment: .leading)
+                    // 가로 모드와 iPad는 폭이 남으므로 카드를 왼쪽에 좁게 두어 지도 중앙을 가리지 않는다.
+                    .frame(maxWidth: isCompactHeight || isRegularWidth ? 520 : .infinity, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
                     .padding(.bottom, isCompactHeight ? 10 : 16)
