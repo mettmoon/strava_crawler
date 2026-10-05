@@ -109,6 +109,11 @@ struct CourseMapView: UIViewRepresentable {
         private var obscuredInsets = UIEdgeInsets.zero
         /// 지도가 아직 배치되지 않아 맞추지 못한 코스 영역. 배치가 끝나면 적용한다.
         private var pendingFitRect: MKMapRect?
+        /// 자동으로 코스에 맞춘 직후의 지도 크기와 다시 맞춰도 되는 기한. DocumentGroup은 문서를 여는
+        /// 애니메이션 동안 지도를 작게 배치하므로, 그사이 크기가 바뀌면 코스 맞춤을 다시 한다.
+        private var provisionalFit: (size: CGSize, until: Date)?
+
+        private static let provisionalFitDuration: TimeInterval = 1.5
 
         init(
             selectedCueID: Binding<UUID?>,
@@ -209,12 +214,23 @@ struct CourseMapView: UIViewRepresentable {
 
         /// 가려지는 폭을 빼고도 코스를 보여 줄 만큼 지도가 커졌을 때 코스 전체에 맞춘다.
         /// 크기가 0인 상태에서 layoutMargins가 걸린 채 맞추면 지도가 최대로 축소되어 버린다.
+        /// 창에 붙기 전에 맞추면 무시되므로 창에 붙은 뒤에만 맞춘다.
         func applyPendingFitIfPossible(in map: MKMapView) {
+            if pendingFitRect == nil, let provisionalFit {
+                guard Date() < provisionalFit.until else {
+                    self.provisionalFit = nil
+                    return
+                }
+                guard map.bounds.size != provisionalFit.size else { return }
+                pendingFitRect = courseFitRect
+            }
             guard let rect = pendingFitRect,
+                  map.window != nil,
                   map.bounds.width > obscuredInsets.left + obscuredInsets.right + 44,
                   map.bounds.height > obscuredInsets.top + obscuredInsets.bottom + 44 else { return }
             pendingFitRect = nil
             map.setVisibleMapRect(rect, animated: false)
+            provisionalFit = (map.bounds.size, Date().addingTimeInterval(Self.provisionalFitDuration))
             // 첫 배치 전에 이미 선택이 있었으면(구간 탭에서 진입 등) 코스 맞춤 뒤 다시 센터링한다.
             centerOnCurrentSelection(animated: false, in: map)
         }
@@ -559,12 +575,17 @@ struct CourseMapView: UIViewRepresentable {
     }
 }
 
-/// 배치가 끝날 때마다 알려 주는 지도. 첫 배치 뒤에 코스 맞춤을 하기 위해 쓴다.
+/// 배치가 끝나거나 창에 붙을 때마다 알려 주는 지도. 첫 배치 뒤에 코스 맞춤을 하기 위해 쓴다.
 private final class LayoutObservingMapView: MKMapView {
     var onLayout: () -> Void = {}
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        onLayout()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
         onLayout()
     }
 }

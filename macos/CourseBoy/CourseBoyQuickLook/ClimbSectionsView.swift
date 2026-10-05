@@ -27,6 +27,12 @@ extension View {
     }
 }
 
+extension EnvironmentValues {
+    /// 설정되어 있으면 구간 행의 상세 버튼이 화면 이동 대신 이 동작으로 상세를 연다.
+    /// DocumentGroup 바와 겹치지 않게 탭 배치는 내비게이션 스택 없이 시트로 띄운다.
+    @Entry var showClimbSectionDetail: ((CourseClimbSection) -> Void)? = nil
+}
+
 /// 큐시트 탭의 구간 행. 행을 누르면 다른 큐처럼 선택되고, 오른쪽 버튼으로 구간 상세로 이동한다.
 struct ClimbSectionRow: View {
     let section: CourseClimbSection
@@ -34,6 +40,7 @@ struct ClimbSectionRow: View {
     var isSelected = false
     /// 큐시트에서 선택 지점(또는 선택한 큐)을 기준으로 한 구간 시작점의 거리·상승.
     var selectionOffset: CueSheetSelectionOffset? = nil
+    @Environment(\.showClimbSectionDetail) private var showDetail
 
     private var glyph: CuePointGlyph {
         sectionGlyph(for: section)
@@ -82,12 +89,18 @@ struct ClimbSectionRow: View {
                 }
             }
 
-            NavigationLink(value: ClimbSectionRoute(section: section)) {
-                Image(systemName: "info.circle")
-                    .font(.title3)
-                    .foregroundStyle(glyph.color)
-                    .frame(width: 34, height: 34)
-                    .contentShape(Rectangle())
+            Group {
+                if let showDetail {
+                    Button {
+                        showDetail(section)
+                    } label: {
+                        detailIcon
+                    }
+                } else {
+                    NavigationLink(value: ClimbSectionRoute(section: section)) {
+                        detailIcon
+                    }
+                }
             }
             .buttonStyle(.plain)
             .accessibilityLabel("구간 상세")
@@ -102,6 +115,14 @@ struct ClimbSectionRow: View {
                 .strokeBorder(isSelected ? glyph.color.opacity(0.65) : Color.clear, lineWidth: 1)
         }
         .contentShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var detailIcon: some View {
+        Image(systemName: "info.circle")
+            .font(.title3)
+            .foregroundStyle(glyph.color)
+            .frame(width: 34, height: 34)
+            .contentShape(Rectangle())
     }
 }
 

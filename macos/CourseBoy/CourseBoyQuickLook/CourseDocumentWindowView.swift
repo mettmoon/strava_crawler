@@ -2,34 +2,27 @@ import CoursePreviewCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct FilePreviewHomeView: View {
-    @State private var loadedCourse: LoadedCourse?
+/// DocumentGroup이 연 코스 창. 내비게이션 바와 브라우저로 돌아가는 버튼은 DocumentGroup이 제공하고,
+/// 바를 숨기는 iPhone 가로 지도 화면의 뒤로가기 버튼만 dismiss로 문서를 닫는다.
+struct CourseDocumentWindowView: View {
+    let course: LoadedCourse
+
+    /// 창에 끌어다 놓아 바꿔 연 코스. nil이면 DocumentGroup이 연 코스를 보여준다.
+    @State private var droppedCourse: LoadedCourse?
     @State private var fileError: FilePreviewError?
     @State private var isDropTargeted = false
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        Group {
-            if let loadedCourse {
-                // 내비게이션 스택은 화면 크기에 따라 배치를 고르는 뷰어가 직접 둔다.
-                CourseViewerView(course: loadedCourse) {
-                    self.loadedCourse = nil
-                }
-            } else {
-                CourseDocumentBrowserView(
-                    onOpenFile: openFile,
-                    onError: { message in
-                        fileError = FilePreviewError(message: message)
-                    }
-                )
-                .ignoresSafeArea()
-            }
+        CourseViewerView(course: droppedCourse ?? course) {
+            dismiss()
         }
         // Files 앱 등에서 GPX·TCX 파일을 끌어다 놓으면 이 창에서 연다.
         .dropDestination(for: DroppedCourseFile.self) { files, _ in
             guard let file = files.first else { return false }
             switch file.result {
             case .success(let course):
-                loadedCourse = course
+                droppedCourse = course
             case .failure(let message):
                 fileError = FilePreviewError(message: message)
             }
@@ -50,22 +43,6 @@ struct FilePreviewHomeView: View {
                 message: Text(error.message),
                 dismissButton: .default(Text("확인"))
             )
-        }
-        .onOpenURL { url in
-            openFile(url)
-        }
-    }
-
-    private func openFile(_ url: URL) {
-        guard ["gpx", "tcx"].contains(url.pathExtension.lowercased()) else {
-            fileError = FilePreviewError(message: "TCX 또는 GPX 파일만 열 수 있습니다.")
-            return
-        }
-
-        do {
-            loadedCourse = try RouteFileLoader.load(from: url)
-        } catch {
-            fileError = FilePreviewError(message: error.localizedDescription)
         }
     }
 }
@@ -119,9 +96,4 @@ private struct CourseDropTargetOverlay: View {
 struct FilePreviewError: Identifiable {
     let id = UUID()
     let message: String
-}
-
-extension UTType {
-    static let courseBoyGPX = UTType(importedAs: "com.topografix.gpx", conformingTo: .xml)
-    static let courseBoyTCX = UTType(importedAs: "com.garmin.tcx", conformingTo: .xml)
 }
