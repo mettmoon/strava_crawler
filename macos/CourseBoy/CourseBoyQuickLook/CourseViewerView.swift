@@ -68,6 +68,13 @@ struct CourseViewerView: View {
         .navigationBarTitleDisplayMode(.inline)
         // 가로 모드 지도 탭은 세로 공간이 부족해 내비게이션 바를 숨기고 지도 위 뒤로가기 버튼으로 대신한다.
         .toolbar(hidesNavigationBar ? .hidden : .automatic, for: .navigationBar)
+        .toolbar {
+            if selectedTab == .cueSheet {
+                ToolbarItem(placement: .topBarTrailing) {
+                    CueSheetFilterMenu()
+                }
+            }
+        }
         .climbSectionDestination(course: course) { cue in
             linkedCueSelection.wrappedValue = cue.id
             selectedTab = .map
@@ -419,6 +426,12 @@ private struct CourseCueSheetTab: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
+                    Text(countText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .padding(.horizontal, 4)
+
                     CueSheetListView(
                         course: course,
                         selectedCueID: cueSelectionBinding,
@@ -432,13 +445,6 @@ private struct CourseCueSheetTab: View {
                 .padding(16)
             }
             .background(Color(.systemGroupedBackground))
-            // 보기를 바꾸면 리스트를 스크롤하므로 컨트롤은 리스트 위에 고정한다.
-            .safeAreaInset(edge: .top, spacing: 0) {
-                controls
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(.bar)
-            }
             .onChange(of: selectedCueID) { _, id in
                 guard let id else { return }
                 let rowID = CueSheetListView.rowID(
@@ -484,46 +490,6 @@ private struct CourseCueSheetTab: View {
         }
     }
 
-    private var controls: some View {
-        HStack(spacing: 8) {
-            Text(countText)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-                .lineLimit(1)
-
-            Spacer(minLength: 8)
-
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    climbsOnly.toggle()
-                }
-            } label: {
-                Label("오르막만", systemImage: climbsOnly ? "mountain.2.fill" : "mountain.2")
-            }
-            .tint(climbsOnly ? .accentColor : .secondary)
-            .accessibilityValue(climbsOnly ? "켜짐" : "꺼짐")
-
-            // 버튼 문구는 지금 보기가 아니라 누르면 바뀔 보기를 보여준다.
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    groupsClimbSections.toggle()
-                }
-            } label: {
-                Label(
-                    groupsClimbSections ? "큐 전체 보기" : "구간 보기",
-                    systemImage: "arrow.left.arrow.right"
-                )
-            }
-            .tint(.secondary)
-        }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.capsule)
-        .controlSize(.small)
-        .font(.footnote.weight(.semibold))
-        .padding(.horizontal, 4)
-    }
-
     private var countText: String {
         guard let climbSections else { return "큐 \(course.cuePoints.count)개" }
         if climbsOnly {
@@ -543,6 +509,51 @@ private struct CourseCueSheetTab: View {
                 selectedProfilePoint = nil
             }
             selectedCueID = id
+        }
+    }
+}
+
+/// 큐시트 탭 내비게이션 바 오른쪽의 보기·필터 메뉴. 탭 안의 toolbar는 바깥 내비게이션 바에 붙지 않아
+/// 뷰어가 큐시트 탭일 때 직접 띄우고, 설정은 큐시트 탭과 같은 AppStorage 키로 공유한다.
+private struct CueSheetFilterMenu: View {
+    @AppStorage("cueSheetGroupsClimbSections") private var groupsClimbSections = true
+    @AppStorage("cueSheetClimbsOnly") private var climbsOnly = false
+
+    /// 기본 보기(구간 보기, 오르막만 끔)에서 바뀌었는지. 바뀌면 필터 아이콘을 채워 표시한다.
+    private var isFilterActive: Bool {
+        climbsOnly || !groupsClimbSections
+    }
+
+    var body: some View {
+        Menu {
+            Picker("보기", selection: animatedBinding($groupsClimbSections)) {
+                Label("구간 보기", systemImage: "rectangle.stack").tag(true)
+                Label("큐 전체 보기", systemImage: "list.bullet").tag(false)
+            }
+
+            Section {
+                Toggle(isOn: animatedBinding($climbsOnly)) {
+                    Label("오르막만", systemImage: "mountain.2")
+                }
+            }
+        } label: {
+            Label(
+                "필터",
+                systemImage: isFilterActive
+                    ? "line.3.horizontal.decrease.circle.fill"
+                    : "line.3.horizontal.decrease.circle"
+            )
+        }
+        .accessibilityValue(isFilterActive ? "적용됨" : "기본")
+    }
+
+    private func animatedBinding(_ binding: Binding<Bool>) -> Binding<Bool> {
+        Binding {
+            binding.wrappedValue
+        } set: { value in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                binding.wrappedValue = value
+            }
         }
     }
 }
