@@ -338,6 +338,9 @@ private struct CourseSummaryTab: View {
                     CourseDetailRows(course: course)
                 }
             }
+            // 큰 iPhone 가로 모드처럼 넓은 화면에서도 행이 끝없이 늘어나지 않게 읽기 좋은 폭으로 가운데 둔다.
+            .frame(maxWidth: 700)
+            .frame(maxWidth: .infinity)
             .padding(16)
         }
         .background(Color(.systemGroupedBackground))
