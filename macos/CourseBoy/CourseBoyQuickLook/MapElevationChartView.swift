@@ -29,6 +29,8 @@ struct MapElevationChartView: View {
     /// 그래프 영역 폭. + 버튼으로 확대할 배율을 계산할 때 쓴다.
     @State private var plotWidth: CGFloat = 0
     @State private var scrubFeedbackTrigger = 0
+    /// 트랙패드·마우스 포인터를 올린 지점. 누르기 전에 선택될 위치를 미리 보여준다.
+    @State private var hoverPreview: ChartHoverPreview?
     @State private var cueSnapFeedbackTrigger = 0
 
     private var cues: [CourseCuePoint] {
@@ -196,6 +198,11 @@ struct MapElevationChartView: View {
                 },
                 onPinch: { state, scale, anchorX in
                     handlePinch(state, scale: scale, anchorX: anchorX, profile: profile, rect: rect)
+                },
+                onHover: { location in
+                    hoverPreview = location.map {
+                        hoverPreview(atX: $0.x, profile: profile, window: window, rect: rect)
+                    }
                 }
             )
         }
@@ -274,7 +281,20 @@ struct MapElevationChartView: View {
         }
 
         if let selection = displayedSelection, window.contains(selection.distanceKm) {
-            drawSelection(selection, profile: profile, rect: rect, context: context, x: x, y: y)
+            // 포인터를 올린 동안에는 그 지점 말풍선만 보여 두 말풍선이 겹치지 않게 한다.
+            drawSelection(
+                selection,
+                profile: profile,
+                rect: rect,
+                context: context,
+                x: x,
+                y: y,
+                showsLabel: hoverPreview == nil
+            )
+        }
+
+        if let hoverPreview, window.contains(hoverPreview.distanceKm) {
+            drawHover(hoverPreview, profile: profile, rect: rect, context: context, x: x, y: y)
         }
     }
 
@@ -404,7 +424,8 @@ struct MapElevationChartView: View {
         rect: CGRect,
         context: GraphicsContext,
         x: (Double) -> CGFloat,
-        y: (Double) -> CGFloat
+        y: (Double) -> CGFloat,
+        showsLabel: Bool = true
     ) {
         let color = selectedCue.map { cuePointGlyph(for: $0.pointType).color } ?? .cyan
         let pointX = x(selection.distanceKm)
@@ -422,9 +443,63 @@ struct MapElevationChartView: View {
         context.fill(Path(ellipseIn: dot), with: .color(color))
         context.stroke(Path(ellipseIn: dot), with: .color(.white), lineWidth: 1.5)
 
+        guard showsLabel else { return }
         let grade = profile.sample(nearestKm: selection.distanceKm).grade
+        drawValueBubble(
+            "\(formatRouteDistance(selection.distanceKm)) · \(formatRouteElevation(elevation)) · \(formatGrade(grade))",
+            color: color,
+            pointX: pointX,
+            pointY: pointY,
+            rect: rect,
+            context: context
+        )
+    }
+
+    /// 포인터를 올린 지점. 선택과 구분되도록 점선 가이드와 속이 빈 점으로 그린다.
+    private func drawHover(
+        _ hover: ChartHoverPreview,
+        profile: MapElevationProfile,
+        rect: CGRect,
+        context: GraphicsContext,
+        x: (Double) -> CGFloat,
+        y: (Double) -> CGFloat
+    ) {
+        let sample = profile.sample(nearestKm: hover.distanceKm)
+        let color = hover.cue.map { cuePointGlyph(for: $0.pointType).color } ?? Color.secondary
+        let pointX = x(hover.distanceKm)
+        let pointY = y(sample.ele)
+
+        var guide = Path()
+        guide.move(to: CGPoint(x: pointX, y: rect.minY))
+        guide.addLine(to: CGPoint(x: pointX, y: rect.maxY))
+        context.stroke(guide, with: .color(color.opacity(0.8)), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+
+        let dot = CGRect(x: pointX - 4, y: pointY - 4, width: 8, height: 8)
+        context.fill(Path(ellipseIn: dot), with: .color(Color(.systemBackground)))
+        context.stroke(Path(ellipseIn: dot), with: .color(color), lineWidth: 1.5)
+
+        let values = "\(formatRouteDistance(hover.distanceKm)) · \(formatRouteElevation(sample.ele)) · \(formatGrade(sample.grade))"
+        drawValueBubble(
+            hover.cue.map { "\($0.displayName) · \(values)" } ?? values,
+            color: color,
+            pointX: pointX,
+            pointY: pointY,
+            rect: rect,
+            context: context
+        )
+    }
+
+    /// 그래프 위쪽에 거리·고도·경사 말풍선을 그린다. 점과 겹치면 점 아래로 내린다.
+    private func drawValueBubble(
+        _ text: String,
+        color: Color,
+        pointX: CGFloat,
+        pointY: CGFloat,
+        rect: CGRect,
+        context: GraphicsContext
+    ) {
         let label = context.resolve(
-            Text("\(formatRouteDistance(selection.distanceKm)) · \(formatRouteElevation(elevation)) · \(formatGrade(grade))")
+            Text(text)
                 .font(.caption2.weight(.semibold).monospacedDigit())
                 .foregroundStyle(.primary)
         )
@@ -521,6 +596,22 @@ struct MapElevationChartView: View {
             return
         }
         selectProfilePoint(atX: location.x, profile: profile, window: window, rect: rect)
+    }
+
+    /// 포인터 위치를 누르면 선택될 지점. 누를 때와 같이 큐 가이드 라인 근처에서는 큐에 달라붙는다.
+    private func hoverPreview(
+        atX x: CGFloat,
+        profile: MapElevationProfile,
+        window: ClosedRange<Double>,
+        rect: CGRect
+    ) -> ChartHoverPreview {
+        if let cue = magnetCue(atX: x, window: window, rect: rect, holding: nil) {
+            return ChartHoverPreview(distanceKm: cue.distanceKm, cue: cue)
+        }
+        let span = max(window.upperBound - window.lowerBound, 0.0001)
+        let ratio = Double(min(max((x - rect.minX) / rect.width, 0), 1))
+        let sample = profile.sample(nearestKm: window.lowerBound + ratio * span)
+        return ChartHoverPreview(distanceKm: sample.km, cue: nil)
     }
 
     /// 길게 눌러 조정하는 중의 선택. 큐 가이드 라인 근처에서는 큐에 달라붙는다.
@@ -849,6 +940,12 @@ struct MapElevationChartView: View {
     }
 }
 
+private struct ChartHoverPreview {
+    var distanceKm: Double
+    /// 큐에 달라붙었으면 그 큐.
+    var cue: CourseCuePoint?
+}
+
 private struct ChartGestureView: UIViewRepresentable {
     var onTap: (CGPoint) -> Void
     var onLongPress: (UIGestureRecognizer.State, CGPoint) -> Void
@@ -857,6 +954,8 @@ private struct ChartGestureView: UIViewRepresentable {
     var onSelectionDrag: (UIGestureRecognizer.State, CGFloat) -> Void
     var onPan: (UIGestureRecognizer.State, CGFloat) -> Void
     var onPinch: (UIGestureRecognizer.State, CGFloat, CGFloat) -> Void
+    /// 포인터가 그래프 위에 있으면 그 위치, 벗어나면 nil.
+    var onHover: (CGPoint?) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -890,10 +989,14 @@ private struct ChartGestureView: UIViewRepresentable {
         // 길게 누르기가 실패(=누르자마자 움직임)했을 때만 이동으로 본다.
         pan.require(toFail: longPress)
         pan.require(toFail: selectionDrag)
+        // 확대한 그래프를 트랙패드 두 손가락 스크롤로도 좌우 이동한다.
+        pan.allowedScrollTypesMask = .continuous
 
         let pinch = UIPinchGestureRecognizer(target: coordinator, action: #selector(Coordinator.handlePinch(_:)))
 
-        [longPress, tap, selectionDrag, pan, pinch].forEach(view.addGestureRecognizer)
+        let hover = UIHoverGestureRecognizer(target: coordinator, action: #selector(Coordinator.handleHover(_:)))
+
+        [longPress, tap, selectionDrag, pan, pinch, hover].forEach(view.addGestureRecognizer)
         return view
     }
 
@@ -940,6 +1043,15 @@ private struct ChartGestureView: UIViewRepresentable {
 
         @objc func handlePan(_ recognizer: UIPanGestureRecognizer) {
             parent.onPan(recognizer.state, recognizer.translation(in: recognizer.view).x)
+        }
+
+        @objc func handleHover(_ recognizer: UIHoverGestureRecognizer) {
+            switch recognizer.state {
+            case .began, .changed:
+                parent.onHover(recognizer.location(in: recognizer.view))
+            default:
+                parent.onHover(nil)
+            }
         }
 
         @objc func handlePinch(_ recognizer: UIPinchGestureRecognizer) {

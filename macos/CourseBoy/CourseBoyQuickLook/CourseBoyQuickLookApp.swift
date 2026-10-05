@@ -9,5 +9,8 @@ struct CourseBoyQuickLookApp: App {
         WindowGroup {
             FilePreviewHomeView(loadedCourse: $loadedCourse)
         }
+        .commands {
+            CourseViewerCommands()
+        }
     }
 }
