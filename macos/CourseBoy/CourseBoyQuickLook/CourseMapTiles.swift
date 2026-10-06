@@ -262,12 +262,15 @@ final class CourseTileCache: @unchecked Sendable {
         queue.async { [self] in trimIfNeeded() }
     }
 
+    /// 타일 서버 운영자가 문제가 있을 때 연락할 수 있도록 User-Agent에 넣는 연락처.
+    private static let contact = "https://www.navelo.cc; ys_qwerty700@naver.com"
+
     /// OSM 타일 정책은 앱을 식별할 수 있는 User-Agent를 요구한다.
     private static var userAgent: String {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "0"
         let bundleID = Bundle.main.bundleIdentifier ?? "CourseBoy"
-        return "CourseBoy/\(version) (\(bundleID); iOS)"
+        return "CourseBoy/\(version) (\(bundleID); iOS; +\(contact))"
     }
 
     func tileData(
