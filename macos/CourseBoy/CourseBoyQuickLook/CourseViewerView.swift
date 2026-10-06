@@ -3,7 +3,7 @@ import SwiftUI
 
 struct CourseViewerView: View {
     let course: LoadedCourse
-    /// 파일 브라우저로 돌아간다. 내비게이션 바를 숨긴 가로 지도 화면의 뒤로가기 버튼이 쓴다.
+    /// 홈 화면으로 돌아간다. 내비게이션 바의 닫기 버튼과 바를 숨긴 가로 지도 화면의 뒤로가기 버튼이 쓴다.
     var onClose: () -> Void = {}
 
     @State private var selectedCueID: UUID?
@@ -19,7 +19,7 @@ struct CourseViewerView: View {
     @State private var climbSections: (courseID: UUID, sections: [CourseClimbSection])?
     /// 넓은 화면 사이드바에 띄울 패널. 지도는 항상 옆에 보이므로 큐시트를 기본으로 둔다.
     @State private var sidebarPanel: CourseSidebarPanel = .cueSheet
-    /// 시트로 띄운 구간 상세. 화면 이동으로 열면 DocumentGroup 바와 상세 화면 바가 두 줄로 쌓인다.
+    /// 시트로 띄운 구간 상세. 화면 이동으로 열면 지도 탭의 투명한 바와 상세 화면 바가 섞여 보인다.
     @State private var presentedClimbSection: CourseClimbSection?
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -38,9 +38,13 @@ struct CourseViewerView: View {
         Group {
             if usesSidebarLayout {
                 sidebarLayout
+                    .navigationTitle(course.title)
             } else {
-                // DocumentGroup이 바를 두므로 내비게이션 스택 없이 둔다.
                 tabLayout
+                    // 지도 탭은 지도를 화면 위까지 보이도록 제목을 빼고 바를 투명하게 둔다.
+                    .navigationTitle(selectedTab == .map ? "" : course.title)
+                    // 가로 모드 지도 탭은 세로 공간이 부족해 바를 숨기고 지도 위 뒤로가기 버튼으로 대신한다.
+                    .toolbar(hidesNavigationBar ? .hidden : .automatic, for: .navigationBar)
                     .toolbar {
                         if selectedTab == .cueSheet {
                             ToolbarItem(placement: .topBarTrailing) {
@@ -48,6 +52,13 @@ struct CourseViewerView: View {
                             }
                         }
                     }
+            }
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("닫기", systemImage: "xmark", action: onClose)
+                    .keyboardShortcut("w", modifiers: .command)
             }
         }
         // 구간 상세는 두 배치 모두 시트로 띄운다.
@@ -61,8 +72,6 @@ struct CourseViewerView: View {
                     showMapIfNeeded()
                 }
                 .navigationBarTitleDisplayMode(.inline)
-                // DocumentGroup이 시트 바에도 뒤로가기 버튼을 붙이므로 숨기고 닫기 버튼만 둔다.
-                .navigationBarBackButtonHidden(true)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("닫기", systemImage: "xmark") {
@@ -143,6 +152,10 @@ struct CourseViewerView: View {
     /// 큰 iPhone 가로 모드도 가로는 regular지만 세로가 낮아 기존 탭 배치를 쓴다.
     private var usesSidebarLayout: Bool {
         horizontalSizeClass == .regular && verticalSizeClass == .regular
+    }
+
+    private var hidesNavigationBar: Bool {
+        selectedTab == .map && verticalSizeClass == .compact
     }
 
     // MARK: - Sidebar layout
@@ -509,7 +522,7 @@ private struct CourseMapTab: View {
                 .floatingCircleBackground()
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("파일 브라우저로 돌아가기")
+        .accessibilityLabel("홈으로 돌아가기")
     }
 
     private var elevationChartButton: some View {
