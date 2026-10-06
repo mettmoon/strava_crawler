@@ -359,6 +359,8 @@ private struct CourseMapTab: View {
     @AppStorage("mapShowsElevationChart") private var showsElevationChart = true
     @AppStorage(CourseMapStyle.storageKey) private var mapStyle: CourseMapStyle = .standard
     @State private var compassLink = CourseMapCompassLink()
+    @State private var isTileLoadFailing = false
+    @State private var tileReloadRequest = 0
     @State private var isScrubbingElevationChart = false
     /// 트랙 포인트 전체를 훑어 만들기 때문에 코스마다 한 번만 계산해 둔다.
     @State private var cachedElevationProgress: (courseID: UUID, progress: RouteElevationProgress)?
@@ -390,6 +392,10 @@ private struct CourseMapTab: View {
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbarBackground(.bar, for: .tabBar)
             .toolbarBackground(.visible, for: .tabBar)
+            .onChange(of: mapStyle) { _, _ in
+                // 지도 종류를 바꾸면 지도가 새 타일 오버레이로 실패 횟수를 다시 센다.
+                isTileLoadFailing = false
+            }
             .onChange(of: course.id, initial: true) { _, id in
                 cachedElevationProgress = (id, RouteElevationProgress(trackPoints: course.trackPoints))
             }
@@ -446,7 +452,9 @@ private struct CourseMapTab: View {
                     obscuredInsets: proxy.safeAreaInsets,
                     mapStyle: mapStyle,
                     fitCourseRequest: fitCourseRequest,
-                    compassLink: compassLink
+                    compassLink: compassLink,
+                    onTileLoadFailureChange: { isTileLoadFailing = $0 },
+                    tileReloadRequest: tileReloadRequest
                 )
                 // GeometryReader 자체는 safe area 안에 두어야 proxy가 가려지는 폭을 알려 준다.
                 .ignoresSafeArea(.container)
@@ -478,6 +486,10 @@ private struct CourseMapTab: View {
             .padding(.top, 12)
             .padding(.horizontal, 12)
 
+            if let tileSource = mapStyle.tileSource {
+                tileOverlayInfo(tileSource)
+            }
+
             VStack {
                 Spacer()
                 selectionOverlay
@@ -488,6 +500,55 @@ private struct CourseMapTab: View {
                     .padding(.bottom, isCompactHeight ? 10 : 16)
             }
         }
+    }
+
+    /// OSM 타일 출처 표기와 타일을 받지 못할 때의 안내.
+    private func tileOverlayInfo(_ source: CourseMapTileSource) -> some View {
+        VStack {
+            if isTileLoadFailing {
+                tileLoadFailureBanner
+                    .padding(.top, 12)
+                    // 양옆 버튼 열을 피한다.
+                    .padding(.horizontal, 68)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            Spacer()
+            HStack {
+                Link(destination: source.copyrightURL) {
+                    Text(source.attribution)
+                        .font(.caption2)
+                        .foregroundStyle(Color.primary.opacity(0.75))
+                        .lineLimit(1)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.regularMaterial, in: Capsule())
+                }
+                .accessibilityLabel("지도 출처: \(source.attribution)")
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            // 지도 왼쪽 아래의 Apple 법적 고지 표기 바로 위에 둔다.
+            .padding(.bottom, 26)
+        }
+        .animation(.easeInOut(duration: 0.2), value: isTileLoadFailing)
+    }
+
+    private var tileLoadFailureBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "wifi.exclamationmark")
+                .foregroundStyle(.orange)
+            Text("OSM 지도를 불러올 수 없음")
+                .font(.footnote.weight(.medium))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Button("다시 시도") {
+                tileReloadRequest += 1
+            }
+            .font(.footnote.weight(.semibold))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .floatingCardBackground(cornerRadius: 18)
     }
 
     @ViewBuilder
@@ -544,11 +605,12 @@ private struct CourseMapTab: View {
 
     private var mapStyleButton: some View {
         Menu {
-            Picker("지도 종류", selection: $mapStyle) {
-                ForEach(CourseMapStyle.allCases) { style in
-                    Label(style.label, systemImage: style.symbol)
-                        .tag(style)
-                }
+            // 피커 안의 Section은 메뉴에서 구분되지 않아, 묶음마다 피커를 따로 둔다.
+            Section {
+                mapStylePicker(CourseMapStyle.appleStyles)
+            }
+            Section("OpenStreetMap") {
+                mapStylePicker(CourseMapStyle.tileStyles)
             }
         } label: {
             Image(systemName: mapStyle.symbol)
@@ -560,6 +622,15 @@ private struct CourseMapTab: View {
         .buttonStyle(.plain)
         .accessibilityLabel("지도 종류")
         .accessibilityValue(mapStyle.label)
+    }
+
+    private func mapStylePicker(_ styles: [CourseMapStyle]) -> some View {
+        Picker("지도 종류", selection: $mapStyle) {
+            ForEach(styles) { style in
+                Label(style.label, systemImage: style.symbol)
+                    .tag(style)
+            }
+        }
     }
 
     private var fitCourseButton: some View {
