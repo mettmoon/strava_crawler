@@ -22,12 +22,17 @@ struct CourseMapView: UIViewRepresentable {
     var fitCourseRequest = 0
     /// 지도 탭의 나침반 버튼에 이 지도를 연결한다.
     var compassLink: CourseMapCompassLink?
+    /// OSM 타일을 연달아 받지 못하면 true, 다시 받으면 false로 알린다.
+    var onTileLoadFailureChange: (Bool) -> Void = { _ in }
+    /// 누를 때마다 증가하는 값. 바뀐 경우에만 타일을 다시 받는다.
+    var tileReloadRequest = 0
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             selectedCueID: $selectedCueID,
             selectedProfilePoint: $selectedProfilePoint,
-            onUserStopFollowing: onUserStopFollowing
+            onUserStopFollowing: onUserStopFollowing,
+            onTileLoadFailureChange: onTileLoadFailureChange
         )
     }
 
@@ -55,6 +60,7 @@ struct CourseMapView: UIViewRepresentable {
         context.coordinator.selectedCueID = $selectedCueID
         context.coordinator.selectedProfilePoint = $selectedProfilePoint
         context.coordinator.onUserStopFollowing = onUserStopFollowing
+        context.coordinator.onTileLoadFailureChange = onTileLoadFailureChange
         context.coordinator.syncObscuredInsets(
             UIEdgeInsets(
                 top: obscuredInsets.top,
@@ -75,6 +81,7 @@ struct CourseMapView: UIViewRepresentable {
             in: map
         )
         context.coordinator.fitCourse(ifRequested: fitCourseRequest, in: map)
+        context.coordinator.reloadTiles(ifRequested: tileReloadRequest)
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate {
@@ -85,6 +92,7 @@ struct CourseMapView: UIViewRepresentable {
         var selectedCueID: Binding<UUID?>
         var selectedProfilePoint: Binding<CourseProfileSelection?>
         var onUserStopFollowing: () -> Void
+        var onTileLoadFailureChange: (Bool) -> Void
         private var loadedCourseID: UUID?
         private var cueAnnotations: [CourseCueAnnotation] = []
         private var endpointAnnotations: [CourseEndpointAnnotation] = []
@@ -94,6 +102,14 @@ struct CourseMapView: UIViewRepresentable {
         /// 코스 전체 보기에 쓰는 여백을 둔 코스 영역.
         private var courseFitRect: MKMapRect?
         private var appliedMapStyle: CourseMapStyle?
+        /// OSM 스타일일 때 Apple 지도를 대신 그리는 타일 오버레이.
+        private var tileOverlay: CourseTileOverlay?
+        private weak var tileRenderer: CourseTileRenderer?
+        private var consecutiveTileFailures = 0
+        private var isReportingTileFailure = false
+        private var handledTileReloadRequest = 0
+        /// 타일을 이만큼 연달아 받지 못하면 실패 안내를 띄운다.
+        private static let tileFailureThreshold = 3
         /// 줌에 따라 두께를 맞출 코스 라인 렌더러(경사 색 구간들과 화살표).
         private let routeRenderers = NSHashTable<MKOverlayPathRenderer>.weakObjects()
         private var trackingMode: CourseLocationTracker.Mode = .off
@@ -118,11 +134,13 @@ struct CourseMapView: UIViewRepresentable {
         init(
             selectedCueID: Binding<UUID?>,
             selectedProfilePoint: Binding<CourseProfileSelection?>,
-            onUserStopFollowing: @escaping () -> Void
+            onUserStopFollowing: @escaping () -> Void,
+            onTileLoadFailureChange: @escaping (Bool) -> Void
         ) {
             self.selectedCueID = selectedCueID
             self.selectedProfilePoint = selectedProfilePoint
             self.onUserStopFollowing = onUserStopFollowing
+            self.onTileLoadFailureChange = onTileLoadFailureChange
             super.init()
         }
 
@@ -201,6 +219,62 @@ struct CourseMapView: UIViewRepresentable {
             } else {
                 map.preferredConfiguration = configuration
             }
+            syncTileOverlay(style.tileSource, in: map)
+        }
+
+        private func syncTileOverlay(_ source: CourseMapTileSource?, in map: MKMapView) {
+            guard tileOverlay?.source != source else { return }
+            if let tileOverlay {
+                tileOverlay.onLoadResult = nil
+                map.removeOverlay(tileOverlay)
+                self.tileOverlay = nil
+            }
+            consecutiveTileFailures = 0
+            isReportingTileFailure = false
+
+            if let source {
+                let overlay = CourseTileOverlay(source: source)
+                overlay.onLoadResult = { [weak self, weak overlay] succeeded in
+                    guard let self, let overlay, overlay === self.tileOverlay else { return }
+                    self.handleTileLoad(succeeded: succeeded)
+                }
+                tileOverlay = overlay
+            }
+            moveRouteOverlays(to: routeOverlayLevel, in: map)
+            if let tileOverlay {
+                // 코스 라인과 같은 레벨의 맨 아래에 두어 코스 라인이 타일 위에 그려지게 한다.
+                map.insertOverlay(tileOverlay, at: 0, level: routeOverlayLevel)
+            }
+        }
+
+        /// Apple 지도에서는 코스 라인을 도로 위·라벨 아래에 둔다. 타일을 깔 때는 Apple 지도의 라벨이
+        /// 타일 위로 비치지 않도록 타일과 코스 라인을 모두 라벨 위로 올린다.
+        private var routeOverlayLevel: MKOverlayLevel {
+            tileOverlay == nil ? .aboveRoads : .aboveLabels
+        }
+
+        private func moveRouteOverlays(to level: MKOverlayLevel, in map: MKMapView) {
+            let other: MKOverlayLevel = level == .aboveRoads ? .aboveLabels : .aboveRoads
+            // 그리는 순서(색 구간 → 화살표)를 지키며 옮긴다.
+            let overlays = map.overlays(in: other).filter { !($0 is CourseTileOverlay) }
+            guard !overlays.isEmpty else { return }
+            map.removeOverlays(overlays)
+            map.addOverlays(overlays, level: level)
+        }
+
+        private func handleTileLoad(succeeded: Bool) {
+            consecutiveTileFailures = succeeded ? 0 : consecutiveTileFailures + 1
+            let isFailing = consecutiveTileFailures >= Self.tileFailureThreshold
+            guard isFailing != isReportingTileFailure else { return }
+            isReportingTileFailure = isFailing
+            onTileLoadFailureChange(isFailing)
+        }
+
+        func reloadTiles(ifRequested request: Int) {
+            guard request != handledTileReloadRequest else { return }
+            handledTileReloadRequest = request
+            consecutiveTileFailures = 0
+            tileRenderer?.reload()
         }
 
         func syncObscuredInsets(_ insets: UIEdgeInsets, in map: MKMapView) {
@@ -243,7 +317,8 @@ struct CourseMapView: UIViewRepresentable {
             courseFitRect = nil
             profileSelectionAnnotation = nil
 
-            map.removeOverlays(map.overlays)
+            // 지도 스타일이 관리하는 타일 오버레이는 남긴다.
+            map.removeOverlays(map.overlays.filter { !($0 is CourseTileOverlay) })
             map.removeAnnotations(map.annotations)
 
             let coordinates = course.trackPoints.map(\.coordinate)
@@ -259,12 +334,12 @@ struct CourseMapView: UIViewRepresentable {
                 }
                 for band in GradeBand.allCases {
                     guard let lines = bandLines[band] else { continue }
-                    map.addOverlay(CourseGradeMultiPolyline(lines, band: band), level: .aboveRoads)
+                    map.addOverlay(CourseGradeMultiPolyline(lines, band: band), level: routeOverlayLevel)
                 }
 
                 // 화살표만 그리는 오버레이. 색 구간들보다 나중에 추가해 위에 그려지게 한다.
                 let route = CourseRoutePolyline(coordinates: coordinates, count: coordinates.count)
-                map.addOverlay(route, level: .aboveRoads)
+                map.addOverlay(route, level: routeOverlayLevel)
 
                 courseFitRect = paddedRect(for: route.boundingMapRect)
                 pendingFitRect = courseFitRect
@@ -429,6 +504,11 @@ struct CourseMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            if let tiles = overlay as? CourseTileOverlay {
+                let renderer = CourseTileRenderer(tileOverlay: tiles)
+                tileRenderer = renderer
+                return renderer
+            }
             let renderer: MKOverlayPathRenderer
             if let grade = overlay as? CourseGradeMultiPolyline {
                 renderer = MKMultiPolylineRenderer(multiPolyline: grade)
