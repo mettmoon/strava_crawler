@@ -3,7 +3,7 @@ import MapKit
 import SwiftUI
 
 extension EnvironmentValues {
-    /// 구간 행의 상세 버튼이 부르는 동작. DocumentGroup 바와 겹치지 않게 뷰어가 시트로 띄운다.
+    /// 구간 행의 상세 버튼이 부르는 동작. 뷰어가 시트로 띄운다.
     @Entry var showClimbSectionDetail: ((CourseClimbSection) -> Void)? = nil
 }
 

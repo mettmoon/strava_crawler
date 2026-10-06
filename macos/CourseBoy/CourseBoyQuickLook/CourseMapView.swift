@@ -109,7 +109,7 @@ struct CourseMapView: UIViewRepresentable {
         private var obscuredInsets = UIEdgeInsets.zero
         /// 지도가 아직 배치되지 않아 맞추지 못한 코스 영역. 배치가 끝나면 적용한다.
         private var pendingFitRect: MKMapRect?
-        /// 자동으로 코스에 맞춘 직후의 지도 크기와 다시 맞춰도 되는 기한. DocumentGroup은 문서를 여는
+        /// 자동으로 코스에 맞춘 직후의 지도 크기와 다시 맞춰도 되는 기한. 전체 화면으로 코스를 여는
         /// 애니메이션 동안 지도를 작게 배치하므로, 그사이 크기가 바뀌면 코스 맞춤을 다시 한다.
         private var provisionalFit: (size: CGSize, until: Date)?
 
