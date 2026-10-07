@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// 홈 화면의 최근 코스 카드. 왼쪽에 형식·날짜·이름·거리와 고도 그래프, 오른쪽에 지도 썸네일을 둔다.
+/// 홈 화면의 최근 코스 카드. 위쪽 왼편에 형식·날짜·이름·거리, 오른편에 경로 썸네일을 두고,
+/// 아래쪽에 고도 그래프를 카드 폭 가득 그린다.
 struct RecentCourseCard: View {
     let course: RecentCourse
     var isMissing = false
@@ -9,38 +10,33 @@ struct RecentCourseCard: View {
     static let cornerRadius: CGFloat = 22
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                metaRow
+        VStack(spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    metaRow
 
-                Text(course.title)
-                    .font(.title3.weight(.bold))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
+                    Text(course.title)
+                        .font(.title3.weight(.bold))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
 
-                Text(course.statsLabel)
-                    .font(.subheadline.weight(.semibold))
-                    .monospacedDigit()
+                    Text(course.statsLabel)
+                        .font(.subheadline.weight(.semibold))
+                        .monospacedDigit()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                Spacer(minLength: 4)
+                RecentCourseThumbnail(course: course)
+            }
 
+            // 고도 데이터가 없는 파일은 빈 줄이 남지 않도록 그래프를 빼서 카드를 낮춘다.
+            if course.elevationProfile.count >= 2 {
                 ElevationSparkline(samples: course.elevationProfile)
                     .frame(height: 26)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            RecentCourseThumbnail(course: course)
-                .overlay {
-                    if isOpening {
-                        ProgressView()
-                            .padding(10)
-                            .background(.regularMaterial, in: Circle())
-                    }
-                }
         }
         .foregroundStyle(HomePalette.ink)
         .padding(14)
-        .frame(minHeight: 132)
         .background {
             RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
                 .fill(HomePalette.cardFill)
@@ -49,6 +45,13 @@ struct RecentCourseCard: View {
         .overlay {
             RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
                 .strokeBorder(HomePalette.cardStroke, lineWidth: 1.5)
+        }
+        .overlay {
+            if isOpening {
+                ProgressView()
+                    .padding(10)
+                    .background(.regularMaterial, in: Circle())
+            }
         }
         .opacity(isMissing ? 0.5 : 1)
         .contentShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
@@ -78,22 +81,18 @@ struct RecentCourseCard: View {
     }
 }
 
-/// 카드 아래쪽의 작은 고도 그래프. 고도 데이터가 없으면 자리만 차지한다.
+/// 카드 아래쪽의 작은 고도 그래프. 샘플이 두 개 이상일 때만 카드에 넣는다.
 struct ElevationSparkline: View {
     let samples: [Double]
 
     var body: some View {
-        if samples.count >= 2 {
-            ZStack {
-                SparklineShape(samples: samples, closed: true)
-                    .fill(HomePalette.ink.opacity(0.16))
-                SparklineShape(samples: samples, closed: false)
-                    .stroke(HomePalette.ink.opacity(0.55), style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
-            }
-            .accessibilityHidden(true)
-        } else {
-            Color.clear
+        ZStack {
+            SparklineShape(samples: samples, closed: true)
+                .fill(HomePalette.ink.opacity(0.16))
+            SparklineShape(samples: samples, closed: false)
+                .stroke(HomePalette.ink.opacity(0.55), style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
         }
+        .accessibilityHidden(true)
     }
 }
 
@@ -131,7 +130,7 @@ private struct SparklineShape: Shape {
     }
 }
 
-/// 카드 오른쪽 경로 썸네일. 격자 위에 저장해 둔 정사각형 경로 모양과 시작점을 그린다.
+/// 카드 오른쪽 경로 썸네일. 격자 위에 저장해 둔 정사각형 경로 모양을 그린다.
 struct RecentCourseThumbnail: View {
     let course: RecentCourse
 
@@ -154,14 +153,9 @@ struct RecentCourseThumbnail: View {
             let points = course.routeShape.map { point in
                 CGPoint(x: Self.inset + point.x * length, y: Self.inset + point.y * length)
             }
-            guard let start = points.first else { return }
             var route = Path()
             route.addLines(points)
             context.stroke(route, with: .color(HomePalette.ink), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
-
-            let marker = Path(ellipseIn: CGRect(x: start.x - 6, y: start.y - 6, width: 12, height: 12))
-            context.fill(marker, with: .color(.white))
-            context.stroke(marker, with: .color(HomePalette.ink), lineWidth: 2.5)
         }
         .frame(width: Self.side, height: Self.side)
         .background(HomePalette.thumbnailFill)
