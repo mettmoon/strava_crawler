@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 /// 홈 화면이 전체 화면으로 띄우는 코스 뷰어. 닫기 버튼과 가로 지도 화면의 뒤로가기 버튼이 홈으로 돌아간다.
 struct CourseViewerScreen: View {
     let course: LoadedCourse
+    /// 끌어다 놓아 다른 코스로 바꿔 열면 그 최근 항목 ID를 알린다.
+    var onCourseChange: (RecentCourse.ID) -> Void = { _ in }
 
     /// 창에 끌어다 놓아 바꿔 연 코스. nil이면 홈에서 연 코스를 보여준다.
     @State private var droppedCourse: LoadedCourse?
@@ -23,7 +25,7 @@ struct CourseViewerScreen: View {
             guard let file = files.first else { return false }
             switch file.result {
             case .success(let read, let copy):
-                RecentCourseStore.shared.record(read, from: copy, isLibraryCopy: true)
+                onCourseChange(RecentCourseStore.shared.record(read, from: copy, isLibraryCopy: true))
                 droppedCourse = read.course
             case .failure(let message):
                 fileError = FilePreviewError(message: message)
