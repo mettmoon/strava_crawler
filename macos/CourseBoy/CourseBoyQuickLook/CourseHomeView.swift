@@ -8,6 +8,10 @@ struct CourseHomeView: View {
     private let store = RecentCourseStore.shared
 
     @State private var presentedCourse: LoadedCourse?
+    /// 이 창의 세션 식별자. 열어 둔 코스를 앱이 다시 켜질 때 되살리는 열쇠다.
+    @State private var sceneSession: String?
+    /// 지금 띄운 코스의 최근 항목 ID. 세션 식별자를 알기 전에 연 코스도 나중에 기록하려고 둔다.
+    @State private var openCourseID: RecentCourse.ID?
     @State private var isImporting = false
     @State private var isSearching = false
     @State private var searchText = ""
@@ -75,8 +79,18 @@ struct CourseHomeView: View {
         }
         // 홈 위쪽은 라이트·다크 모두 진한 파란 배경이라 상태바 글자를 흰색으로 둔다.
         .statusBarStyle(.lightContent)
-        .fullScreenCover(item: $presentedCourse) { course in
-            CourseViewerScreen(course: course)
+        .fullScreenCover(item: $presentedCourse, onDismiss: {
+            // 닫기 버튼으로 닫은 코스는 다음에 앱을 켤 때 다시 열지 않는다.
+            rememberOpenCourse(nil)
+        }) { course in
+            CourseViewerScreen(course: course) { id in
+                rememberOpenCourse(id)
+            }
+        }
+        .onSceneSession { session in
+            guard sceneSession == nil else { return }
+            sceneSession = session
+            Task { await restoreOpenCourse() }
         }
         .fileImporter(isPresented: $isImporting, allowedContentTypes: UTType.courseBoyReadable) { result in
             if case .success(let url) = result {
@@ -91,8 +105,7 @@ struct CourseHomeView: View {
             guard let file = files.first else { return false }
             switch file.result {
             case .success(let read, let copy):
-                store.record(read, from: copy, isLibraryCopy: true)
-                presentedCourse = read.course
+                present(read.course, id: store.record(read, from: copy, isLibraryCopy: true))
             case .failure(let message):
                 fileError = FilePreviewError(message: message)
             }
@@ -415,8 +428,7 @@ struct CourseHomeView: View {
     private func open(url: URL) async {
         do {
             let file = try await CourseFileReader.read(url)
-            store.record(file, from: url)
-            presentedCourse = file.course
+            present(file.course, id: store.record(file, from: url))
         } catch {
             fileError = FilePreviewError(message: error.localizedDescription)
         }
@@ -426,9 +438,43 @@ struct CourseHomeView: View {
         openingID = course.id
         defer { openingID = nil }
         do {
-            presentedCourse = try await store.open(course.id)
+            present(try await store.open(course.id), id: course.id)
         } catch {
             missingCourse = course
+        }
+    }
+
+    private func present(_ course: LoadedCourse, id: RecentCourse.ID) {
+        presentedCourse = course
+        rememberOpenCourse(id)
+    }
+
+    private func rememberOpenCourse(_ id: RecentCourse.ID?) {
+        openCourseID = id
+        guard let sceneSession else { return }
+        OpenCourseRestoration.set(id, for: sceneSession)
+    }
+
+    /// 앱이 의도치 않게 꺼지기 전 이 창에 열려 있던 코스를 다시 연다.
+    private func restoreOpenCourse() async {
+        OpenCourseRestoration.pruneClosedSessions()
+        guard let sceneSession else { return }
+        // 세션을 알기 전에 '다음으로 열기' 등으로 이미 코스를 열었다면 그 코스를 기록하고 끝낸다.
+        guard presentedCourse == nil else {
+            OpenCourseRestoration.set(openCourseID, for: sceneSession)
+            return
+        }
+        guard let id = OpenCourseRestoration.courseID(for: sceneSession) else { return }
+        guard let course = try? await store.open(id) else {
+            if presentedCourse == nil {
+                rememberOpenCourse(nil)
+            }
+            return
+        }
+        // 읽는 동안 다른 코스가 열렸으면 그쪽을 둔다.
+        if presentedCourse == nil {
+            presentedCourse = course
+            rememberOpenCourse(id)
         }
     }
 
