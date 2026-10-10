@@ -930,8 +930,8 @@ struct MapElevationChartView: View {
         static let detailPointsPerKm: CGFloat = 10
         static let minimumSegmentWidth: CGFloat = 2
         /// 큐 가이드 라인에서 이 거리 안으로 들어오면 큐에 달라붙고, release 거리 밖으로 나가야 떨어진다.
-        static let cueMagnetCaptureDistance: CGFloat = 8
-        static let cueMagnetReleaseDistance: CGFloat = 14
+        static let cueMagnetCaptureDistance: CGFloat = 1
+        static let cueMagnetReleaseDistance: CGFloat = 1
         static let cueMagnetSwitchMargin: CGFloat = 3
         /// 선택 지점을 바로 끌 수 있는 좌우 범위.
         static let selectionHandleHitDistance: CGFloat = 22
