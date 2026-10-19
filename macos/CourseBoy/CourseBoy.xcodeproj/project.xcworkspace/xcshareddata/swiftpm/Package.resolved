@@ -1,0 +1,15 @@
+{
+  "originHash" : "90c39a3a369bd95bbe9362cc8da90f9737159990f02f39a6aefc86b311feb1fc",
+  "pins" : [
+    {
+      "identity" : "courseboypreviewcore",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mettmoon/CourseBoyPreviewCore",
+      "state" : {
+        "branch" : "main",
+        "revision" : "a027e28cc8fea9efff8c2714ad937836fddd1f4d"
+      }
+    }
+  ],
+  "version" : 3
+}
