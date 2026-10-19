@@ -19,8 +19,6 @@ final class AppContainer {
     let importRouteUseCase: ImportRouteUseCase
     let retryImportUseCase: RetryImportUseCase
     let fetchMyRoutesUseCase: FetchMyRoutesUseCase
-    let reloadSegmentUseCase: ReloadSegmentUseCase
-    let deleteSegmentUseCase: DeleteSegmentUseCase
     let buildCuesheetUseCase: BuildCuesheetUseCase
     let exportTCXUseCase: ExportTCXUseCase
     let computeRouteSegmentUseCase: ComputeRouteSegmentUseCase
@@ -58,13 +56,6 @@ final class AppContainer {
             remoteService: remoteService,
             credentialsProvider: credProvider
         )
-        reloadSegmentUseCase = ReloadSegmentUseCase(
-            segmentRepository: segmentRepository,
-            routeRepository: routeRepository,
-            remoteService: remoteService,
-            credentialsProvider: credProvider
-        )
-        deleteSegmentUseCase = DeleteSegmentUseCase(routeRepository: routeRepository, segmentRepository: segmentRepository)
         buildCuesheetUseCase = BuildCuesheetUseCase(routeRepository: routeRepository)
         exportTCXUseCase = ExportTCXUseCase(routeRepository: routeRepository)
         computeRouteSegmentUseCase = ComputeRouteSegmentUseCase()

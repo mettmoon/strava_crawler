@@ -120,24 +120,9 @@ final class RouteListViewModel {
         importTasks[routeID] = task
     }
 
-    func cancelImport(routeID: String) {
-        importTasks[routeID]?.cancel()
-        importTasks.removeValue(forKey: routeID)
-        importProgress.removeValue(forKey: routeID)
-    }
-
     func delete(routeID: String) async {
         try? await routeRepository.delete(id: routeID)
         routes.removeAll { $0.id == routeID }
-    }
-
-    func updateMinCategory(routeID: String, minCategory: String?) async {
-        guard var route = try? await routeRepository.fetch(id: routeID) else { return }
-        route.minCategory = minCategory
-        try? await routeRepository.save(route)
-        if let idx = routes.firstIndex(where: { $0.id == routeID }) {
-            routes[idx].minCategory = minCategory
-        }
     }
 
     func progress(for routeID: String) -> ImportRouteUseCase.Progress? {

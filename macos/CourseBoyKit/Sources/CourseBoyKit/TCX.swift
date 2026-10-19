@@ -144,36 +144,6 @@ public final class TCXCourse {
         }
     }
 
-    public func buildFromCourse(cuePoints: [CuePointSpec]) throws -> (data: Data, count: Int) {
-        guard let doc = try? XMLDocument(data: originalData),
-              let course = TCXCourse.firstElement(in: doc.rootElement(), localName: "Course") else {
-            throw TCXError.parseFailed
-        }
-        doc.characterEncoding = "UTF-8"
-        doc.version = "1.0"
-
-        for child in (course.children ?? []) where child.localName == "CoursePoint" {
-            child.detach()
-        }
-
-        let newCps = cuePoints.sorted { $0.idx < $1.idx }.map { c in
-            (idx: c.idx, element: Self.makeCoursePointElement(
-                name: c.name, time: c.time, lat: c.lat, lon: c.lon, ele: c.ele,
-                pointType: c.pointType, notes: c.notes.isEmpty ? nil : c.notes,
-                allowEmptyName: true
-            ))
-        }
-
-        let children = course.children ?? []
-        let lastTrack = children.lastIndex { $0.localName == "Track" }
-        let insertAt = lastTrack.map { $0 + 1 } ?? children.count
-        for (offset, cp) in newCps.enumerated() {
-            course.insertChild(cp.element, at: insertAt + offset)
-        }
-
-        return (doc.xmlData(options: []), newCps.count)
-    }
-
     public static func buildCourseData(
         title: String,
         trackPoints: [TrackPoint],
@@ -329,10 +299,6 @@ public final class TCXCourse {
     }
 
     // MARK: - 파싱 유틸
-
-    static func parseTrackpoints(in course: XMLElement) -> [TrackPoint] {
-        flatten(sections: parseTrackpointSections(in: course))
-    }
 
     static func parseTrackpointSections(in course: XMLElement) -> [[TrackPoint]] {
         let tracks = allElements(in: course, localName: "Track")

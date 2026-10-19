@@ -2477,7 +2477,6 @@ final class SegmentPolyline: MKPolyline {
     var kind: CourseLeg.Kind = .routed
     var isActiveSection = true
 }
-final class CuePolyline: MKPolyline {}
 
 private struct CueMenuInfo {
     let snapLat, snapLon, cumKm: Double

@@ -184,12 +184,6 @@ final class CourseEditorDraft {
         registerUndo(before: old, actionName: "RoutePoint 추가")
     }
 
-    func appendLastSegment(_ seg: [TrackPointCodable]) {
-        let old = takeSnapshot()
-        sections[selectedSectionIndex].legs.append(CourseLeg(kind: .routed, trackPoints: seg))
-        registerUndo(before: old, actionName: "경로 추가")
-    }
-
     /// RoutePoint 추가 + 구간을 하나의 undo 작업으로 묶는다.
     func appendRoutePoint(_ rp: CourseRoutePoint, segment: [TrackPointCodable]) {
         let old = takeSnapshot()
@@ -233,12 +227,6 @@ final class CourseEditorDraft {
         sections[selectedSectionIndex].routePoints[idx] = newRP
         replaceLegTrackPoints(updatedSegments)
         registerUndo(before: old, actionName: "RoutePoint 이동")
-    }
-
-    func replaceSegments(_ newSegments: [[TrackPointCodable]]) {
-        let old = takeSnapshot()
-        replaceLegTrackPoints(newSegments)
-        registerUndo(before: old, actionName: "경로 재계산")
     }
 
     // MARK: - CuePoint 변경

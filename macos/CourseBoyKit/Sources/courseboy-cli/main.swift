@@ -1,7 +1,7 @@
 import Foundation
 import CourseBoyKit
 
-// 간단한 오프라인 cuesheet 실행기 (Python add_cuesheet_to_tcx.py 교차검증용).
+// 간단한 오프라인 cuesheet 실행기.
 //   courseboy --tcx route.tcx --segments route_segments.json [--min-category 4] [--out out.tcx]
 
 func arg(_ name: String) -> String? {

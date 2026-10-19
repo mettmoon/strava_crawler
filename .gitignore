@@ -18,53 +18,15 @@ Icon
 .VolumeIcon.icns
 .com.apple.timemachine.donotpresent
 
-### Python
-# Byte-compiled files
-__pycache__/
-*.py[cod]
-*$py.class
-
-# C extensions
-*.so
-
-# Distribution / packaging
-build/
-dist/
-*.egg-info/
-*.egg
-
-# dotenv environment variable files
-.env
-
-# Virtual environments
-.venv
-env/
-venv/
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.pytest_cache/
-
-# Type checkers
-.mypy_cache/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# pyenv
-# .python-version
-
-cookies.json
-
-# Generated outputs
-output/
 # Swift / macOS app build artifacts
 macos/**/.build/
 .DS_Store
 macos/**/xcuserdata/
 macos/**/*.xcodeproj/project.xcworkspace/xcuserdata/
 macos/**/DerivedData/
+macos/**/.derivedData/
+
+# 예전 Python 도구가 남긴 로컬 파일 (cookies.json에는 Strava 세션 쿠키가 들어 있음)
+cookies.json
+output/
+__pycache__/
