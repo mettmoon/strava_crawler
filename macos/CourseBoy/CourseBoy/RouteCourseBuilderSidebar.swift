@@ -1,39 +1,6 @@
 import SwiftUI
 import CourseBoyKit
 
-struct RouteSegmentSelectionSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
-    let route: Route
-    let onCreate: ([SegmentInfo]) -> Void
-
-    @State private var selectedSegmentIDs: Set<String>
-
-    init(route: Route, onCreate: @escaping ([SegmentInfo]) -> Void) {
-        self.route = route
-        self.onCreate = onCreate
-        _selectedSegmentIDs = State(initialValue: Set(route.segments.map(\.segmentID)))
-    }
-
-    var body: some View {
-        RouteCourseBuilderSidebar(
-            route: route,
-            selectedSegmentIDs: $selectedSegmentIDs,
-            createButtonTitle: "만들기",
-            onCreate: {
-                onCreate(selectedSegments)
-                dismiss()
-            },
-            onCancel: { dismiss() }
-        )
-        .frame(minWidth: 680, idealWidth: 760, minHeight: 520, idealHeight: 620)
-    }
-
-    private var selectedSegments: [SegmentInfo] {
-        route.segments.filter { selectedSegmentIDs.contains($0.segmentID) }
-    }
-}
-
 struct RouteCourseBuilderSidebar: View {
     let route: Route
     @Binding var selectedSegmentIDs: Set<String>

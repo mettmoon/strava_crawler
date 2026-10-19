@@ -25,10 +25,6 @@ final class CourseDocument: ReferenceFileDocument, @unchecked Sendable {
         normalizedFileURL(url, allowedExtensions: readableFilenameExtensions)
     }
 
-    static func normalizedCoursePlanFileURL(_ url: URL) -> URL? {
-        normalizedFileURL(url, allowedExtensions: coursePlanFilenameExtensions)
-    }
-
     private static func normalizedFileURL(_ url: URL, allowedExtensions: [String]) -> URL? {
         let fileURL: URL
         if (url as NSURL).isFileReferenceURL(), let resolvedURL = (url as NSURL).filePathURL {
