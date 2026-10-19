@@ -195,7 +195,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				AA00000000000000000050 /* XCLocalSwiftPackageReference "../CourseBoyKit" */,
-				CC00000000000000000050 /* XCLocalSwiftPackageReference "../../../CoursePreviewCore" */,
+				CC00000000000000000050 /* XCRemoteSwiftPackageReference "CourseBoyPreviewCore" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AA00000000000000000003 /* Products */;
@@ -511,11 +511,18 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../CourseBoyKit;
 		};
-		CC00000000000000000050 /* XCLocalSwiftPackageReference "../../../CoursePreviewCore" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../../../CoursePreviewCore;
-		};
 /* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		CC00000000000000000050 /* XCRemoteSwiftPackageReference "CourseBoyPreviewCore" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mettmoon/CourseBoyPreviewCore";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		AA00000000000000000051 /* CourseBoyKit */ = {
@@ -525,7 +532,7 @@
 		};
 		CC00000000000000000055 /* CoursePreviewCore */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = CC00000000000000000050 /* XCLocalSwiftPackageReference "../../../CoursePreviewCore" */;
+			package = CC00000000000000000050 /* XCRemoteSwiftPackageReference "CourseBoyPreviewCore" */;
 			productName = CoursePreviewCore;
 		};
 /* End XCSwiftPackageProductDependency section */
