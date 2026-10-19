@@ -10,6 +10,7 @@
 		AA00000000000000000052 /* CourseBoyKit in Frameworks */ = {isa = PBXBuildFile; productRef = AA00000000000000000051 /* CourseBoyKit */; };
 		CC00000000000000000053 /* CoursePreviewCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000000000000055 /* CoursePreviewCore */; };
 		CC00000000000000000054 /* CourseBoyMacQuickLook.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = CC00000000000000000011 /* CourseBoyMacQuickLook.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		DD00000000000000000054 /* CourseBoyMapSnapshotService.xpc in Embed XPC Services */ = {isa = PBXBuildFile; fileRef = DD00000000000000000011 /* CourseBoyMapSnapshotService.xpc */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -19,6 +20,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = CC00000000000000000010;
 			remoteInfo = CourseBoyMacQuickLook;
+		};
+		DD00000000000000000070 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AA00000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DD00000000000000000010;
+			remoteInfo = CourseBoyMapSnapshotService;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -34,11 +42,23 @@
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DD00000000000000000033 /* Embed XPC Services */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/XPCServices";
+			dstSubfolderSpec = 16;
+			files = (
+				DD00000000000000000054 /* CourseBoyMapSnapshotService.xpc in Embed XPC Services */,
+			);
+			name = "Embed XPC Services";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		AA00000000000000000011 /* CourseBoy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CourseBoy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC00000000000000000011 /* CourseBoyMacQuickLook.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = CourseBoyMacQuickLook.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		DD00000000000000000011 /* CourseBoyMapSnapshotService.xpc */ = {isa = PBXFileReference; explicitFileType = "wrapper.xpc-service"; includeInIndex = 0; path = CourseBoyMapSnapshotService.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -55,6 +75,20 @@
 				Info.plist,
 			);
 			target = AA00000000000000000010 /* CourseBoy */;
+		};
+		DD00000000000000000060 /* Exceptions for "CourseBoyMapSnapshotService" folder in "CourseBoyMapSnapshotService" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = DD00000000000000000010 /* CourseBoyMapSnapshotService */;
+		};
+		DD00000000000000000061 /* Exceptions for "CourseBoyMapSnapshotService" folder in "CourseBoyMacQuickLook" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				MapSnapshotServiceProtocol.swift,
+			);
+			target = CC00000000000000000010 /* CourseBoyMacQuickLook */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -73,6 +107,15 @@
 				CC00000000000000000060 /* Exceptions for "CourseBoyMacQuickLook" folder in "CourseBoyMacQuickLook" target */,
 			);
 			path = CourseBoyMacQuickLook;
+			sourceTree = "<group>";
+		};
+		DD00000000000000000020 /* CourseBoyMapSnapshotService */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				DD00000000000000000061 /* Exceptions for "CourseBoyMapSnapshotService" folder in "CourseBoyMacQuickLook" target */,
+				DD00000000000000000060 /* Exceptions for "CourseBoyMapSnapshotService" folder in "CourseBoyMapSnapshotService" target */,
+			);
+			path = CourseBoyMapSnapshotService;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -94,6 +137,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DD00000000000000000031 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -102,6 +152,7 @@
 			children = (
 				AA00000000000000000020 /* CourseBoy */,
 				CC00000000000000000020 /* CourseBoyMacQuickLook */,
+				DD00000000000000000020 /* CourseBoyMapSnapshotService */,
 				AA00000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -111,6 +162,7 @@
 			children = (
 				AA00000000000000000011 /* CourseBoy.app */,
 				CC00000000000000000011 /* CourseBoyMacQuickLook.appex */,
+				DD00000000000000000011 /* CourseBoyMapSnapshotService.xpc */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -150,10 +202,12 @@
 				CC00000000000000000030 /* Sources */,
 				CC00000000000000000031 /* Frameworks */,
 				CC00000000000000000032 /* Resources */,
+				DD00000000000000000033 /* Embed XPC Services */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				DD00000000000000000071 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				CC00000000000000000020 /* CourseBoyMacQuickLook */,
@@ -165,6 +219,26 @@
 			productName = CourseBoyMacQuickLook;
 			productReference = CC00000000000000000011 /* CourseBoyMacQuickLook.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		DD00000000000000000010 /* CourseBoyMapSnapshotService */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DD00000000000000000043 /* Build configuration list for PBXNativeTarget "CourseBoyMapSnapshotService" */;
+			buildPhases = (
+				DD00000000000000000030 /* Sources */,
+				DD00000000000000000031 /* Frameworks */,
+				DD00000000000000000032 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				DD00000000000000000020 /* CourseBoyMapSnapshotService */,
+			);
+			name = CourseBoyMapSnapshotService;
+			productName = CourseBoyMapSnapshotService;
+			productReference = DD00000000000000000011 /* CourseBoyMapSnapshotService.xpc */;
+			productType = "com.apple.product-type.xpc-service";
 		};
 /* End PBXNativeTarget section */
 
@@ -181,6 +255,9 @@
 					};
 					CC00000000000000000010 = {
 						CreatedOnToolsVersion = 26.6;
+					};
+					DD00000000000000000010 = {
+						CreatedOnToolsVersion = 27.0;
 					};
 				};
 			};
@@ -204,6 +281,7 @@
 			targets = (
 				AA00000000000000000010 /* CourseBoy */,
 				CC00000000000000000010 /* CourseBoyMacQuickLook */,
+				DD00000000000000000010 /* CourseBoyMapSnapshotService */,
 			);
 		};
 /* End PBXProject section */
@@ -217,6 +295,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CC00000000000000000032 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DD00000000000000000032 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -240,6 +325,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DD00000000000000000030 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -247,6 +339,11 @@
 			isa = PBXTargetDependency;
 			target = CC00000000000000000010 /* CourseBoyMacQuickLook */;
 			targetProxy = CC00000000000000000070 /* PBXContainerItemProxy */;
+		};
+		DD00000000000000000071 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = DD00000000000000000010 /* CourseBoyMapSnapshotService */;
+			targetProxy = DD00000000000000000070 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -474,6 +571,50 @@
 			};
 			name = Release;
 		};
+		DD00000000000000000044 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = CourseBoyMapSnapshotService/CourseBoyMapSnapshotService.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 9YGS892Y3B;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CourseBoyMapSnapshotService/Info.plist;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wejoapps.CourseBoy.QuickLookPreview.MapSnapshotService;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		DD00000000000000000045 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = CourseBoyMapSnapshotService/CourseBoyMapSnapshotService.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 9YGS892Y3B;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CourseBoyMapSnapshotService/Info.plist;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wejoapps.CourseBoy.QuickLookPreview.MapSnapshotService;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -500,6 +641,15 @@
 			buildConfigurations = (
 				CC00000000000000000044 /* Debug */,
 				CC00000000000000000045 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DD00000000000000000043 /* Build configuration list for PBXNativeTarget "CourseBoyMapSnapshotService" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DD00000000000000000044 /* Debug */,
+				DD00000000000000000045 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

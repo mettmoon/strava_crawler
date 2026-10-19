@@ -11,7 +11,7 @@ struct CoursePreviewView: View {
             GeometryReader { proxy in
                 if proxy.size.width >= 760 {
                     HStack(spacing: 0) {
-                        CoursePreviewMapView(course: course)
+                        CoursePreviewMapSnapshotView(course: course)
                             .frame(minWidth: 420)
                         Divider()
                         details
@@ -19,7 +19,7 @@ struct CoursePreviewView: View {
                     }
                 } else {
                     VStack(spacing: 0) {
-                        CoursePreviewMapView(course: course)
+                        CoursePreviewMapSnapshotView(course: course)
                             .frame(minHeight: 280)
                         Divider()
                         details
