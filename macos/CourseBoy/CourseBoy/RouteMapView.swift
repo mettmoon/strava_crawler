@@ -604,6 +604,31 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             map.addAnnotations(anns)
             rangeEndpointAnnotations = anns
             promoteRangeEndpointAnnotationViews(in: map)
+
+            if !selection.isDragging {
+                revealRangeIfNeeded(in: map, rangeRect: line.boundingMapRect)
+            }
+        }
+
+        /// 선택 구간이 지도 화면에 다 보이지 않으면 카메라를 옮긴다.
+        /// 현재 화면 크기에 들어가는 구간은 확대 수준을 유지한 채 중심만 옮기고,
+        /// 화면보다 큰 구간은 구간 전체가 보이도록 축소한다.
+        private func revealRangeIfNeeded(in map: MKMapView, rangeRect: MKMapRect) {
+            let visible = map.visibleMapRect
+            guard !visible.isEmpty, !visible.contains(rangeRect) else { return }
+
+            let fitsAtCurrentZoom = rangeRect.size.width <= visible.size.width * 0.8
+                && rangeRect.size.height <= visible.size.height * 0.8
+            if fitsAtCurrentZoom {
+                let center = MKMapPoint(x: rangeRect.midX, y: rangeRect.midY)
+                map.setCenter(center.coordinate, animated: true)
+            } else {
+                map.setVisibleMapRect(
+                    rangeRect,
+                    edgePadding: NSEdgeInsets(top: 40, left: 40, bottom: 40, right: 40),
+                    animated: true
+                )
+            }
         }
 
         func syncPinnedLocation(in map: MKMapView, distanceKm: Double?) {
