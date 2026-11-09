@@ -105,10 +105,11 @@ struct StravaWebView: NSViewRepresentable {
             }
         }
 
-        /// 현재 페이지의 <meta name="csrf-token"> 값을 읽어온다(없으면 nil).
+        /// 현재 페이지의 CSRF meta 값을 읽어온다(없으면 nil).
+        /// 구 페이지는 name="csrf-token", Next.js 페이지는 name="csrf".
         @MainActor
         private func csrfToken(from webView: WKWebView) async -> String? {
-            let js = "document.querySelector('meta[name=\"csrf-token\"]')?.content ?? ''"
+            let js = "document.querySelector('meta[name=\"csrf-token\"], meta[name=\"csrf\"]')?.content ?? ''"
             let value = try? await webView.evaluateJavaScript(js)
             guard let token = value as? String, !token.isEmpty else { return nil }
             return token

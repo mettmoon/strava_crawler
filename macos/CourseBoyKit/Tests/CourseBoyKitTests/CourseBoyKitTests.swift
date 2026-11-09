@@ -388,6 +388,16 @@ final class MyRoutesTests: XCTestCase {
         XCTAssertEqual(MyRoutesParser.extractCSRF(html: html), "abc123==")
     }
 
+    func testExtractCSRFNextJSMeta() {
+        // Next.js 로 옮겨진 페이지는 name="csrf" 를 쓴다.
+        let html = #"<head><meta name="viewport" content="x"/><meta name="csrf" content="tok_456"/></head>"#
+        XCTAssertEqual(MyRoutesParser.extractCSRF(html: html), "tok_456")
+        let reversed = #"<head><meta content="tok_789" name="csrf"></head>"#
+        XCTAssertEqual(MyRoutesParser.extractCSRF(html: reversed), "tok_789")
+        // 다른 meta 의 content 를 잘못 집지 않아야 한다.
+        XCTAssertNil(MyRoutesParser.extractCSRF(html: #"<meta name="csrf-param" content="authenticity_token">"#))
+    }
+
     func testParseRealSchema() throws {
         // 실제 응답: me.searchRoutes.nodes + pageInfo
         let json = """

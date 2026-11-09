@@ -60,11 +60,12 @@ public enum MyRoutesParser {
         return (try? JSONSerialization.data(withJSONObject: body)) ?? Data()
     }
 
-    /// HTML 에서 csrf-token meta 추출.
+    /// HTML 에서 CSRF meta 추출.
+    /// 구 Rails 페이지는 `<meta name="csrf-token">`, Next.js 로 옮겨진 페이지는 `<meta name="csrf">` 를 쓴다.
     public static func extractCSRF(html: String) -> String? {
         let patterns = [
-            #"<meta\s+name=\"csrf-token\"\s+content=\"([^\"]+)\""#,
-            #"<meta\s+content=\"([^\"]+)\"\s+name=\"csrf-token\""#,
+            #"<meta\b[^>]*\bname=\"csrf(?:-token)?\"[^>]*\bcontent=\"([^\"]+)\""#,
+            #"<meta\b[^>]*\bcontent=\"([^\"]+)\"[^>]*\bname=\"csrf(?:-token)?\""#,
         ]
         for p in patterns {
             if let re = try? NSRegularExpression(pattern: p),
