@@ -74,6 +74,16 @@ func configureRangeEndpointAnnotationViewAsTopMost(_ view: MKAnnotationView) {
     view.layer?.zPosition = rangeEndpointTopLayerZPosition
 }
 
+/// 좌표가 지도 가시 영역(가장자리 여백 포함) 밖이면 줌 레벨은 유지한 채
+/// 해당 좌표가 중앙에 오도록 카메라를 이동한다. 이미 보이면 아무것도 하지 않는다.
+func revealCoordinateIfNeeded(_ coordinate: CLLocationCoordinate2D, in map: MKMapView) {
+    let visible = map.visibleMapRect
+    guard !visible.isNull, visible.size.width > 0, visible.size.height > 0 else { return }
+    let safeRect = visible.insetBy(dx: visible.size.width * 0.08, dy: visible.size.height * 0.08)
+    guard !safeRect.contains(MKMapPoint(coordinate)) else { return }
+    map.setCenter(coordinate, animated: true)
+}
+
 func promoteRangeEndpointAnnotationViews(in map: MKMapView) {
     let promote = {
         for annotation in map.annotations where annotation is RangeEndpointAnnotation {
@@ -397,6 +407,9 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         var lastRangeSignature: String = ""
         var pinnedAnnotation: PinnedLocationAnnotation?
         var lastPinnedSignature: String = ""
+        /// 카메라 이동을 판단한 마지막 핀 거리. 트랙 재구성 시 annotation만 다시
+        /// 그리는 경우(같은 거리)에는 카메라를 움직이지 않도록 별도로 기억한다.
+        var lastRevealedPinnedKm: Double?
 
         @objc func handleRightClick(_ gesture: NSClickGestureRecognizer) {
             guard let map = gesture.view as? MKMapView else { return }
@@ -603,6 +616,9 @@ private struct RouteMapRepresentable: NSViewRepresentable {
                 pinnedAnnotation = nil
             }
 
+            let shouldReveal = distanceKm != lastRevealedPinnedKm
+            lastRevealedPinnedKm = distanceKm
+
             guard let km = distanceKm,
                   let info = routeHoverInfo(trackPoints: trackPoints, nearestToDistanceKm: km) else { return }
 
@@ -613,6 +629,9 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             )
             map.addAnnotation(annotation)
             pinnedAnnotation = annotation
+            if shouldReveal {
+                revealCoordinateIfNeeded(annotation.coordinate, in: map)
+            }
         }
 
         func syncHoverPresentation(in map: MKMapView, info: RouteHoverInfo?) {

@@ -1647,6 +1647,8 @@ struct CourseEditMapView: NSViewRepresentable {
         private var hoverAnnotation: HoverAnnotation?
         private var pinnedAnnotation: PinnedLocationAnnotation?
         private var lastPinnedSignature: String = ""
+        /// refresh()로 annotation만 다시 그릴 때(같은 거리)는 카메라를 움직이지 않도록 별도로 기억한다.
+        private var lastRevealedPinnedKm: Double?
 
         init(draft: CourseEditorDraft, isCalculatingBinding: Binding<Bool>,
              searchResultsBinding: Binding<[KakaoLocalResult]>,
@@ -1843,6 +1845,9 @@ struct CourseEditMapView: NSViewRepresentable {
                 map.removeAnnotation(existing)
                 pinnedAnnotation = nil
             }
+            let shouldReveal = distanceKm != lastRevealedPinnedKm
+            lastRevealedPinnedKm = distanceKm
+
             guard let km = distanceKm else { return }
             let allPts = draftAllTrackPoints()
             guard let info = routeHoverInfo(trackPoints: allPts, nearestToDistanceKm: km) else { return }
@@ -1853,6 +1858,9 @@ struct CourseEditMapView: NSViewRepresentable {
             )
             map.addAnnotation(annotation)
             pinnedAnnotation = annotation
+            if shouldReveal {
+                revealCoordinateIfNeeded(annotation.coordinate, in: map)
+            }
         }
 
         private func fitMap(map: MKMapView) {
