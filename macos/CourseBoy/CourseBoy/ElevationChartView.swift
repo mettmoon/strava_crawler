@@ -111,9 +111,18 @@ struct ElevationChartView: View {
         visibleRowCount == 0 ? 0 : rowPad + CGFloat(visibleRowCount) * rowHeight + rowPad
     }
     private var totalHeight: CGFloat { stripH + chartBodyHeight + 16 }
+    private let toolbarHeight: CGFloat = 24
     private var visibleRowCount: Int { min(actualRowCount, maxMarkerRows) }
 
     var body: some View {
+        VStack(spacing: 0) {
+            chartToolbar
+            Divider()
+            chartContent
+        }
+    }
+
+    private var chartContent: some View {
         GeometryReader { geo in
             // contentWidth: naturalWidth * scale, 최소 뷰 너비
             let contentWidth = max(geo.size.width, naturalWidth * scale)
@@ -191,52 +200,6 @@ struct ElevationChartView: View {
                         }
                 )
 
-                // 컨트롤 버튼
-                HStack(spacing: 4) {
-                    Button { scaleBy(1 / scaleStep) } label: {
-                        Image(systemName: "minus.magnifyingglass")
-                    }
-                    .disabled(scale <= minScale)
-                    Button { scaleBy(scaleStep) } label: {
-                        Image(systemName: "plus.magnifyingglass")
-                    }
-                    .disabled(scale >= maxScale)
-
-                    Divider().frame(height: 14)
-
-                    Button {
-                        showCustomPopover.toggle()
-                    } label: {
-                        Text("커스텀").font(.caption)
-                    }
-                    .popover(isPresented: $showCustomPopover, arrowEdge: .bottom) {
-                        let eleSpanM: Double = {
-                            let eles = trackPoints.compactMap(\.ele)
-                            guard let mn = eles.min(), let mx = eles.max() else { return 100 }
-                            return max(mx - mn, 1)
-                        }()
-                        CustomScalePopover(
-                            pxPerKm: naturalWidth > 0 ? Double(naturalWidth * scale / CGFloat(totalKm)) : 40,
-                            pxPerM: Double(chartBodyHeight) / eleSpanM,
-                            eleSpanM: eleSpanM,
-                            totalKm: totalKm,
-                            onApply: { pxPerKm, pxPerM in
-                                if totalKm > 0, naturalWidth > 0 {
-                                    let newScale = CGFloat(pxPerKm) * CGFloat(totalKm) / naturalWidth
-                                    scale = max(minScale, newScale)
-                                    lastScale = scale
-                                }
-                                chartBodyHeight = max(40, CGFloat(pxPerM * eleSpanM))
-                                recalcRowCount()
-                            }
-                        )
-                    }
-                }
-                .buttonStyle(.borderless)
-                .padding(5)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
-                .padding(.trailing, 8)
-                .padding(.bottom, 16)
             }
             .onAppear {
                 viewWidth = geo.size.width
@@ -253,6 +216,58 @@ struct ElevationChartView: View {
         .onChange(of: scale)              { _, _ in recalcRowCount() }
         .onChange(of: markers)            { _, _ in recalcRowCount() }
         .onChange(of: trackPoints.count)  { _, _ in resetScale() }
+    }
+
+    // MARK: - 상단 툴바
+
+    /// 고도표 바로 위의 얇은 컨트롤 영역(축소/확대/커스텀).
+    private var chartToolbar: some View {
+        HStack(spacing: 4) {
+            Spacer(minLength: 0)
+            Button { scaleBy(1 / scaleStep) } label: {
+                Image(systemName: "minus.magnifyingglass")
+            }
+            .disabled(scale <= minScale)
+            Button { scaleBy(scaleStep) } label: {
+                Image(systemName: "plus.magnifyingglass")
+            }
+            .disabled(scale >= maxScale)
+
+            Divider().frame(height: 14)
+
+            Button {
+                showCustomPopover.toggle()
+            } label: {
+                Text("커스텀").font(.caption)
+            }
+            .popover(isPresented: $showCustomPopover, arrowEdge: .bottom) {
+                let eleSpanM: Double = {
+                    let eles = trackPoints.compactMap(\.ele)
+                    guard let mn = eles.min(), let mx = eles.max() else { return 100 }
+                    return max(mx - mn, 1)
+                }()
+                CustomScalePopover(
+                    pxPerKm: naturalWidth > 0 ? Double(naturalWidth * scale / CGFloat(totalKm)) : 40,
+                    pxPerM: Double(chartBodyHeight) / eleSpanM,
+                    eleSpanM: eleSpanM,
+                    totalKm: totalKm,
+                    onApply: { pxPerKm, pxPerM in
+                        if totalKm > 0, naturalWidth > 0 {
+                            let newScale = CGFloat(pxPerKm) * CGFloat(totalKm) / naturalWidth
+                            scale = max(minScale, newScale)
+                            lastScale = scale
+                        }
+                        chartBodyHeight = max(40, CGFloat(pxPerM * eleSpanM))
+                        recalcRowCount()
+                    }
+                )
+            }
+        }
+        .buttonStyle(.borderless)
+        .controlSize(.small)
+        .padding(.horizontal, 8)
+        .frame(height: toolbarHeight)
+        .background(.bar)
     }
 
     // MARK: - 가로 스크롤 anchor
