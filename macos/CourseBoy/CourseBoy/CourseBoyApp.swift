@@ -31,7 +31,7 @@ struct CourseBoyApp: App {
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
-        .defaultSize(width: 460, height: 640)
+        .defaultSize(width: 540, height: 660)
         .windowResizability(.contentMinSize)
         .modelContainer(container.modelContainer)
 

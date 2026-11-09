@@ -13,7 +13,7 @@ struct RouteCommands: Commands {
 
             Divider()
 
-            Button("경로 추가…") {
+            Button("URL로 경로 가져오기…") {
                 addRoute?()
             }
             .disabled(addRoute == nil)

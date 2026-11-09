@@ -2,7 +2,7 @@ import SwiftUI
 import Observation
 import CourseBoyKit
 
-/// 내 라우트 페이징 로더.
+/// Strava 내 라우트 페이징 로더.
 @MainActor
 @Observable
 final class MyRoutesLoader {
@@ -10,6 +10,8 @@ final class MyRoutesLoader {
     var isLoading = false
     var hasMore = true
     var errorMessage: String?
+    /// 마지막 실패가 인증 문제(세션 만료 등)라 다시 로그인해야 하는지.
+    var needsLogin = false
 
     private var after = "0"
     private let pageSize = 16
@@ -32,13 +34,33 @@ final class MyRoutesLoader {
         guard !isLoading, hasMore else { return }
         isLoading = true
         errorMessage = nil
+        needsLogin = false
         defer { isLoading = false }
         do {
             try await fetchPage(retryOnAuthFailure: true)
         } catch {
             errorMessage = error.localizedDescription
+            if case StravaError.notAuthenticated = error { needsLogin = true }
             hasMore = false
         }
+    }
+
+    /// 실패한 지점부터 다시 시도. 이미 받은 페이지는 유지한다.
+    func retry() async {
+        errorMessage = nil
+        needsLogin = false
+        hasMore = true
+        await loadNext()
+    }
+
+    /// 로그인 계정이 바뀌었을 수 있으므로 처음부터 다시 받는다.
+    func reset() {
+        routes = []
+        after = "0"
+        hasMore = true
+        errorMessage = nil
+        needsLogin = false
+        csrf = nil
     }
 
     /// 한 페이지를 가져온다. CSRF 만료(notAuthenticated)면 토큰을 재수확해 1회 재시도.
@@ -73,80 +95,8 @@ final class MyRoutesLoader {
     }
 }
 
-/// ‘내 경로에서 가져오기’ 시트 — 라우트 목록(페이징) → 선택.
-struct MyRoutesView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var loader = MyRoutesLoader()
-    @State private var showURLImport = false
-    let onSelect: (MyRoute) -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("내 경로").font(.headline)
-                Spacer()
-                Button("URL로 가져오기") { showURLImport = true }
-                    .buttonStyle(.bordered)
-                Button("닫기") { dismiss() }.keyboardShortcut(.cancelAction)
-            }
-            .padding()
-            Divider()
-            content
-        }
-        .frame(width: 540, height: 620)
-        .task { await loader.loadFirstPageIfNeeded() }
-        .sheet(isPresented: $showURLImport) {
-            URLImportView { route in
-                onSelect(route)
-                dismiss()
-            }
-        }
-    }
-
-    @ViewBuilder private var content: some View {
-        if let error = loader.errorMessage, loader.routes.isEmpty {
-            ContentUnavailableView {
-                Label("불러오기 실패", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(error)
-            } actions: {
-                Button("다시 시도") {
-                    loader.errorMessage = nil
-                    loader.hasMore = true
-                    Task { await loader.loadNext() }
-                }
-            }
-        } else if loader.routes.isEmpty && loader.isLoading {
-            ProgressView("불러오는 중…").frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            List {
-                ForEach(loader.routes) { route in
-                    Button {
-                        onSelect(route)
-                        dismiss()
-                    } label: {
-                        MyRouteRow(route: route)
-                    }
-                    .buttonStyle(.plain)
-                }
-                if loader.hasMore {
-                    HStack {
-                        Spacer()
-                        if loader.isLoading {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Button("더 보기") { Task { await loader.loadNext() } }
-                        }
-                        Spacer()
-                    }
-                    .padding(.vertical, 4)
-                }
-            }
-        }
-    }
-}
-
-private struct URLImportView: View {
+/// Strava 경로 URL(또는 숫자 ID)로 경로를 가져오는 시트.
+struct URLImportView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var urlText = ""
     @State private var errorMessage: String?
@@ -184,6 +134,7 @@ private struct URLImportView: View {
             return
         }
         onSelect(MyRoute(id: routeID, name: "Route \(routeID)"))
+        dismiss()
     }
 
     /// https://www.strava.com/routes/<id> 또는 숫자 ID 직접 입력 지원.
@@ -198,50 +149,5 @@ private struct URLImportView: View {
             if id.allSatisfy(\.isNumber), !id.isEmpty { return id }
         }
         return nil
-    }
-}
-
-private struct MyRouteRow: View {
-    let route: MyRoute
-
-    var body: some View {
-        HStack(spacing: 12) {
-            thumbnail
-            VStack(alignment: .leading, spacing: 3) {
-                Text(route.name).fontWeight(.medium).lineLimit(1)
-                HStack(spacing: 8) {
-                    if let d = route.distanceText {
-                        Label(d, systemImage: "ruler").labelStyle(.titleAndIcon)
-                    }
-                    if let e = route.elevationText {
-                        Label(e, systemImage: "mountain.2").labelStyle(.titleAndIcon)
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                Text("ID \(route.id)").font(.caption2).foregroundStyle(.tertiary)
-            }
-            Spacer()
-            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
-        }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-    }
-
-    @ViewBuilder private var thumbnail: some View {
-        if let url = route.thumbnailURL {
-            AsyncImage(url: url) { image in
-                image.resizable().aspectRatio(contentMode: .fill)
-            } placeholder: {
-                Rectangle().fill(.quaternary)
-            }
-            .frame(width: 70, height: 48)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-        } else {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(.quaternary)
-                .frame(width: 70, height: 48)
-                .overlay(Image(systemName: "map").foregroundStyle(.secondary))
-        }
     }
 }
