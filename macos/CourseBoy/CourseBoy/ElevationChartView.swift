@@ -95,7 +95,24 @@ struct ElevationChartView: View {
     private let minPixelsPerKm: CGFloat = 40
     private let maxScale: CGFloat = 30.0
     private let scaleStep: CGFloat = 1.4
-    private let approxCharW: CGFloat = 6.5
+    /// 레이블 pill 이 캔버스 가장자리에서 떨어지는 최소 간격.
+    private let labelEdgeInset: CGFloat = 2
+    private static let markerLabelFont = NSFont.systemFont(ofSize: 9, weight: .medium)
+    private static let countLabelFont = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium)
+    private static let rangeLabelFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
+
+    /// 실제 렌더링 폭. 글자 수 기반 추정은 한글처럼 넓은 글자에서 pill 보다
+    /// 텍스트가 넓어져 가장자리에서 텍스트만 잘리는 문제가 있었다.
+    private static func textWidth(_ text: String, font: NSFont) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: font]).width)
+    }
+
+    /// 폭 `width` 인 레이블의 중심 x 를 [inset, canvasWidth - inset] 안으로 끌어온다.
+    private func clampedLabelOriginX(centerX: CGFloat, width: CGFloat, canvasWidth: CGFloat) -> CGFloat {
+        let minX = labelEdgeInset
+        let maxX = max(minX, canvasWidth - width - labelEdgeInset)
+        return min(max(centerX - width / 2, minX), maxX)
+    }
     private let maxMarkerRows = 4
 
     /// 자연 너비: scale=1 일 때의 콘텐츠 폭
@@ -306,6 +323,9 @@ struct ElevationChartView: View {
         let row: Int
         let label: String
         let color: Color
+        /// 캔버스 안으로 끌어온 레이블 pill 의 x 범위.
+        let pillMinX: CGFloat
+        let pillWidth: CGFloat
     }
 
     private func computePlacements(contentWidth: CGFloat) -> [Placement] {
@@ -341,9 +361,9 @@ struct ElevationChartView: View {
 
         var result: [Placement] = []
         for r in raw {
-            let labelW = CGFloat(r.label.count) * approxCharW
-            let left   = r.mx - labelW / 2
-            let right  = left + labelW
+            let pillW = Self.textWidth(r.label, font: Self.markerLabelFont) + 6
+            let left   = clampedLabelOriginX(centerX: r.mx, width: pillW, canvasWidth: contentWidth)
+            let right  = left + pillW
 
             // 겹치지 않는 가장 낮은 행 찾기
             var assignedRow = 0
@@ -357,7 +377,8 @@ struct ElevationChartView: View {
             rowRightEdge[assignedRow] = right
             result.append(Placement(mx: r.mx, my: r.my,
                                     row: assignedRow,
-                                    label: r.label, color: r.color))
+                                    label: r.label, color: r.color,
+                                    pillMinX: left, pillWidth: pillW))
         }
         return result
     }
@@ -563,9 +584,6 @@ struct ElevationChartView: View {
             if p.row < maxMarkerRows {
                 // 레이블 y (행 기준)
                 let labelY = rowPad + CGFloat(p.row) * rowHeight
-                let labelW = CGFloat(p.label.count) * approxCharW
-                let labelCX = p.mx  // 레이블 중앙 = 마커 x
-                let labelMidY = labelY + rowHeight / 2
 
                 // 레이블 → 차트 연결 수직선 (레이블 아래 ~ 차트 상단)
                 var stem = Path()
@@ -575,20 +593,20 @@ struct ElevationChartView: View {
                            style: StrokeStyle(lineWidth: 0.8))
 
                 // 레이블 배경 pill
-                let pillRect = CGRect(x: labelCX - labelW / 2 - 3,
+                let pillRect = CGRect(x: p.pillMinX,
                                       y: labelY + 1,
-                                      width: labelW + 6,
+                                      width: p.pillWidth,
                                       height: rowHeight - 3)
                 ctx.fill(Path(roundedRect: pillRect, cornerRadius: 3),
                          with: .color(p.color.opacity(0.15)))
 
                 // 레이블 텍스트
                 let textAttrs = AttributeContainer([
-                    .font: NSFont.systemFont(ofSize: 9, weight: .medium),
+                    .font: Self.markerLabelFont,
                     .foregroundColor: NSColor(p.color)
                 ])
                 ctx.draw(Text(AttributedString(p.label, attributes: textAttrs)),
-                         at: CGPoint(x: labelCX, y: labelMidY), anchor: .center)
+                         at: CGPoint(x: pillRect.midX, y: labelY + rowHeight / 2), anchor: .center)
             }
 
             // 마커 점 (고도 위치)
@@ -601,10 +619,10 @@ struct ElevationChartView: View {
         if hiddenMarkerCount > 0, stripH > 0 {
             let label = "+\(hiddenMarkerCount)"
             let attrs = AttributeContainer([
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium),
+                .font: Self.countLabelFont,
                 .foregroundColor: NSColor.secondaryLabelColor
             ])
-            let labelW = CGFloat(label.count) * approxCharW + 10
+            let labelW = Self.textWidth(label, font: Self.countLabelFont) + 10
             let rect = CGRect(x: size.width - labelW - 6,
                               y: rowPad,
                               width: labelW,
@@ -642,7 +660,7 @@ struct ElevationChartView: View {
 
             // 양 끝 점 + 레이블 (거리 / 고도)
             let labelAttrs = AttributeContainer([
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold),
+                .font: Self.rangeLabelFont,
                 .foregroundColor: NSColor.white
             ])
 
@@ -668,7 +686,7 @@ struct ElevationChartView: View {
 
                 // 레이블 pill — 차트 상단(stripH 바로 아래)에 부착
                 let labelText = endpointLabel(km: km)
-                let labelW = max(56, CGFloat(labelText.count) * 6.5 + 10)
+                let labelW = max(56, Self.textWidth(labelText, font: Self.rangeLabelFont) + 10)
                 let labelH: CGFloat = 16
                 var labelX = isStart ? x - labelW - 4 : x + 4
                 if labelX < 2 { labelX = x + 4 }
@@ -686,10 +704,10 @@ struct ElevationChartView: View {
             // 중앙에 길이 레이블
             let midX = (x1 + x2) / 2
             let lengthText = "Δ \(formatRouteDistance(rangeSelection.lengthKm))"
-            let lengthW = max(60, CGFloat(lengthText.count) * 6.5 + 12)
+            let lengthW = max(60, Self.textWidth(lengthText, font: Self.rangeLabelFont) + 12)
             let lengthH: CGFloat = 16
             let lengthRect = CGRect(
-                x: min(max(midX - lengthW / 2, 2), size.width - lengthW - 2),
+                x: clampedLabelOriginX(centerX: midX, width: lengthW, canvasWidth: size.width),
                 y: bodyBot - lengthH - 4,
                 width: lengthW, height: lengthH
             )
