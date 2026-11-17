@@ -27,8 +27,8 @@ struct MapSnapshotRequest: Codable {
         let pointType: String?
     }
 
-    /// [위도, 경도] 쌍의 배열.
-    let coordinates: [[Double]]
+    /// 끊긴 경로 조각마다 [위도, 경도] 쌍의 배열.
+    let segments: [[[Double]]]
     let markers: [Marker]
     let width: Double
     let height: Double

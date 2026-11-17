@@ -26,10 +26,13 @@ final class MapSnapshotRenderer: NSObject, MapSnapshotServiceProtocol {
     }
 
     private static func render(_ request: MapSnapshotRequest, reply: @escaping (Data?, String?) -> Void) {
-        let coordinates = request.coordinates.compactMap { pair -> CLLocationCoordinate2D? in
-            guard pair.count == 2 else { return nil }
-            return CLLocationCoordinate2D(latitude: pair[0], longitude: pair[1])
+        let segments = request.segments.map { segment in
+            segment.compactMap { pair -> CLLocationCoordinate2D? in
+                guard pair.count == 2 else { return nil }
+                return CLLocationCoordinate2D(latitude: pair[0], longitude: pair[1])
+            }
         }
+        let coordinates = segments.flatMap { $0 }
         let size = NSSize(width: max(request.width, 1), height: max(request.height, 1))
 
         let options = MKMapSnapshotter.Options()
@@ -55,7 +58,7 @@ final class MapSnapshotRenderer: NSObject, MapSnapshotServiceProtocol {
                 reply(nil, error?.localizedDescription ?? "지도 스냅샷을 만들지 못했습니다.")
                 return
             }
-            reply(draw(snapshot: snapshot, coordinates: coordinates, markers: request.markers), nil)
+            reply(draw(snapshot: snapshot, segments: segments, markers: request.markers), nil)
         }
     }
 
@@ -76,7 +79,7 @@ final class MapSnapshotRenderer: NSObject, MapSnapshotServiceProtocol {
 
     private static func draw(
         snapshot: MKMapSnapshotter.Snapshot,
-        coordinates: [CLLocationCoordinate2D],
+        segments: [[CLLocationCoordinate2D]],
         markers: [MapSnapshotRequest.Marker]
     ) -> Data? {
         let image = snapshot.image
@@ -87,12 +90,15 @@ final class MapSnapshotRenderer: NSObject, MapSnapshotServiceProtocol {
                 snapshot.point(for: coordinate)
             }
 
-            if coordinates.count >= 2 {
-                let path = NSBezierPath()
-                path.move(to: point(coordinates[0]))
-                for coordinate in coordinates.dropFirst() {
+            // 조각마다 따로 이어 그려서 섹션이 바뀌는 곳은 선이 끊긴다.
+            let path = NSBezierPath()
+            for segment in segments where segment.count >= 2 {
+                path.move(to: point(segment[0]))
+                for coordinate in segment.dropFirst() {
                     path.line(to: point(coordinate))
                 }
+            }
+            if !path.isEmpty {
                 path.lineWidth = 4
                 path.lineJoinStyle = .round
                 path.lineCapStyle = .round

@@ -47,7 +47,9 @@ struct CoursePreviewMapSnapshotView: View {
         guard !Task.isCancelled else { return }
 
         let request = MapSnapshotRequest(
-            coordinates: course.trackPoints.map { [$0.coordinate.latitude, $0.coordinate.longitude] },
+            segments: course.trackSegments.map { segment in
+                segment.map { [$0.coordinate.latitude, $0.coordinate.longitude] }
+            },
             markers: markers(),
             width: size.width,
             height: size.height,
