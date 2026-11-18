@@ -64,7 +64,15 @@ struct CourseWorkspaceView: View {
     private func workspace(for course: CourseRecord) -> some View {
         let pts = course.allTrackPoints
         NavigationSplitView {
-            CourseCuesheetSidebar(course: course, selectedCueIDs: $selectedCueIDs)
+            CourseCuesheetSidebar(
+                course: course,
+                selectedCueIDs: $selectedCueIDs,
+                onSelectSectionRange: { selectSectionRange($0) },
+                onVisibilityChange: {
+                    rangeSelection = nil
+                    pinnedDistanceKm = nil
+                }
+            )
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
         } detail: {
             contentPane(trackPoints: pts, course: course)
@@ -242,6 +250,21 @@ struct CourseWorkspaceView: View {
         }
 
         rangeSelection = ChartRangeSelection(startKm: startKm, endKm: endKm, isDragging: false)
+    }
+
+    /// 섹션의 코스 거리 범위를 구간으로 선택한다.
+    /// 큐 선택을 비우면 `onChange`가 구간도 지우므로, 그 뒤에 구간을 설정한다.
+    private func selectSectionRange(_ range: ClosedRange<Double>) {
+        let selection = ChartRangeSelection(
+            startKm: range.lowerBound, endKm: range.upperBound, isDragging: false
+        )
+        pinnedDistanceKm = nil
+        if selectedCueIDs.isEmpty {
+            rangeSelection = selection
+        } else {
+            selectedCueIDs.removeAll()
+            DispatchQueue.main.async { rangeSelection = selection }
+        }
     }
 
     private func cueDistanceKm(_ cue: CourseCuePoint, trackPoints pts: [TrackPoint]) -> Double {

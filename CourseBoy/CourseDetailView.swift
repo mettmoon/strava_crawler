@@ -8,6 +8,10 @@ import CourseBoyKit
 struct CourseCuesheetSidebar: View {
     var course: CourseRecord
     @Binding var selectedCueIDs: Set<UUID>
+    /// 섹션 행을 눌렀을 때 그 섹션의 코스 거리 범위(km)를 넘긴다.
+    var onSelectSectionRange: (ClosedRange<Double>) -> Void = { _ in }
+    /// 임시 가림을 바꾼 직후 호출. 누적 거리가 달라지므로 거리 기반 선택을 비우는 데 쓴다.
+    var onVisibilityChange: () -> Void = {}
 
     private var sortedCues: [CourseCuePoint] {
         course.cuePoints.sorted { $0.distanceMeters < $1.distanceMeters }
@@ -18,6 +22,14 @@ struct CourseCuesheetSidebar: View {
         let elevationProgress = RouteElevationProgress(trackPoints: pts)
 
         VStack(spacing: 0) {
+            CourseSectionListView(
+                course: course,
+                onSelectSectionRange: onSelectSectionRange,
+                onVisibilityChange: onVisibilityChange
+            )
+
+            Divider()
+
             HStack {
                 Text("큐시트")
                     .font(.subheadline.bold())
@@ -89,6 +101,108 @@ struct CourseCuesheetSidebar: View {
 
     private func formatAccumulatedElevation(_ meters: Double) -> String {
         String(format: "%.0f m", meters)
+    }
+}
+
+// MARK: - CourseSectionListView
+
+/// 보기 화면의 섹션(레이어) 목록. 읽기 전용이며 순서·이름·색은 바꿀 수 없다.
+/// 눈 버튼은 이 창에서만 유효한 임시 가림으로, 파일에 저장하지 않는다.
+struct CourseSectionListView: View {
+    var course: CourseRecord
+    var onSelectSectionRange: (ClosedRange<Double>) -> Void
+    var onVisibilityChange: () -> Void
+
+    private static let rowHeight: CGFloat = 28
+
+    var body: some View {
+        let colors = course.resolvedSectionColorHexes
+        let ranges = Dictionary(
+            course.sectionTracks.map { track in
+                (track.id, track.courseStartKm ... (track.courseStartKm + (track.points.last?.cumKm ?? 0)))
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        VStack(spacing: 0) {
+            HStack {
+                Text("섹션")
+                    .font(.subheadline.bold())
+                Spacer()
+                Text("\(course.sections.count)개")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(course.sections.enumerated()), id: \.element.id) { index, section in
+                        row(
+                            index: index,
+                            section: section,
+                            colorHex: colors[index],
+                            range: ranges[section.id]
+                        )
+                    }
+                }
+                .padding(.horizontal, 6)
+            }
+            .frame(height: min(CGFloat(course.sections.count) * Self.rowHeight, 190))
+            .padding(.bottom, 6)
+        }
+    }
+
+    private func row(
+        index: Int,
+        section: CourseSection,
+        colorHex: String,
+        range: ClosedRange<Double>?
+    ) -> some View {
+        let isHidden = course.isEffectivelyHidden(section)
+        return HStack(spacing: 6) {
+            Button {
+                course.toggleTemporaryHidden(section.id)
+                onVisibilityChange()
+            } label: {
+                Image(systemName: isHidden ? "eye.slash" : "eye")
+                    .foregroundStyle(isHidden ? .tertiary : .secondary)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(isHidden ? "섹션 보이기 (저장되지 않음)" : "섹션 가리기 (저장되지 않음)")
+
+            Button {
+                if let range, range.upperBound > range.lowerBound {
+                    onSelectSectionRange(range)
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(Color(nsColor: SectionPalette.nsColor(colorHex)))
+                        .frame(width: 12, height: 12)
+                        .overlay(Circle().strokeBorder(.primary.opacity(0.25), lineWidth: 0.5))
+                    Text(section.displayName(at: index))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .opacity(isHidden ? 0.45 : 1)
+                    Spacer(minLength: 4)
+                    Text(formatRouteDistance(section.distanceKm))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .strikethrough(isHidden)
+                        .opacity(isHidden ? 0.6 : 1)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isHidden || range == nil)
+            .help(isHidden ? "" : "이 섹션을 구간으로 선택")
+        }
+        .frame(height: Self.rowHeight)
+        .padding(.horizontal, 4)
     }
 }
 

@@ -384,9 +384,25 @@ final class CourseRecord: ObservableObject, Identifiable {
         }
     }
 
-    /// 가리지 않은 섹션. 총 거리·트랙·큐·내보내기는 이 섹션들만으로 만든다.
+    /// 보기 화면에서 잠깐 바꾼 가림 상태(섹션 ID → 가림 여부). 파일에 저장하지 않으며,
+    /// 편집 내용을 커밋하면 비운다. 값이 없는 섹션은 저장된 `isHidden`을 따른다.
+    @Published var temporaryHiddenOverrides: [UUID: Bool] = [:]
+
+    /// 임시 가림까지 반영한 가림 여부.
+    func isEffectivelyHidden(_ section: CourseSection) -> Bool {
+        temporaryHiddenOverrides[section.id] ?? section.isHidden
+    }
+
+    /// 보기 화면용 가림 전환. 저장된 상태와 같아지면 임시 값은 지운다.
+    func toggleTemporaryHidden(_ id: UUID) {
+        guard let section = sections.first(where: { $0.id == id }) else { return }
+        let newValue = !isEffectivelyHidden(section)
+        temporaryHiddenOverrides[id] = newValue == section.isHidden ? nil : newValue
+    }
+
+    /// 가리지 않은 섹션(임시 가림 포함). 총 거리·트랙·큐·내보내기는 이 섹션들만으로 만든다.
     var visibleSections: [CourseSection] {
-        sections.filter { !$0.isHidden }
+        sections.filter { !isEffectivelyHidden($0) }
     }
 
     private func ensureLegacySection() {
@@ -407,11 +423,18 @@ final class CourseRecord: ObservableObject, Identifiable {
     /// `sectionTracks`·`adjustedSectionTrackPoints`와 같은 순서의 섹션 색.
     /// 색이 아직 없는 섹션(편집한 적 없는 파일)은 편집 화면과 같은 규칙으로 팔레트에서 배정한다.
     var visibleSectionColorHexes: [String?] {
+        zip(sections, resolvedSectionColorHexes)
+            .filter { !isEffectivelyHidden($0.0) }
+            .map { Optional($0.1) }
+    }
+
+    /// 모든 섹션의 색(`sections`와 같은 순서). 색이 없는 섹션은 팔레트에서 배정한다.
+    var resolvedSectionColorHexes: [String] {
         var assigned = sections.map(\.colorHex)
         for index in assigned.indices where SectionPalette.rgb(fromHex: assigned[index]) == nil {
             assigned[index] = SectionPalette.nextHex(avoiding: assigned.compactMap { $0 })
         }
-        return zip(sections, assigned).filter { !$0.0.isHidden }.map(\.1)
+        return assigned.map { $0 ?? SectionPalette.defaultHex }
     }
 
     var adjustedSectionTrackPoints: [[TrackPoint]] {

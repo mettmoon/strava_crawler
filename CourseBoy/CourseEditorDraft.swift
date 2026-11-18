@@ -115,6 +115,7 @@ final class CourseEditorDraft {
     /// 현재 draft 상태를 문서 모델에 반영한다.
     func commit(to course: CourseRecord) {
         course.sections = sections
+        course.temporaryHiddenOverrides = [:]
         course.title = normalizedTitle
     }
 
