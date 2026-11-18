@@ -105,13 +105,6 @@ struct CourseEditorView: View {
         )
     }
 
-    private var titleBinding: Binding<String> {
-        Binding(
-            get: { draft.title },
-            set: { draft.updateTitle($0) }
-        )
-    }
-
     init(course: CourseRecord, onSave: (() -> Void)? = nil, onCancel: (() -> Void)? = nil) {
         self.course = course
         self.onSave = onSave
@@ -585,10 +578,6 @@ struct CourseEditorView: View {
 
             Divider().frame(height: 20)
 
-            courseTitleField
-
-            Divider().frame(height: 20)
-
             RouteProfilePicker(selection: routeProfile)
 
             Divider().frame(height: 20)
@@ -669,34 +658,6 @@ struct CourseEditorView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .background(.bar)
-    }
-
-    private var courseTitleField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "text.cursor")
-                .foregroundStyle(.secondary)
-
-            TextField("코스 제목", text: titleBinding)
-                .textFieldStyle(.plain)
-                .font(.headline)
-                .lineLimit(1)
-                .frame(width: 240)
-                .onSubmit {
-                    if draft.hasValidTitle {
-                        draft.updateTitle(draft.normalizedTitle)
-                    }
-                }
-
-            if !draft.hasValidTitle {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                    .help("코스 제목을 입력하세요")
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 7))
-        .help(draft.hasValidTitle ? "코스 제목" : "코스 제목을 입력하세요")
     }
 
     private func closeEditor() {
@@ -1435,16 +1396,65 @@ private struct CourseEditorCueInspectorView: View {
 
     private var trackPoints: [TrackPoint] { draft.allTrackPoints }
 
+    @State private var isEditingTitle = false
+    @State private var titleText = ""
+    @FocusState private var isTitleFieldFocused: Bool
+
+    private var titleHeader: some View {
+        HStack(spacing: 6) {
+            if isEditingTitle {
+                TextField("코스 제목", text: $titleText)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($isTitleFieldFocused)
+                    .onSubmit { commitTitleEdit() }
+                    .onExitCommand { isEditingTitle = false }
+                    .onChange(of: isTitleFieldFocused) { _, focused in
+                        if !focused { commitTitleEdit() }
+                    }
+            } else {
+                if !draft.hasValidTitle {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+                Text(draft.hasValidTitle ? draft.title : "제목 없음")
+                    .font(.headline)
+                    .foregroundStyle(draft.hasValidTitle ? .primary : .secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(draft.hasValidTitle ? draft.title : "코스 제목을 입력하세요")
+                Spacer()
+                Button {
+                    beginTitleEdit()
+                } label: {
+                    Image(systemName: "pencil")
+                }
+                .buttonStyle(.borderless)
+                .help("제목 수정")
+                .accessibilityLabel("제목 수정")
+            }
+        }
+    }
+
+    private func beginTitleEdit() {
+        titleText = draft.title
+        isEditingTitle = true
+        isTitleFieldFocused = true
+    }
+
+    /// 빈 제목은 반영하지 않고 기존 제목을 유지한다.
+    private func commitTitleEdit() {
+        guard isEditingTitle else { return }
+        isEditingTitle = false
+        let trimmed = titleText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        draft.updateTitle(trimmed)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(draft.title)
-                    .font(.headline)
-                    .lineLimit(1)
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            titleHeader
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
 
             Divider()
 
