@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import CourseBoyKit
 
 struct CourseDocumentView: View {
@@ -35,6 +36,7 @@ struct CourseDocumentView: View {
         .onAppear {
             closeWelcomeWindows()
             registerRecentCourseIfNeeded()
+            detachFromImportedSourceFileIfNeeded()
         }
         .onChange(of: fileURL) { _, _ in
             registerRecentCourseIfNeeded()
@@ -75,6 +77,27 @@ struct CourseDocumentView: View {
 
         NSDocumentController.shared.noteNewRecentDocumentURL(normalizedURL)
         registeredRecentFileURL = normalizedURL
+    }
+
+    /// TCX·GPX 는 읽기만 하고 원본을 고쳐 쓰지 않는다. 그런 파일로 열린 문서는 원본과의 연결을 끊어
+    /// 저장하지 않은 새 csb 문서로 바꾼다. 그래야 저장할 때 원본을 덮어쓰지 않고 csb 저장 창이 뜬다.
+    private func detachFromImportedSourceFileIfNeeded() {
+        guard let fileURL,
+              let sourceURL = CourseDocument.normalizedReadableFileURL(fileURL),
+              CourseImportFileCoder.readableFilenameExtensions.contains(sourceURL.pathExtension.lowercased())
+        else { return }
+
+        // 문서 열기 절차가 끝난 뒤에 바꾼다.
+        DispatchQueue.main.async {
+            guard let nsDocument = NSDocumentController.shared.documents.first(where: {
+                $0.fileURL?.standardizedFileURL == sourceURL
+            }) else { return }
+
+            nsDocument.fileURL = nil
+            nsDocument.fileType = UTType.coursePlan.identifier
+            nsDocument.fileModificationDate = nil
+            nsDocument.displayName = sourceURL.deletingPathExtension().lastPathComponent
+        }
     }
 
     private func closeWelcomeWindows() {
