@@ -253,12 +253,6 @@ struct CourseEditorView: View {
 
     // MARK: - 가운데 컨텐츠 (지도 + 고도그래프)
 
-    private var selectedSectionMapPinKm: Double? {
-        pinnedDistanceKm.flatMap {
-            draft.selectedSectionLocalDistanceKm(forCourseDistanceKm: $0)
-        }
-    }
-
     private var selectedSectionMapRange: ChartRangeSelection? {
         guard let rangeSelection,
               sectionIndex(containing: rangeSelection) == draft.selectedSectionIndex else { return nil }
@@ -294,7 +288,7 @@ struct CourseEditorView: View {
                     selectedCueID: selectedCueID,
                     rangeSelection: selectedSectionMapRange,
                     hoverInfo: hoverInfo,
-                    pinnedDistanceKm: selectedSectionMapPinKm,
+                    pinnedDistanceKm: pinnedDistanceKm,
                     mapStyle: mapStyle.wrappedValue,
                     routingProfile: routeProfile.wrappedValue,
                     onSelectCue: { selectedCueID = $0 },
@@ -1772,6 +1766,7 @@ struct CourseEditMapView: NSViewRepresentable {
     var selectedCueID: UUID?
     var rangeSelection: ChartRangeSelection?
     var hoverInfo: RouteHoverInfo?
+    /// 고정 지점의 코스 누적 거리(km). 선택한 섹션이 아닌 섹션의 지점일 수도 있다.
     var pinnedDistanceKm: Double?
     var mapStyle: MapStyleOption = .standard
     var routingProfile: OSRMRouteProfile = .defaultProfile
@@ -2067,9 +2062,11 @@ struct CourseEditMapView: NSViewRepresentable {
             let shouldReveal = distanceKm != lastRevealedPinnedKm
             lastRevealedPinnedKm = distanceKm
 
-            guard let km = distanceKm else { return }
-            let allPts = draftAllTrackPoints()
-            guard let info = routeHoverInfo(trackPoints: allPts, nearestToDistanceKm: km) else { return }
+            // 고도표는 코스 전체를 보여 주므로, 선택한 섹션이 아니어도 그 지점을 표시하고 카메라를 옮긴다.
+            guard let km = distanceKm,
+                  let info = routeHoverInfo(
+                      trackPoints: draft.allCourseTrackPoints, nearestToDistanceKm: km
+                  ) else { return }
             let annotation = PinnedLocationAnnotation(
                 lat: info.lat, lon: info.lon,
                 distanceKm: info.distanceKm,
