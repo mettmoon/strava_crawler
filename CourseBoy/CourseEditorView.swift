@@ -205,6 +205,11 @@ struct CourseEditorView: View {
             rangeSelection = nil
             pinnedDistanceKm = nil
         }
+        .onChange(of: draft.sections.map(\.isHidden)) {
+            // 가림 상태가 바뀌면 코스 누적 거리가 달라지므로 거리 기반 선택을 비운다.
+            rangeSelection = nil
+            pinnedDistanceKm = nil
+        }
         .focusedSceneValue(\.courseFileCommandHandler, CourseFileCommandHandler(
             exportTCX: { saveDraftTCX() },
             canExportTCX: !draft.allCourseTrackPoints.isEmpty && draft.hasValidTitle
@@ -741,6 +746,10 @@ private struct CourseEditorCuesheetSidebar: View {
     @State private var newType = "Straight"
     @State private var showDeleteSectionConfirm = false
     @State private var sectionImportCandidates: CourseSectionImportCandidates?
+    @State private var renamingSectionID: UUID?
+    @State private var renameText = ""
+    @State private var colorPopoverSectionID: UUID?
+    @FocusState private var isRenameFieldFocused: Bool
 
     /// distanceMeters 기준 정렬. 동일 거리에서는 추가 순서를 보존.
     private var sortedCues: [CourseCuePoint] {
@@ -929,6 +938,13 @@ private struct CourseEditorCuesheetSidebar: View {
                     }
                     .disabled(!draft.canMergeSelectedWithNext)
 
+                    Button {
+                        draft.duplicateSection(draft.selectedSectionID)
+                        pinnedDistanceKm = nil
+                    } label: {
+                        Label("섹션 복제", systemImage: "plus.square.on.square")
+                    }
+
                     Divider()
 
                     Button(role: .destructive) {
@@ -964,72 +980,201 @@ private struct CourseEditorCuesheetSidebar: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
 
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(Array(draft.sections.enumerated()), id: \.element.id) { index, section in
-                        Button {
-                            draft.selectSection(section.id)
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: draft.selectedSectionID == section.id
-                                      ? "circle.inset.filled" : "circle")
-                                    .foregroundStyle(draft.selectedSectionID == section.id ? .blue : .secondary)
-                                Text("섹션 \(index + 1)")
-                                Spacer()
-                                Text(formatRouteDistance(section.distanceKm))
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                            }
-                            .contentShape(Rectangle())
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(
-                                draft.selectedSectionID == section.id
-                                    ? Color.accentColor.opacity(0.12)
-                                    : Color.clear,
-                                in: RoundedRectangle(cornerRadius: 6)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button {
-                                draft.selectSection(section.id)
-                                if let courseKm = pinnedDistanceKm,
-                                   let km = draft.selectedSectionLocalDistanceKm(
-                                    forCourseDistanceKm: courseKm
-                                   ) {
-                                    _ = draft.splitSelectedSection(atDistanceKm: km)
-                                }
-                            } label: {
-                                Label("고정 지점에서 분할", systemImage: "scissors")
-                            }
-                            .disabled(
-                                draft.selectedSectionID != section.id || selectedPinnedLocalKm == nil
-                            )
-
-                            Button {
-                                draft.selectSection(section.id)
-                                draft.mergeSelectedWithNext()
-                                pinnedDistanceKm = nil
-                            } label: {
-                                Label("다음 섹션과 합치기", systemImage: "arrow.triangle.merge")
-                            }
-                            .disabled(index + 1 >= draft.sections.count)
-
-                            Button(role: .destructive) {
-                                draft.selectSection(section.id)
-                                showDeleteSectionConfirm = true
-                            } label: {
-                                Label("삭제", systemImage: "trash")
-                            }
-                        }
-                    }
+            // 레이어 리스트: 위에 있는 섹션이 맵에서 위에 그려지고, 순서는 곧 주행 순서다.
+            List(selection: sectionSelection) {
+                ForEach(Array(draft.sections.enumerated()), id: \.element.id) { index, section in
+                    sectionRow(index: index, section: section)
+                        .tag(section.id)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 6))
+                        .listRowSeparator(.hidden)
+                        .contextMenu { sectionContextMenu(index: index, section: section) }
                 }
-                .padding(.horizontal, 6)
-                .padding(.bottom, 6)
+                .onMove { source, destination in
+                    draft.moveSections(fromOffsets: source, toOffset: destination)
+                    pinnedDistanceKm = nil
+                }
             }
-            .frame(maxHeight: 180)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .environment(\.defaultMinListRowHeight, Self.sectionRowHeight)
+            .frame(height: min(CGFloat(draft.sections.count) * Self.sectionRowHeight + 10, 190))
+            .padding(.bottom, 6)
         }
+    }
+
+    private static let sectionRowHeight: CGFloat = 28
+
+    private var sectionSelection: Binding<UUID?> {
+        Binding(
+            get: { draft.selectedSectionID },
+            set: { if let id = $0 { draft.selectSection(id) } }
+        )
+    }
+
+    private func sectionRow(index: Int, section: CourseSection) -> some View {
+        HStack(spacing: 6) {
+            Button {
+                draft.toggleSectionHidden(section.id)
+                pinnedDistanceKm = nil
+            } label: {
+                Image(systemName: section.isHidden ? "eye.slash" : "eye")
+                    .foregroundStyle(section.isHidden ? .tertiary : .secondary)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(section.isHidden ? "섹션 보이기" : "섹션 가리기")
+
+            Button {
+                colorPopoverSectionID = section.id
+            } label: {
+                Circle()
+                    .fill(Color(nsColor: SectionPalette.nsColor(section.colorHex)))
+                    .frame(width: 12, height: 12)
+                    .overlay(Circle().strokeBorder(.primary.opacity(0.25), lineWidth: 0.5))
+                    .frame(width: 18, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("섹션 색")
+            .popover(
+                isPresented: Binding(
+                    get: { colorPopoverSectionID == section.id },
+                    set: { if !$0, colorPopoverSectionID == section.id { colorPopoverSectionID = nil } }
+                ),
+                arrowEdge: .trailing
+            ) {
+                sectionColorPalette(for: section)
+            }
+
+            if renamingSectionID == section.id {
+                TextField("섹션 \(index + 1)", text: $renameText)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($isRenameFieldFocused)
+                    .onSubmit { commitSectionRename() }
+                    .onExitCommand { renamingSectionID = nil }
+                    .onChange(of: isRenameFieldFocused) { _, focused in
+                        if !focused { commitSectionRename() }
+                    }
+            } else {
+                Text(section.displayName(at: index))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .opacity(section.isHidden ? 0.45 : 1)
+                    .onTapGesture(count: 2) { beginSectionRename(index: index, section: section) }
+                    .help("더블클릭해서 이름 변경")
+            }
+
+            Spacer(minLength: 4)
+
+            Text(formatRouteDistance(section.distanceKm))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .strikethrough(section.isHidden)
+                .opacity(section.isHidden ? 0.6 : 1)
+        }
+        .frame(height: Self.sectionRowHeight)
+    }
+
+    private func sectionColorPalette(for section: CourseSection) -> some View {
+        HStack(spacing: 8) {
+            ForEach(SectionPalette.entries) { entry in
+                let isCurrent = entry.hex.caseInsensitiveCompare(section.colorHex ?? "") == .orderedSame
+                Button {
+                    draft.setSectionColor(section.id, hex: entry.hex)
+                    colorPopoverSectionID = nil
+                } label: {
+                    Circle()
+                        .fill(Color(nsColor: SectionPalette.nsColor(entry.hex)))
+                        .frame(width: 20, height: 20)
+                        .overlay {
+                            if isCurrent {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+                .help(entry.name)
+                .accessibilityLabel(entry.name)
+            }
+        }
+        .padding(12)
+    }
+
+    @ViewBuilder
+    private func sectionContextMenu(index: Int, section: CourseSection) -> some View {
+        Button {
+            beginSectionRename(index: index, section: section)
+        } label: {
+            Label("이름 변경", systemImage: "pencil")
+        }
+
+        Button {
+            draft.toggleSectionHidden(section.id)
+            pinnedDistanceKm = nil
+        } label: {
+            Label(section.isHidden ? "보이기" : "가리기",
+                  systemImage: section.isHidden ? "eye" : "eye.slash")
+        }
+
+        Menu {
+            ForEach(SectionPalette.entries) { entry in
+                Button(entry.name) { draft.setSectionColor(section.id, hex: entry.hex) }
+            }
+        } label: {
+            Label("색", systemImage: "paintpalette")
+        }
+
+        Button {
+            draft.duplicateSection(section.id)
+            pinnedDistanceKm = nil
+        } label: {
+            Label("복제", systemImage: "plus.square.on.square")
+        }
+
+        Divider()
+
+        Button {
+            draft.selectSection(section.id)
+            if let courseKm = pinnedDistanceKm,
+               let km = draft.selectedSectionLocalDistanceKm(forCourseDistanceKm: courseKm) {
+                _ = draft.splitSelectedSection(atDistanceKm: km)
+            }
+        } label: {
+            Label("고정 지점에서 분할", systemImage: "scissors")
+        }
+        .disabled(draft.selectedSectionID != section.id || selectedPinnedLocalKm == nil)
+
+        Button {
+            draft.selectSection(section.id)
+            draft.mergeSelectedWithNext()
+            pinnedDistanceKm = nil
+        } label: {
+            Label("다음 섹션과 합치기", systemImage: "arrow.triangle.merge")
+        }
+        .disabled(index + 1 >= draft.sections.count)
+
+        Button(role: .destructive) {
+            draft.selectSection(section.id)
+            showDeleteSectionConfirm = true
+        } label: {
+            Label("삭제", systemImage: "trash")
+        }
+    }
+
+    private func beginSectionRename(index: Int, section: CourseSection) {
+        draft.selectSection(section.id)
+        renameText = section.name
+        renamingSectionID = section.id
+        isRenameFieldFocused = true
+    }
+
+    private func commitSectionRename() {
+        guard let id = renamingSectionID else { return }
+        renamingSectionID = nil
+        draft.renameSection(id, to: renameText)
     }
 
     private var selectedPinnedLocalKm: Double? {
@@ -1744,7 +1889,7 @@ struct CourseEditMapView: NSViewRepresentable {
                     let last = leg.trackPoints.last
                     return "\(leg.kind.rawValue):\(leg.trackPoints.count):\(first?.lat ?? 0),\(first?.lon ?? 0):\(last?.lat ?? 0),\(last?.lon ?? 0)"
                 }.joined(separator: ",")
-                return "\(section.id):\(legs)"
+                return "\(section.id):\(section.colorHex ?? ""):\(section.isHidden):\(legs)"
             }.joined(separator: "|") + "#active=\(draft.selectedSectionID)"
             let cueSig = draft.cuePoints.map { "\($0.id):\($0.lat),\($0.lon),\($0.pointType),\($0.name)" }.joined(separator: "|")
             let sig = routeSig + "##" + cueSig
@@ -1756,11 +1901,16 @@ struct CourseEditMapView: NSViewRepresentable {
             let cueAnns = map.annotations.compactMap { $0 as? CuePointAnnotation }
             map.removeAnnotations(routeAnns + cueAnns)
 
-            // RoutePoint 핸들은 활성 섹션에만 표시한다.
-            for (i, rp) in draft.routePoints.enumerated() {
-                map.addAnnotation(RoutePointAnnotation(routePoint: rp, index: i))
+            // RoutePoint 핸들은 활성 섹션에만 표시한다. 가린 섹션은 핸들·큐도 그리지 않는다.
+            let showsActiveSection = !draft.isSelectedSectionHidden
+            if showsActiveSection {
+                for (i, rp) in draft.routePoints.enumerated() {
+                    map.addAnnotation(RoutePointAnnotation(routePoint: rp, index: i))
+                }
             }
-            for section in draft.sections {
+            // 나중에 추가한 오버레이가 위에 그려지므로, 리스트 위쪽 섹션이 맨 위에 오도록 뒤에서부터 추가한다.
+            for section in draft.sections.reversed() where !section.isHidden {
+                let color = SectionPalette.nsColor(section.colorHex)
                 for leg in section.legs {
                     guard leg.trackPoints.count >= 2 else { continue }
                     let coords = leg.trackPoints.map {
@@ -1768,12 +1918,14 @@ struct CourseEditMapView: NSViewRepresentable {
                     }
                     let polyline = SegmentPolyline(coordinates: coords, count: coords.count)
                     polyline.kind = leg.kind
-                    polyline.isActiveSection = section.id == draft.selectedSectionID
+                    polyline.color = color
                     map.addOverlay(polyline, level: .aboveRoads)
                 }
             }
-            for cue in draft.cuePoints where cue.lat != 0 || cue.lon != 0 {
-                map.addAnnotation(CuePointAnnotation(cue: cue))
+            if showsActiveSection {
+                for cue in draft.cuePoints where cue.lat != 0 || cue.lon != 0 {
+                    map.addAnnotation(CuePointAnnotation(cue: cue))
+                }
             }
 
             // refresh로 cue annotation을 새로 만들었으니, 선택 동기화 트리거
@@ -1784,7 +1936,7 @@ struct CourseEditMapView: NSViewRepresentable {
             pinnedAnnotation = nil
             lastPinnedSignature = ""
 
-            if needsFitOnFirstLoad && draft.sections.contains(where: { !$0.routePoints.isEmpty }) {
+            if needsFitOnFirstLoad && draft.sections.contains(where: { !$0.isHidden && !$0.routePoints.isEmpty }) {
                 needsFitOnFirstLoad = false
                 fitMap(map: map)
             }
@@ -1930,15 +2082,16 @@ struct CourseEditMapView: NSViewRepresentable {
         }
 
         private func fitMap(map: MKMapView) {
-            // 모든 섹션의 점을 포함하는 rect로 fit.
+            // 보이는 모든 섹션의 점을 포함하는 rect로 fit.
+            let visibleSections = draft.sections.filter { !$0.isHidden }
             let allCoords: [CLLocationCoordinate2D] = {
-                let segPts = draft.sections.flatMap { section in
+                let segPts = visibleSections.flatMap { section in
                     section.legs.flatMap(\.trackPoints)
                 }
                 if !segPts.isEmpty {
                     return segPts.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
                 }
-                return draft.sections.flatMap(\.routePoints).map {
+                return visibleSections.flatMap(\.routePoints).map {
                     CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
                 }
             }()
@@ -1963,6 +2116,12 @@ struct CourseEditMapView: NSViewRepresentable {
             guard let map = mapView else { return }
             let pt = gesture.location(in: map)
             let coord = map.convert(pt, toCoordinateFrom: map)
+
+            // 가린 섹션은 맵에서 편집하지 않는다.
+            guard !draft.isSelectedSectionHidden else {
+                NSSound.beep()
+                return
+            }
 
             let hitRadius: CGFloat = 20
 
@@ -2075,8 +2234,8 @@ struct CourseEditMapView: NSViewRepresentable {
         private func draftAllTrackPoints() -> [TrackPoint] {
             // CourseEditorDraft.allTrackPoints 가 trackSegments 시그니처로 캐시한다.
             // 여기서 별도 계산하면 매 hover/click 마다 5k+ 포인트를 재순회하게 되므로
-            // draft 캐시를 그대로 활용한다.
-            draft.allTrackPoints
+            // draft 캐시를 그대로 활용한다. 가린 섹션에는 스냅하지 않는다.
+            draft.isSelectedSectionHidden ? [] : draft.allTrackPoints
         }
 
         private func showDeleteMenu(for ann: RoutePointAnnotation, in map: MKMapView) {
@@ -2439,15 +2598,11 @@ struct CourseEditMapView: NSViewRepresentable {
             }
             if let poly = overlay as? SegmentPolyline {
                 let r = MKPolylineRenderer(polyline: poly)
+                // 섹션마다 지정한 색으로 그린다. 선택 여부로 흐리게 하거나 굵기를 바꾸지 않는다.
+                r.strokeColor = poly.color
+                r.lineWidth = 4
                 if poly.kind == .straight {
-                    r.strokeColor = NSColor.systemOrange
                     r.lineDashPattern = [7, 5]
-                    r.lineWidth = poly.isActiveSection ? 4 : 3
-                } else {
-                    r.strokeColor = poly.isActiveSection
-                        ? NSColor.systemBlue
-                        : NSColor.secondaryLabelColor.withAlphaComponent(0.55)
-                    r.lineWidth = poly.isActiveSection ? 4 : 2.5
                 }
                 r.lineCap = .round; r.lineJoin = .round
                 return r
@@ -2549,7 +2704,15 @@ final class CuePointAnnotation: MKPointAnnotation {
 
 final class SegmentPolyline: MKPolyline {
     var kind: CourseLeg.Kind = .routed
-    var isActiveSection = true
+    var color: NSColor = SectionPalette.nsColor(nil)
+}
+
+extension SectionPalette {
+    /// 팔레트 hex를 맵·스와치용 색으로 바꾼다. 형식이 틀리면 기본색.
+    static func nsColor(_ hex: String?) -> NSColor {
+        let c = rgb(fromHex: hex) ?? rgb(fromHex: defaultHex) ?? (0, 0.48, 1)
+        return NSColor(srgbRed: c.red, green: c.green, blue: c.blue, alpha: 1)
+    }
 }
 
 private struct CueMenuInfo {

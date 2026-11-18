@@ -79,7 +79,7 @@ struct CourseSectionImportPicker: View {
                     ForEach(Array(candidates.sections.enumerated()), id: \.element.id) { index, section in
                         Toggle(isOn: binding(for: section.id)) {
                             HStack(spacing: 8) {
-                                Text("섹션 \(index + 1)")
+                                Text(section.displayName(at: index))
                                 Spacer()
                                 Text("큐시트 \(section.cuePoints.count)개")
                                     .font(.caption)

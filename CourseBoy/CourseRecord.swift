@@ -171,16 +171,50 @@ struct CourseSection: Codable, Identifiable, Sendable, Equatable {
     var legs: [CourseLeg] = []
     var cuePoints: [CourseCuePoint] = []
 
+    /// 사용자가 붙인 이름. 비어 있으면 화면에서 "섹션 N"으로 보인다.
+    var name: String = ""
+    /// 맵에 그릴 색(`SectionPalette`의 hex). nil이면 편집을 시작할 때 자동으로 배정한다.
+    var colorHex: String?
+    /// 가린 섹션은 맵·고도 차트·총 거리·내보내기에서 빠진다. CSB에는 그대로 저장한다.
+    var isHidden: Bool = false
+
     init(
         id: UUID = UUID(),
         routePoints: [CourseRoutePoint] = [],
         legs: [CourseLeg] = [],
-        cuePoints: [CourseCuePoint] = []
+        cuePoints: [CourseCuePoint] = [],
+        name: String = "",
+        colorHex: String? = nil,
+        isHidden: Bool = false
     ) {
         self.id = id
         self.routePoints = routePoints
         self.legs = legs
         self.cuePoints = cuePoints
+        self.name = name
+        self.colorHex = colorHex
+        self.isHidden = isHidden
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, routePoints, legs, cuePoints, name, colorHex, isHidden
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        routePoints = try container.decode([CourseRoutePoint].self, forKey: .routePoints)
+        legs = try container.decode([CourseLeg].self, forKey: .legs)
+        cuePoints = try container.decode([CourseCuePoint].self, forKey: .cuePoints)
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        colorHex = try container.decodeIfPresent(String.self, forKey: .colorHex)
+        isHidden = try container.decodeIfPresent(Bool.self, forKey: .isHidden) ?? false
+    }
+
+    /// 화면에 보이는 이름. `index`는 코스 안에서의 0-기반 위치.
+    func displayName(at index: Int) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "섹션 \(index + 1)" : trimmed
     }
 
     /// 섹션 내부 트랙포인트. leg 이음새의 중복점은 제거하고 거리를 다시 계산한다.
@@ -237,6 +271,46 @@ struct CourseSection: Codable, Identifiable, Sendable, Equatable {
     }
 }
 
+/// 섹션에 지정할 수 있는 색 팔레트. 파일에는 hex 문자열로 저장한다.
+enum SectionPalette {
+    struct Entry: Identifiable, Sendable {
+        let name: String
+        let hex: String
+        var id: String { hex }
+    }
+
+    static let entries: [Entry] = [
+        Entry(name: "파랑", hex: "#007AFF"),
+        Entry(name: "빨강", hex: "#FF3B30"),
+        Entry(name: "초록", hex: "#28A745"),
+        Entry(name: "주황", hex: "#FF9500"),
+        Entry(name: "보라", hex: "#AF52DE"),
+        Entry(name: "청록", hex: "#00A3A3"),
+        Entry(name: "분홍", hex: "#FF2D8A"),
+        Entry(name: "갈색", hex: "#A2704B"),
+    ]
+
+    static let defaultHex = entries[0].hex
+
+    /// 이미 쓰인 색을 피해 가장 덜 쓰인 팔레트 색을 고른다(동률이면 팔레트 순서).
+    static func nextHex(avoiding used: [String]) -> String {
+        let counts = Dictionary(grouping: used.map { $0.uppercased() }, by: { $0 }).mapValues(\.count)
+        return entries.min { (counts[$0.hex] ?? 0) < (counts[$1.hex] ?? 0) }?.hex ?? defaultHex
+    }
+
+    /// "#RRGGBB" → (r, g, b) 0...1. 형식이 틀리면 nil.
+    static func rgb(fromHex hex: String?) -> (red: Double, green: Double, blue: Double)? {
+        guard var text = hex?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        if text.hasPrefix("#") { text.removeFirst() }
+        guard text.count == 6, let value = UInt32(text, radix: 16) else { return nil }
+        return (
+            Double((value >> 16) & 0xFF) / 255,
+            Double((value >> 8) & 0xFF) / 255,
+            Double(value & 0xFF) / 255
+        )
+    }
+}
+
 struct CourseSectionTrack: Identifiable, Sendable {
     let id: UUID
     let points: [TrackPoint]
@@ -251,7 +325,7 @@ final class CourseRecord: ObservableObject, Identifiable {
     @Published var title: String = ""
     @Published var createdAt: Date = Date()
 
-    /// 순서가 곧 코스 진행 순서다. 빈 코스도 편집을 위해 빈 섹션 하나를 유지한다.
+    /// 순서가 곧 코스 진행 순서이자 레이어 순서다(앞쪽 섹션이 맵에서 위에 그려진다). 빈 코스도 편집을 위해 빈 섹션 하나를 유지한다.
     @Published var sections: [CourseSection] = [CourseSection()]
 
     /// "코스로 만들기" 출처 RouteRecord.routeID. 직접 생성이면 nil.
@@ -294,7 +368,7 @@ final class CourseRecord: ObservableObject, Identifiable {
         get {
             var offsetMeters = 0.0
             var result: [CourseCuePoint] = []
-            for section in sections {
+            for section in visibleSections {
                 result.append(contentsOf: section.cuePoints.map { cue in
                     var copy = cue
                     copy.distanceMeters += offsetMeters
@@ -310,6 +384,11 @@ final class CourseRecord: ObservableObject, Identifiable {
         }
     }
 
+    /// 가리지 않은 섹션. 총 거리·트랙·큐·내보내기는 이 섹션들만으로 만든다.
+    var visibleSections: [CourseSection] {
+        sections.filter { !$0.isHidden }
+    }
+
     private func ensureLegacySection() {
         if sections.count != 1 {
             sections = [CourseSection()]
@@ -318,7 +397,7 @@ final class CourseRecord: ObservableObject, Identifiable {
 
     var sectionTracks: [CourseSectionTrack] {
         var offset = 0.0
-        return sections.map { section in
+        return visibleSections.map { section in
             let track = CourseSectionTrack(id: section.id, points: section.trackPoints, courseStartKm: offset)
             offset += section.distanceKm
             return track
@@ -340,7 +419,7 @@ final class CourseRecord: ObservableObject, Identifiable {
     var allTrackPoints: [TrackPoint] {
         var result: [TrackPoint] = []
         var offset = 0.0
-        for section in sections {
+        for section in visibleSections {
             for point in section.trackPoints {
                 result.append(TrackPoint(
                     lat: point.lat,
@@ -357,16 +436,16 @@ final class CourseRecord: ObservableObject, Identifiable {
 
     /// 총 거리 (km).
     var totalDistanceKm: Double {
-        sections.reduce(0) { $0 + $1.distanceKm }
+        visibleSections.reduce(0) { $0 + $1.distanceKm }
     }
 
     /// 획득고도 (m). 고도 데이터가 없으면 0.
     var totalElevationGainM: Double {
-        sections.reduce(0) { $0 + $1.elevationGainM }
+        visibleSections.reduce(0) { $0 + $1.elevationGainM }
     }
 
     var totalElevationLossM: Double {
-        sections.reduce(0) { $0 + $1.elevationLossM }
+        visibleSections.reduce(0) { $0 + $1.elevationLossM }
     }
 
     var segmentClipboardText: String {

@@ -94,6 +94,16 @@ enum CoursePlanFileCoder {
         for section in course.sections {
             let sectionElement = XMLElement(name: "Section")
             sectionElement.addAttribute(attribute("id", section.id.uuidString))
+            // 레이어 속성은 선택 속성이라 없어도 읽힌다(버전은 올리지 않는다).
+            if let name = nonEmpty(section.name) {
+                sectionElement.addAttribute(attribute("name", name))
+            }
+            if let colorHex = nonEmpty(section.colorHex) {
+                sectionElement.addAttribute(attribute("color", colorHex))
+            }
+            if section.isHidden {
+                sectionElement.addAttribute(attribute("hidden", "true"))
+            }
 
             let routePoints = XMLElement(name: "RoutePoints")
             for point in section.routePoints {
@@ -151,7 +161,10 @@ enum CoursePlanFileCoder {
             id: uuidAttribute(of: element, named: "id") ?? UUID(),
             routePoints: routePoints,
             legs: legs,
-            cuePoints: parseCuePoints(firstChild(of: element, named: "CuePoints"))
+            cuePoints: parseCuePoints(firstChild(of: element, named: "CuePoints")),
+            name: nonEmpty(element.attribute(forName: "name")?.stringValue) ?? "",
+            colorHex: nonEmpty(element.attribute(forName: "color")?.stringValue),
+            isHidden: element.attribute(forName: "hidden")?.stringValue == "true"
         )
     }
 

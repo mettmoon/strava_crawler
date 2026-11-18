@@ -36,6 +36,7 @@ final class CourseEditorDraft {
         for index in initialSections.indices {
             initialSections[index].cuePoints.sort { $0.distanceMeters < $1.distanceMeters }
         }
+        Self.assignMissingColors(in: &initialSections)
         let initialSectionID = initialSections[0].id
         sections = initialSections
         selectedSectionID = initialSectionID
@@ -264,8 +265,80 @@ final class CourseEditorDraft {
         let newSection = CourseSection()
         let insertIndex = selectedSectionIndex + 1
         sections.insert(newSection, at: insertIndex)
+        Self.assignMissingColors(in: &sections)
         selectedSectionID = newSection.id
         registerUndo(before: old, actionName: "섹션 추가")
+    }
+
+    // MARK: - 레이어 속성
+
+    /// 선택한 섹션이 가려져 있으면 맵에서 편집할 수 없다.
+    var isSelectedSectionHidden: Bool { sections[selectedSectionIndex].isHidden }
+
+    func toggleSectionHidden(_ id: UUID) {
+        guard let index = sections.firstIndex(where: { $0.id == id }) else { return }
+        let old = takeSnapshot()
+        sections[index].isHidden.toggle()
+        registerUndo(before: old, actionName: sections[index].isHidden ? "섹션 가리기" : "섹션 보이기")
+    }
+
+    func renameSection(_ id: UUID, to newName: String) {
+        guard let index = sections.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != sections[index].name else { return }
+        let old = takeSnapshot()
+        sections[index].name = trimmed
+        registerUndo(before: old, actionName: "섹션 이름 변경")
+    }
+
+    func setSectionColor(_ id: UUID, hex: String) {
+        guard let index = sections.firstIndex(where: { $0.id == id }),
+              sections[index].colorHex != hex else { return }
+        let old = takeSnapshot()
+        sections[index].colorHex = hex
+        registerUndo(before: old, actionName: "섹션 색 변경")
+    }
+
+    /// `List.onMove`와 같은 규약(이동할 오프셋들, 원래 배열 기준 목적지)으로 순서를 바꾼다.
+    /// 순서는 주행 순서이자 레이어 순서다.
+    func moveSections(fromOffsets source: IndexSet, toOffset destination: Int) {
+        var reordered = sections
+        let moving = source.map { reordered[$0] }
+        let insertAt = destination - source.filter { $0 < destination }.count
+        for index in source.sorted(by: >) { reordered.remove(at: index) }
+        reordered.insert(contentsOf: moving, at: min(max(insertAt, 0), reordered.count))
+        guard reordered.map(\.id) != sections.map(\.id) else { return }
+        let old = takeSnapshot()
+        sections = reordered
+        registerUndo(before: old, actionName: "섹션 순서 변경")
+    }
+
+    /// 섹션을 바로 뒤에 복제하고 복제본을 선택한다. 내부 ID는 모두 새로 만든다.
+    func duplicateSection(_ id: UUID) {
+        guard let index = sections.firstIndex(where: { $0.id == id }) else { return }
+        let old = takeSnapshot()
+        let source = sections[index]
+        var copy = source
+        copy.id = UUID()
+        copy.name = source.displayName(at: index) + " 복사본"
+        for i in copy.routePoints.indices { copy.routePoints[i].id = UUID() }
+        for i in copy.legs.indices { copy.legs[i].id = UUID() }
+        for i in copy.cuePoints.indices { copy.cuePoints[i].id = UUID() }
+        sections.insert(copy, at: index + 1)
+        selectedSectionID = copy.id
+        registerUndo(before: old, actionName: "섹션 복제")
+    }
+
+    /// 색이 없는 섹션에 팔레트 색을 순서대로 배정한다.
+    private static func assignMissingColors(in sections: inout [CourseSection]) {
+        for index in sections.indices where SectionPalette.rgb(fromHex: sections[index].colorHex) == nil {
+            sections[index].colorHex = SectionPalette.nextHex(avoiding: sections.compactMap(\.colorHex))
+        }
+    }
+
+    /// 가린 섹션은 코스 누적 거리에 포함하지 않는다.
+    private func courseDistanceKm(of section: CourseSection) -> Double {
+        section.isHidden ? 0 : section.distanceKm
     }
 
     /// 파일 등에서 가져온 섹션들을 선택한 섹션 바로 뒤에 순서대로 넣고, 넣은 첫 섹션을 선택한다.
@@ -273,6 +346,7 @@ final class CourseEditorDraft {
         guard let first = newSections.first else { return }
         let old = takeSnapshot()
         sections.insert(contentsOf: newSections, at: selectedSectionIndex + 1)
+        Self.assignMissingColors(in: &sections)
         selectedSectionID = first.id
         registerUndo(before: old, actionName: "파일에서 섹션 추가")
     }
@@ -281,7 +355,11 @@ final class CourseEditorDraft {
         let old = takeSnapshot()
         let index = selectedSectionIndex
         if sections.count == 1 {
-            let empty = CourseSection(id: sections[0].id)
+            let empty = CourseSection(
+                id: sections[0].id,
+                name: sections[0].name,
+                colorHex: sections[0].colorHex
+            )
             sections = [empty]
             selectedSectionID = empty.id
         } else {
@@ -294,26 +372,29 @@ final class CourseEditorDraft {
     var canMergeSelectedWithNext: Bool { selectedSectionIndex + 1 < sections.count }
 
     var selectedSectionCourseStartKm: Double {
-        sections.prefix(selectedSectionIndex).reduce(0) { $0 + $1.distanceKm }
+        courseStartKm(forSectionAt: selectedSectionIndex)
     }
 
+    /// 선택한 섹션이 가려져 있으면 폭이 0인 범위가 된다.
     var selectedSectionCourseRangeKm: ClosedRange<Double> {
         let start = selectedSectionCourseStartKm
-        return start ... (start + sections[selectedSectionIndex].distanceKm)
+        return start ... (start + courseDistanceKm(of: sections[selectedSectionIndex]))
     }
 
     func courseStartKm(forSectionAt index: Int) -> Double {
         guard index > 0 else { return 0 }
-        return sections.prefix(index).reduce(0) { $0 + $1.distanceKm }
+        return sections.prefix(index).reduce(0) { $0 + courseDistanceKm(of: $1) }
     }
 
+    /// 코스 누적 거리가 속한 (가리지 않은) 섹션의 인덱스.
     func sectionIndex(containingCourseDistanceKm distanceKm: Double) -> Int? {
-        guard distanceKm >= 0, !sections.isEmpty else { return nil }
+        guard distanceKm >= 0 else { return nil }
+        let lastVisibleIndex = sections.lastIndex { !$0.isHidden }
         var start = 0.0
-        for index in sections.indices {
+        for index in sections.indices where !sections[index].isHidden {
             let end = start + sections[index].distanceKm
             if distanceKm >= start,
-               distanceKm < end || (index == sections.count - 1 && distanceKm <= end) {
+               distanceKm < end || (index == lastVisibleIndex && distanceKm <= end) {
                 return index
             }
             start = end
@@ -322,6 +403,7 @@ final class CourseEditorDraft {
     }
 
     func selectedSectionLocalDistanceKm(forCourseDistanceKm distanceKm: Double) -> Double? {
+        guard !isSelectedSectionHidden else { return nil }
         let range = selectedSectionCourseRangeKm
         guard distanceKm >= range.lowerBound - 0.000_001,
               distanceKm <= range.upperBound + 0.000_001 else { return nil }
@@ -412,19 +494,20 @@ final class CourseEditorDraft {
                 let leftRoutePoint = CourseRoutePoint(lat: splitPoint.lat, lon: splitPoint.lon)
                 let rightRoutePoint = CourseRoutePoint(lat: splitPoint.lat, lon: splitPoint.lon)
 
-                let left = CourseSection(
-                    id: section.id,
-                    routePoints: Array(section.routePoints.prefix(legIndex + 1)) + [leftRoutePoint],
-                    legs: Array(section.legs.prefix(legIndex)) + [splitLegs.left],
-                    cuePoints: section.cuePoints.filter { $0.distanceMeters < distanceKm * 1000 }
-                )
+                // 왼쪽은 이름·색·가림 상태를 그대로 잇고, 오른쪽은 새 색을 받는다.
+                var left = section
+                left.routePoints = Array(section.routePoints.prefix(legIndex + 1)) + [leftRoutePoint]
+                left.legs = Array(section.legs.prefix(legIndex)) + [splitLegs.left]
+                left.cuePoints = section.cuePoints.filter { $0.distanceMeters < distanceKm * 1000 }
                 let right = CourseSection(
                     routePoints: [rightRoutePoint] + Array(section.routePoints.suffix(from: legIndex + 1)),
                     legs: [splitLegs.right] + Array(section.legs.suffix(from: legIndex + 1)),
-                    cuePoints: shiftedRightCues(section.cuePoints, splitMeters: distanceKm * 1000)
+                    cuePoints: shiftedRightCues(section.cuePoints, splitMeters: distanceKm * 1000),
+                    isHidden: section.isHidden
                 )
                 sections[index] = left
                 sections.insert(right, at: index + 1)
+                Self.assignMissingColors(in: &sections)
                 selectedSectionID = right.id
                 registerUndo(before: old, actionName: "섹션 분할")
                 return true
@@ -437,7 +520,7 @@ final class CourseEditorDraft {
     var allCourseTrackPoints: [TrackPoint] {
         var result: [TrackPoint] = []
         var offset = 0.0
-        for section in sections {
+        for section in sections where !section.isHidden {
             for point in section.trackPoints {
                 result.append(TrackPoint(
                     lat: point.lat, lon: point.lon, ele: point.ele, time: point.time,
@@ -451,7 +534,7 @@ final class CourseEditorDraft {
 
     var allCourseSectionTrackPoints: [[TrackPoint]] {
         var offset = 0.0
-        return sections.map { section in
+        return sections.filter { !$0.isHidden }.map { section in
             let points = section.trackPoints.map { point in
                 TrackPoint(
                     lat: point.lat, lon: point.lon, ele: point.ele, time: point.time,
@@ -466,7 +549,7 @@ final class CourseEditorDraft {
     var allCourseCuePoints: [CourseCuePoint] {
         var result: [CourseCuePoint] = []
         var offsetMeters = 0.0
-        for section in sections {
+        for section in sections where !section.isHidden {
             result.append(contentsOf: section.cuePoints.map { cue in
                 var copy = cue
                 copy.distanceMeters += offsetMeters
@@ -496,19 +579,19 @@ final class CourseEditorDraft {
         let old = takeSnapshot()
         var rightStart = section.routePoints[routePointIndex]
         rightStart.id = UUID()
-        let left = CourseSection(
-            id: section.id,
-            routePoints: Array(section.routePoints.prefix(routePointIndex + 1)),
-            legs: Array(section.legs.prefix(routePointIndex)),
-            cuePoints: section.cuePoints.filter { $0.distanceMeters < distanceKm * 1000 }
-        )
+        var left = section
+        left.routePoints = Array(section.routePoints.prefix(routePointIndex + 1))
+        left.legs = Array(section.legs.prefix(routePointIndex))
+        left.cuePoints = section.cuePoints.filter { $0.distanceMeters < distanceKm * 1000 }
         let right = CourseSection(
             routePoints: [rightStart] + Array(section.routePoints.suffix(from: routePointIndex + 1)),
             legs: Array(section.legs.suffix(from: routePointIndex)),
-            cuePoints: shiftedRightCues(section.cuePoints, splitMeters: distanceKm * 1000)
+            cuePoints: shiftedRightCues(section.cuePoints, splitMeters: distanceKm * 1000),
+            isHidden: section.isHidden
         )
         sections[sectionIndex] = left
         sections.insert(right, at: sectionIndex + 1)
+        Self.assignMissingColors(in: &sections)
         selectedSectionID = right.id
         registerUndo(before: old, actionName: "섹션 분할")
     }
