@@ -97,6 +97,15 @@ struct CourseDocumentView: View {
             nsDocument.fileType = UTType.coursePlan.identifier
             nsDocument.fileModificationDate = nil
             nsDocument.displayName = sourceURL.deletingPathExtension().lastPathComponent
+
+            // 원본과 끊긴 문서는 파일도 자동저장본도 없어서, 그대로 앱이 종료되면 다시 열 때 창만 복원되고
+            // 내용은 빈 코스가 된다. 자동저장본을 미리 만들어 두어 코스가 그대로 복원되게 한다.
+            // 변경이 없는 문서는 자동저장이 아무 일도 하지 않으므로 변경된 것으로 표시한 뒤 저장하고,
+            // 편집 없이 창을 닫을 때 저장 여부를 묻지 않도록 저장이 끝나면 표시를 되돌린다.
+            nsDocument.updateChangeCount(.changeDone)
+            nsDocument.autosave(withImplicitCancellability: false) { _ in
+                nsDocument.updateChangeCount(.changeCleared)
+            }
         }
     }
 
