@@ -980,7 +980,7 @@ private struct CourseEditorCuesheetSidebar: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
 
-            // 레이어 리스트: 위에 있는 섹션이 맵에서 위에 그려지고, 순서는 곧 주행 순서다.
+            // 레이어 리스트: 아래에 있는 섹션일수록 맵에서 위에 그려지고, 순서는 곧 주행 순서다.
             List(selection: sectionSelection) {
                 ForEach(Array(draft.sections.enumerated()), id: \.element.id) { index, section in
                     sectionRow(index: index, section: section)
@@ -1908,8 +1908,9 @@ struct CourseEditMapView: NSViewRepresentable {
                     map.addAnnotation(RoutePointAnnotation(routePoint: rp, index: i))
                 }
             }
-            // 나중에 추가한 오버레이가 위에 그려지므로, 리스트 위쪽 섹션이 맨 위에 오도록 뒤에서부터 추가한다.
-            for section in draft.sections.reversed() where !section.isHidden {
+            // z-index는 레이어 순서의 오름차순이다. 나중에 추가한 오버레이가 위에 그려지므로
+            // 리스트 순서대로 추가하면 아래쪽(뒤) 섹션이 맵에서 위에 온다.
+            for section in draft.sections where !section.isHidden {
                 let color = SectionPalette.nsColor(section.colorHex)
                 for leg in section.legs {
                     guard leg.trackPoints.count >= 2 else { continue }

@@ -325,7 +325,7 @@ final class CourseRecord: ObservableObject, Identifiable {
     @Published var title: String = ""
     @Published var createdAt: Date = Date()
 
-    /// 순서가 곧 코스 진행 순서이자 레이어 순서다(앞쪽 섹션이 맵에서 위에 그려진다). 빈 코스도 편집을 위해 빈 섹션 하나를 유지한다.
+    /// 순서가 곧 코스 진행 순서이자 레이어 순서다(뒤쪽 섹션일수록 맵에서 위에 그려진다). 빈 코스도 편집을 위해 빈 섹션 하나를 유지한다.
     @Published var sections: [CourseSection] = [CourseSection()]
 
     /// "코스로 만들기" 출처 RouteRecord.routeID. 직접 생성이면 nil.
