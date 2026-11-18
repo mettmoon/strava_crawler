@@ -404,6 +404,16 @@ final class CourseRecord: ObservableObject, Identifiable {
         }
     }
 
+    /// `sectionTracks`·`adjustedSectionTrackPoints`와 같은 순서의 섹션 색.
+    /// 색이 아직 없는 섹션(편집한 적 없는 파일)은 편집 화면과 같은 규칙으로 팔레트에서 배정한다.
+    var visibleSectionColorHexes: [String?] {
+        var assigned = sections.map(\.colorHex)
+        for index in assigned.indices where SectionPalette.rgb(fromHex: assigned[index]) == nil {
+            assigned[index] = SectionPalette.nextHex(avoiding: assigned.compactMap { $0 })
+        }
+        return zip(sections, assigned).filter { !$0.0.isHidden }.map(\.1)
+    }
+
     var adjustedSectionTrackPoints: [[TrackPoint]] {
         sectionTracks.map { track in
             track.points.map { point in

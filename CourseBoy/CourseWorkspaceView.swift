@@ -112,6 +112,7 @@ struct CourseWorkspaceView: View {
                 RouteMapView(
                     trackPoints: pts,
                     sectionTrackPoints: course.adjustedSectionTrackPoints,
+                    sectionColorHexes: course.visibleSectionColorHexes,
                     highlightPoints: highlightPoints,
                     cuePoints: course.cuePoints,
                     focusedCueID: selectedCueID,

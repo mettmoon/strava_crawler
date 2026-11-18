@@ -4,6 +4,10 @@ import CourseBoyKit
 
 final class HighlightPolyline: MKPolyline {}
 final class RangeSelectionPolyline: MKPolyline {}
+/// 코스 본선. `color`가 있으면(섹션 색) 그 색으로, 없으면 기본색으로 그린다.
+final class MainRoutePolyline: MKPolyline {
+    var color: NSColor?
+}
 
 final class RangeEndpointAnnotation: MKPointAnnotation {
     enum Kind { case start, end }
@@ -131,6 +135,8 @@ struct RouteMapView: View {
     let trackPoints: [TrackPoint]
     /// 비어 있지 않으면 지도 polyline을 섹션 경계에서 끊어 그린다.
     var sectionTrackPoints: [[TrackPoint]] = []
+    /// `sectionTrackPoints`와 같은 순서의 섹션 색(hex). 비어 있으면 기본색 한 가지로 그린다.
+    var sectionColorHexes: [String?] = []
     var highlightPoints: [TrackPoint] = []
     var cuePoints: [CourseCuePoint] = []
     var focusedCueID: UUID? = nil
@@ -160,6 +166,7 @@ struct RouteMapView: View {
             RouteMapRepresentable(
                 trackPoints: trackPoints,
                 sectionTrackPoints: sectionTrackPoints,
+                sectionColorHexes: sectionColorHexes,
                 highlightPoints: highlightPoints,
                 cuePoints: cuePoints,
                 focusedCueID: focusedCueID,
@@ -180,6 +187,7 @@ struct RouteMapView: View {
 private struct RouteMapRepresentable: NSViewRepresentable {
     let trackPoints: [TrackPoint]
     var sectionTrackPoints: [[TrackPoint]] = []
+    var sectionColorHexes: [String?] = []
     var highlightPoints: [TrackPoint] = []
     var cuePoints: [CourseCuePoint] = []
     var focusedCueID: UUID? = nil
@@ -204,6 +212,13 @@ private struct RouteMapRepresentable: NSViewRepresentable {
     private var effectiveTracks: [[TrackPoint]] {
         let nonEmpty = sectionTrackPoints.filter { !$0.isEmpty }
         return nonEmpty.isEmpty ? (trackPoints.isEmpty ? [] : [trackPoints]) : nonEmpty
+    }
+
+    /// `effectiveTracks`와 같은 순서의 섹션 색. 섹션 색 정보가 없으면 빈 배열.
+    private var effectiveColorHexes: [String?] {
+        guard sectionColorHexes.count == sectionTrackPoints.count else { return [] }
+        let pairs = zip(sectionTrackPoints, sectionColorHexes).filter { !$0.0.isEmpty }
+        return pairs.map(\.1)
     }
 
     static func dismantleNSView(_ map: MKMapView, coordinator: Coordinator) {
@@ -279,7 +294,9 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         // 이전에는 매번 트랙포인트 수만큼 문자열을 만들어 5k+ 포인트에서 큰
         // 할당 비용이 발생했다.
         let tracks = effectiveTracks
+        let colorHexes = effectiveColorHexes
         let signature = tracks.map(trackSignature(for:)).joined(separator: "#")
+            + "@" + colorHexes.map { $0 ?? "" }.joined(separator: ",")
         coordinator.trackPoints = trackPoints
         var pointOffset = 0
         coordinator.discontinuityAfterIndices = Set(tracks.dropLast().map { points in
@@ -315,15 +332,22 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             }
 
             let drawableTracks = tracks.filter { $0.count >= 2 }
+            let drawableColorHexes: [String?] = colorHexes.count == tracks.count
+                ? zip(tracks, colorHexes).filter { $0.0.count >= 2 }.map(\.1)
+                : []
             guard !drawableTracks.isEmpty,
                   let firstPoint = tracks.first?.first,
                   let lastPoint = tracks.last?.last else { return }
 
             var polylines: [MKPolyline] = []
             var fitRect = MKMapRect.null
-            for points in drawableTracks {
+            // 섹션 순서대로 추가하므로 뒤쪽 섹션일수록 위에 그려진다(편집 화면과 같은 z-순서).
+            for (index, points) in drawableTracks.enumerated() {
                 let coords = points.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
-                let polyline = MKPolyline(coordinates: coords, count: coords.count)
+                let polyline = MainRoutePolyline(coordinates: coords, count: coords.count)
+                if index < drawableColorHexes.count {
+                    polyline.color = SectionPalette.nsColor(drawableColorHexes[index])
+                }
                 polylines.append(polyline)
                 fitRect = fitRect.union(polyline.boundingMapRect)
             }
@@ -840,7 +864,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
                 renderer.strokeColor = NSColor.systemCyan
                 renderer.lineWidth = 5
             } else {
-                renderer.strokeColor = NSColor.systemOrange
+                renderer.strokeColor = (polyline as? MainRoutePolyline)?.color ?? NSColor.systemOrange
                 renderer.lineWidth = 3
             }
             renderer.lineCap = .round
