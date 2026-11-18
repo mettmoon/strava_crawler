@@ -50,12 +50,7 @@ struct CourseWorkspaceView: View {
                     .disabled(course.allTrackPoints.isEmpty)
                     .help("3D 경로 보기")
                 }
-
-                ToolbarItem(placement: .primaryAction) {
-                    InspectorToggleButton(isPresented: $isInspectorPresented)
-                }
             }
-            .toolbar(removing: .sidebarToggle)
             .focusedSceneValue(\.courseCommandHandler, makeHandler())
             .focusedSceneValue(\.courseFileCommandHandler, makeFileHandler())
     }
@@ -76,22 +71,28 @@ struct CourseWorkspaceView: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
         } detail: {
             contentPane(trackPoints: pts, course: course)
-                .inspector(isPresented: $isInspectorPresented) {
-                    Group {
-                        if rangeSelection != nil || pinnedDistanceKm != nil {
-                            SelectionInspectorStack(
-                                trackPoints: pts,
-                                rangeSelection: rangeSelection,
-                                pinnedDistanceKm: pinnedDistanceKm,
-                                onClearRange: clearRangeSelection,
-                                onClearPin: { pinnedDistanceKm = nil }
-                            )
-                        } else {
-                            CourseCueInspectorView(course: course, selectedCueID: selectedCueID)
-                        }
-                    }
-                    .inspectorColumnWidth(min: 260, ideal: 320, max: 460)
+        }
+        // 편집 화면과 같이 인스펙터를 사이드바와 같은 단계에 두어 둘 다 창 전체 높이 패널로 접히게 한다.
+        .inspector(isPresented: $isInspectorPresented) {
+            Group {
+                if rangeSelection != nil || pinnedDistanceKm != nil {
+                    SelectionInspectorStack(
+                        trackPoints: pts,
+                        rangeSelection: rangeSelection,
+                        pinnedDistanceKm: pinnedDistanceKm,
+                        onClearRange: clearRangeSelection,
+                        onClearPin: { pinnedDistanceKm = nil }
+                    )
+                } else {
+                    CourseCueInspectorView(course: course, selectedCueID: selectedCueID)
                 }
+            }
+            .inspectorColumnWidth(min: 260, ideal: 320, max: 460)
+            .toolbar {
+                // 인스펙터 접기 버튼은 인스펙터 쪽 툴바 끝에 둔다(사이드바 접기 버튼과 대칭).
+                Spacer()
+                InspectorToggleButton(isPresented: $isInspectorPresented)
+            }
         }
         .onChange(of: selectedCueIDs) { _, ids in
             syncRangeSelectionFromCueSelection(ids, trackPoints: pts, course: course)

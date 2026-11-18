@@ -113,70 +113,30 @@ struct CourseEditorView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            toolbar
-            Divider()
-            NavigationSplitView {
-                CourseEditorCuesheetSidebar(
-                    draft: draft,
-                    selectedCueID: $selectedCueID,
-                    pinnedDistanceKm: $pinnedDistanceKm,
-                    onEditCue: { editingCueID = $0 }
-                )
-                    .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
-            } detail: {
-                detailPane
-                    .inspector(isPresented: $isInspectorPresented) {
-                        Group {
-                            if rangeSelection != nil || pinnedDistanceKm != nil {
-                                VStack(spacing: 0) {
-                                    SelectionInspectorStack(
-                                        trackPoints: draft.allCourseTrackPoints,
-                                        rangeSelection: rangeSelection,
-                                        pinnedDistanceKm: pinnedDistanceKm,
-                                        onClearRange: { rangeSelection = nil },
-                                        onClearPin: { pinnedDistanceKm = nil }
-                                    )
-                                    if let range = rangeSelection {
-                                        Divider()
-                                        Button {
-                                            addSegmentFromRange(range)
-                                        } label: {
-                                            Label("구간 추가", systemImage: "flag.checkered")
-                                                .frame(maxWidth: .infinity)
-                                        }
-                                        .buttonStyle(.borderedProminent)
-                                        .controlSize(.large)
-                                        .disabled(
-                                            range.lengthKm <= 0 || range.isDragging
-                                                || sectionIndex(containing: range) == nil
-                                        )
-                                        .padding(12)
-                                    }
-                                }
-                            } else {
-                                CourseEditorCueInspectorView(
-                                    course: course,
-                                    draft: draft,
-                                    selectedCueID: selectedCueID,
-                                    onEditCue: { editingCueID = $0 }
-                                )
-                            }
-                        }
-                        .inspectorColumnWidth(min: 260, ideal: 320, max: 460)
-                    }
-            }
-            .overlay(alignment: .topLeading) {
-                if isCalculating {
-                    Label("경로 계산 중…", systemImage: "arrow.triangle.2.circlepath")
-                        .font(.caption)
-                        .padding(6)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
-                        .padding(8)
+        // 좌(사이드바)·우(인스펙터)를 같은 단계에 두어 둘 다 창 전체 높이 패널로 접히게 한다.
+        // 상단 도구는 창 툴바가 맡고, 가운데 컬럼에는 지도와 고도표만 남긴다.
+        NavigationSplitView {
+            CourseEditorCuesheetSidebar(
+                draft: draft,
+                selectedCueID: $selectedCueID,
+                pinnedDistanceKm: $pinnedDistanceKm,
+                onEditCue: { editingCueID = $0 }
+            )
+            .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
+        } detail: {
+            // 편집 도구와 장소 검색은 지도에 딸린 것이라 가운데 컬럼의 툴바 구역에 둔다.
+            // 그래야 좌우 패널을 접고 펴도 자리가 패널을 따라 옮겨 다니지 않는다.
+            detailPane
+                .toolbar { editorToolbar }
+        }
+        .inspector(isPresented: $isInspectorPresented) {
+            inspectorPane
+                .inspectorColumnWidth(min: 260, ideal: 320, max: 460)
+                .toolbar {
+                    // 인스펙터 접기 버튼은 인스펙터 쪽 툴바 끝에 둔다(사이드바 접기 버튼과 대칭).
+                    Spacer()
+                    InspectorToggleButton(isPresented: $isInspectorPresented)
                 }
-            }
-            Divider()
-            editorActionBar
         }
         .onChange(of: draft.cuePoints.map(\.id)) { _, ids in
             if let sel = selectedCueID, !ids.contains(sel) {
@@ -269,6 +229,46 @@ struct CourseEditorView: View {
         return startIndex == endIndex ? startIndex : nil
     }
 
+    // MARK: - 우측 인스펙터
+
+    @ViewBuilder
+    private var inspectorPane: some View {
+        if rangeSelection != nil || pinnedDistanceKm != nil {
+            VStack(spacing: 0) {
+                SelectionInspectorStack(
+                    trackPoints: draft.allCourseTrackPoints,
+                    rangeSelection: rangeSelection,
+                    pinnedDistanceKm: pinnedDistanceKm,
+                    onClearRange: { rangeSelection = nil },
+                    onClearPin: { pinnedDistanceKm = nil }
+                )
+                if let range = rangeSelection {
+                    Divider()
+                    Button {
+                        addSegmentFromRange(range)
+                    } label: {
+                        Label("구간 추가", systemImage: "flag.checkered")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(
+                        range.lengthKm <= 0 || range.isDragging
+                            || sectionIndex(containing: range) == nil
+                    )
+                    .padding(12)
+                }
+            }
+        } else {
+            CourseEditorCueInspectorView(
+                course: course,
+                draft: draft,
+                selectedCueID: selectedCueID,
+                onEditCue: { editingCueID = $0 }
+            )
+        }
+    }
+
     @ViewBuilder
     private var detailPane: some View {
         VSplitView {
@@ -295,8 +295,21 @@ struct CourseEditorView: View {
                         )
                     }
                 )
-                MapStylePicker(selection: mapStyle)
-                    .padding(8)
+                // 지도 도구(장소 검색·지도 종류)는 지도 우상단에 모아 둔다.
+                HStack(spacing: 6) {
+                    placeSearchField
+                    MapStylePicker(selection: mapStyle)
+                }
+                .padding(8)
+            }
+            .overlay(alignment: .topLeading) {
+                if isCalculating {
+                    Label("경로 계산 중…", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.caption)
+                        .padding(6)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+                        .padding(8)
+                }
             }
             .frame(minHeight: 200)
             elevationPane
@@ -551,15 +564,16 @@ struct CourseEditorView: View {
 
     // MARK: - 툴바
 
-    private var toolbar: some View {
-        HStack(spacing: 12) {
+    @ToolbarContentBuilder
+    private var editorToolbar: some ToolbarContent {
+        ToolbarItem {
             // Undo / Redo — draft.undoCount를 읽어 canUndo/canRedo 변화 시 재렌더링
             let _ = draft.undoCount
-            HStack(spacing: 4) {
+            ControlGroup {
                 Button {
                     draft.undoManager.undo()
                 } label: {
-                    Image(systemName: "arrow.uturn.backward")
+                    Label("실행 취소", systemImage: "arrow.uturn.backward")
                 }
                 .disabled(!draft.undoManager.canUndo)
                 .help(draft.undoManager.canUndo ? "실행 취소: \(draft.undoManager.undoActionName)" : "실행 취소")
@@ -568,72 +582,21 @@ struct CourseEditorView: View {
                 Button {
                     draft.undoManager.redo()
                 } label: {
-                    Image(systemName: "arrow.uturn.forward")
+                    Label("다시 실행", systemImage: "arrow.uturn.forward")
                 }
                 .disabled(!draft.undoManager.canRedo)
                 .help(draft.undoManager.canRedo ? "다시 실행: \(draft.undoManager.redoActionName)" : "다시 실행")
                 .keyboardShortcut("z", modifiers: [.command, .shift])
             }
-            .buttonStyle(.borderless)
-
-            Divider().frame(height: 20)
-
-            RouteProfilePicker(selection: routeProfile)
-
-            Divider().frame(height: 20)
-
-            // 카카오 검색
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("장소 검색 (화면 범위)", text: $searchQuery)
-                    .textFieldStyle(.plain)
-                    .frame(width: 200)
-                    .onSubmit { triggerSearch() }
-                if isSearching {
-                    ProgressView().controlSize(.small)
-                } else if !searchResults.isEmpty {
-                    Text("\(searchResults.count)건")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Button {
-                        searchQuery = ""
-                        searchResults = []
-                        searchError = nil
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                    .help("검색 초기화")
-                } else {
-                    Button {
-                        triggerSearch()
-                    } label: {
-                        Image(systemName: "arrow.right.circle")
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(searchQuery.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 7))
-            .help(searchError ?? "카카오 로컬 검색")
-
-            Spacer()
-
-            InspectorToggleButton(isPresented: $isInspectorPresented)
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-    }
 
-    private var editorActionBar: some View {
-        HStack(spacing: 10) {
-            Spacer()
+        ToolbarItem {
+            RouteProfilePicker(selection: routeProfile)
+        }
+
+        ToolbarSpacer(.flexible)
+
+        ToolbarItem(placement: .primaryAction) {
             Button("취소") {
                 if draft.hasChanges {
                     showDiscardConfirm = true
@@ -642,7 +605,9 @@ struct CourseEditorView: View {
                 }
             }
             .keyboardShortcut(.escape, modifiers: [])
+        }
 
+        ToolbarItem(placement: .confirmationAction) {
             Button("저장") {
                 draft.commit(to: course)
                 if let onSave {
@@ -655,9 +620,43 @@ struct CourseEditorView: View {
             .disabled(!draft.hasValidTitle)
             .keyboardShortcut(.return, modifiers: .command)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(.bar)
+    }
+
+    /// 카카오 장소 검색 칸. 지도의 현재 화면 범위를 검색하므로 지도 위에 띄운다.
+    private var placeSearchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("장소 검색 (화면 범위)", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .frame(width: 170)
+                .onSubmit { triggerSearch() }
+            if isSearching {
+                ProgressView().controlSize(.small)
+            } else if !searchResults.isEmpty {
+                Text("\(searchResults.count)건")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button {
+                    searchQuery = ""
+                    searchResults = []
+                    searchError = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("검색 초기화")
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 28)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .strokeBorder(.separator, lineWidth: 0.5)
+        )
+        .help(searchError ?? "카카오 로컬 검색")
     }
 
     private func closeEditor() {
