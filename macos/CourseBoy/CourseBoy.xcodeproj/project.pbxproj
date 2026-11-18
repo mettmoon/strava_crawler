@@ -271,7 +271,7 @@
 			mainGroup = AA00000000000000000002;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				AA00000000000000000050 /* XCLocalSwiftPackageReference "../CourseBoyKit" */,
+				AA00000000000000000050 /* XCLocalSwiftPackageReference "../../../CourseBoyKit" */,
 				CC00000000000000000050 /* XCRemoteSwiftPackageReference "CourseBoyPreviewCore" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -657,9 +657,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		AA00000000000000000050 /* XCLocalSwiftPackageReference "../CourseBoyKit" */ = {
+		AA00000000000000000050 /* XCLocalSwiftPackageReference "../../../CourseBoyKit" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../CourseBoyKit;
+			relativePath = ../../../CourseBoyKit;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -677,7 +677,7 @@
 /* Begin XCSwiftPackageProductDependency section */
 		AA00000000000000000051 /* CourseBoyKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AA00000000000000000050 /* XCLocalSwiftPackageReference "../CourseBoyKit" */;
+			package = AA00000000000000000050 /* XCLocalSwiftPackageReference "../../../CourseBoyKit" */;
 			productName = CourseBoyKit;
 		};
 		CC00000000000000000055 /* CoursePreviewCore */ = {

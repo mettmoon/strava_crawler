@@ -2,23 +2,24 @@
 
 Strava 경로를 불러와 구간(segment) 정보를 CueSheet(`CoursePoint`)로 넣은 TCX 코스를 만드는 macOS 앱입니다.
 
-iOS 앱은 [CourseBoyMobile](https://github.com/mettmoon/CourseBoyMobile)으로, 코스 파일 파서는 [CourseBoyPreviewCore](https://github.com/mettmoon/CourseBoyPreviewCore)로 분리했습니다.
+iOS 앱은 [CourseBoyMobile](https://github.com/mettmoon/CourseBoyMobile)으로, 코스 파일 파서는 [CourseBoyPreviewCore](https://github.com/mettmoon/CourseBoyPreviewCore)로, Strava·TCX·CueSheet 로직과 `courseboy` CLI는 CourseBoyKit 저장소로 분리했습니다.
 
 ## 구성
 
 | 경로 | 내용 |
 | --- | --- |
 | `macos/CourseBoy` | macOS 앱(`CourseBoy`)과 Finder Quick Look 확장(`CourseBoyMacQuickLook`) |
-| `macos/CourseBoyKit` | Strava 조회, TCX 파싱·생성, CueSheet 분류 로직 Swift 패키지와 `courseboy` CLI |
 
 ## 빌드
+
+CourseBoyKit 저장소를 이 저장소 옆(`../CourseBoyKit`)에 받아 두어야 빌드됩니다. Xcode 프로젝트가 `../../../CourseBoyKit` 로컬 패키지로 참조합니다.
 
 ```bash
 open macos/CourseBoy/CourseBoy.xcodeproj
 ```
 
 ```bash
-swift test --package-path macos/CourseBoyKit
+swift test --package-path ../CourseBoyKit
 ```
 
 ## CLI
@@ -26,7 +27,7 @@ swift test --package-path macos/CourseBoyKit
 이미 받아 둔 TCX와 segments JSON으로 CueSheet가 들어간 TCX를 만듭니다.
 
 ```bash
-swift run --package-path macos/CourseBoyKit courseboy --tcx route.tcx --segments route_segments.json --min-category 2
+swift run --package-path ../CourseBoyKit courseboy --tcx route.tcx --segments route_segments.json --min-category 2
 ```
 
 `<입력>_cued.tcx`와 RWGPS용 `<입력>_cued_for_rwgps.tcx`가 함께 생성됩니다. `--out`으로 출력 경로를 바꿀 수 있습니다.
