@@ -210,7 +210,7 @@ struct CourseWorkspaceView: View {
             let cues = applyExportOptions(options, to: course.cuePoints)
             return try? CourseTCXFileCoder.makeTCXData(
                 title: course.title,
-                trackPoints: course.allTrackPoints,
+                tracks: course.adjustedSectionTrackPoints,
                 cuePoints: cues
             )
         }
