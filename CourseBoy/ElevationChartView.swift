@@ -14,6 +14,8 @@ struct ElevationChartView: View {
     var rangeSelection: Binding<ChartRangeSelection?>? = nil
     /// 그래프 클릭으로 지정한 임시 선택 위치(km). nil이면 표시되지 않는다.
     var pinnedDistanceKm: Binding<Double?>? = nil
+    /// 지정하면 구간이 선택돼 있는 동안 상단 툴바에 "구간 선택 해제" 버튼을 보여 주고, 누르면 호출한다.
+    var onClearRangeSelection: (() -> Void)? = nil
     /// 외부(구간 목록 등)에서 강조 표시할 거리 구간(km). 드래그 선택과 달리 인스펙터를 열지 않는다.
     var highlightedRangeKm: ClosedRange<Double>? = nil
     /// 선택된 거리 구간(km)의 고도 그래프는 기본 주황색으로, 나머지는 비활성 색상으로 그린다.
@@ -240,6 +242,16 @@ struct ElevationChartView: View {
     /// 고도표 바로 위의 얇은 컨트롤 영역(축소/확대/커스텀).
     private var chartToolbar: some View {
         HStack(spacing: 4) {
+            // 드래그 중에는 숨겨, 클릭에 가까운 짧은 드래그에서 버튼이 깜빡이지 않게 한다.
+            if let onClearRangeSelection, rangeSelection?.wrappedValue?.isDragging == false {
+                Button(action: onClearRangeSelection) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "xmark.circle")
+                        Text("구간 선택 해제").font(.caption)
+                    }
+                }
+                .help("구간 선택 해제")
+            }
             Spacer(minLength: 0)
             Button { scaleBy(1 / scaleStep) } label: {
                 Image(systemName: "minus.magnifyingglass")

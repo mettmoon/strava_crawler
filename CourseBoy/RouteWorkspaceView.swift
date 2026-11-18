@@ -113,6 +113,7 @@ struct RouteWorkspaceView: View {
                                 trackPoints: parsedCourse?.trackPoints ?? [],
                                 rangeSelection: rangeSelection,
                                 pinnedDistanceKm: pinnedDistanceKm,
+                                onClearRange: { rangeSelection = nil },
                                 onClearPin: { pinnedDistanceKm = nil }
                             )
                             .background(.background)

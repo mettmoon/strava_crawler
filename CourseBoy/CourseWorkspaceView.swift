@@ -83,6 +83,7 @@ struct CourseWorkspaceView: View {
                                 trackPoints: pts,
                                 rangeSelection: rangeSelection,
                                 pinnedDistanceKm: pinnedDistanceKm,
+                                onClearRange: clearRangeSelection,
                                 onClearPin: { pinnedDistanceKm = nil }
                             )
                         } else {
@@ -148,6 +149,7 @@ struct CourseWorkspaceView: View {
                     hoverInfo: $hoverInfo,
                     rangeSelection: $rangeSelection,
                     pinnedDistanceKm: $pinnedDistanceKm,
+                    onClearRangeSelection: clearRangeSelection,
                     onBackgroundClick: { selectedCueIDs.removeAll() }
                 )
             }
@@ -264,6 +266,15 @@ struct CourseWorkspaceView: View {
         } else {
             selectedCueIDs.removeAll()
             DispatchQueue.main.async { rangeSelection = selection }
+        }
+    }
+
+    /// 구간 선택을 해제한다. 큐 두 개를 골라 생긴 구간이면 그 큐 선택도 함께 비워,
+    /// 큐는 선택돼 있는데 구간만 없는 어긋난 상태가 남지 않게 한다.
+    private func clearRangeSelection() {
+        rangeSelection = nil
+        if selectedCueIDs.count == 2 {
+            selectedCueIDs.removeAll()
         }
     }
 

@@ -60,6 +60,7 @@ struct SegmentWorkspaceView: View {
                             trackPoints: pts,
                             rangeSelection: rangeSelection,
                             pinnedDistanceKm: pinnedDistanceKm,
+                            onClearRange: { rangeSelection = nil },
                             onClearPin: { pinnedDistanceKm = nil }
                         )
                         .background(.background)

@@ -114,7 +114,10 @@ struct PinnedPointInspectorView: View {
                     Button {
                         onClear()
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
+                        HStack(spacing: 3) {
+                            Text("선택해제").font(.caption)
+                            Image(systemName: "xmark.circle.fill")
+                        }
                     }
                     .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
