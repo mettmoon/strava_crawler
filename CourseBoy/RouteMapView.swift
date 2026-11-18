@@ -236,7 +236,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         }
         coordinator.mainPolylines = []
         coordinator.highlightPolyline = nil
-        coordinator.rangePolyline = nil
+        coordinator.rangePolylines = []
         coordinator.endpointAnnotations = []
         coordinator.cueAnnotations = []
         coordinator.rangeEndpointAnnotations = []
@@ -318,7 +318,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             coordinator.endpointAnnotations = []
             coordinator.cueAnnotations = []
             coordinator.hoverAnnotation = nil
-            coordinator.rangePolyline = nil
+            coordinator.rangePolylines = []
             coordinator.rangeEndpointAnnotations = []
             coordinator.lastRangeSignature = ""
             coordinator.pinnedAnnotation = nil
@@ -426,7 +426,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         var onSelectCue: ((UUID) -> Void)?
         var onPinDistance: ((Double) -> Void)?
         var lastFocusedCueID: UUID?
-        var rangePolyline: RangeSelectionPolyline?
+        var rangePolylines: [RangeSelectionPolyline] = []
         var rangeEndpointAnnotations: [RangeEndpointAnnotation] = []
         var lastRangeSignature: String = ""
         var pinnedAnnotation: PinnedLocationAnnotation?
@@ -591,8 +591,8 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             lastRangeSignature = sig
 
             // 기존 overlay/annotation 제거
-            if let line = rangePolyline { map.removeOverlay(line) }
-            rangePolyline = nil
+            if !rangePolylines.isEmpty { map.removeOverlays(rangePolylines) }
+            rangePolylines = []
             if !rangeEndpointAnnotations.isEmpty {
                 map.removeAnnotations(rangeEndpointAnnotations)
                 rangeEndpointAnnotations = []
@@ -600,38 +600,66 @@ private struct RouteMapRepresentable: NSViewRepresentable {
 
             guard let selection, selection.lengthKm > 0 else { return }
 
-            let rangePts = trackPointsInRange(trackPoints, range: selection)
-            guard rangePts.count >= 2 else { return }
-            let coords = rangePts.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
-            let line = RangeSelectionPolyline(coordinates: coords, count: coords.count)
-            map.addOverlay(line, level: .aboveRoads)
-            rangePolyline = line
-
-            // 양 끝점 annotation
+            // 섹션 사이는 이어져 있지 않다. 섹션 경계에서는 앞 섹션의 끝점과 뒤 섹션의 시작점이
+            // 같은 누적 거리를 가지므로, 전체 트랙에서 한 번에 잘라내면 서로 다른 섹션의 점이
+            // 한 선으로 묶여 직선이 그려진다. 섹션(연속 구간)마다 따로 잘라 그린다.
             let lo = selection.lowerKm
             let hi = selection.upperKm
-            let startInfo = routeHoverInfo(trackPoints: trackPoints, nearestToDistanceKm: lo)
-            let endInfo = routeHoverInfo(trackPoints: trackPoints, nearestToDistanceKm: hi)
-            var anns: [RangeEndpointAnnotation] = []
-            if let s = startInfo {
-                anns.append(RangeEndpointAnnotation(
-                    kind: .start, lat: s.lat, lon: s.lon,
-                    distanceKm: lo, elevationMeters: s.elevationMeters
-                ))
+            var pieces: [[TrackPoint]] = []
+            for run in continuousRuns() {
+                guard let first = run.first, let last = run.last else { continue }
+                let runLo = max(lo, first.cumKm)
+                let runHi = min(hi, last.cumKm)
+                guard runHi - runLo > 0.000_001 else { continue }
+                let pts = trackPointsInRange(
+                    run,
+                    range: ChartRangeSelection(startKm: runLo, endKm: runHi, isDragging: false)
+                )
+                if pts.count >= 2 { pieces.append(pts) }
             }
-            if let e = endInfo {
-                anns.append(RangeEndpointAnnotation(
-                    kind: .end, lat: e.lat, lon: e.lon,
-                    distanceKm: hi, elevationMeters: e.elevationMeters
-                ))
+            guard let startPoint = pieces.first?.first, let endPoint = pieces.last?.last else { return }
+
+            var rangeRect = MKMapRect.null
+            for pts in pieces {
+                let coords = pts.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+                let line = RangeSelectionPolyline(coordinates: coords, count: coords.count)
+                rangePolylines.append(line)
+                rangeRect = rangeRect.union(line.boundingMapRect)
             }
+            map.addOverlays(rangePolylines, level: .aboveRoads)
+
+            // 양 끝점 annotation. 실제로 그린 선의 양 끝에 둔다.
+            let anns = [
+                RangeEndpointAnnotation(
+                    kind: .start, lat: startPoint.lat, lon: startPoint.lon,
+                    distanceKm: lo, elevationMeters: startPoint.ele
+                ),
+                RangeEndpointAnnotation(
+                    kind: .end, lat: endPoint.lat, lon: endPoint.lon,
+                    distanceKm: hi, elevationMeters: endPoint.ele
+                ),
+            ]
             map.addAnnotations(anns)
             rangeEndpointAnnotations = anns
             promoteRangeEndpointAnnotationViews(in: map)
 
             if !selection.isDragging {
-                revealRangeIfNeeded(in: map, rangeRect: line.boundingMapRect)
+                revealRangeIfNeeded(in: map, rangeRect: rangeRect)
             }
+        }
+
+        /// `trackPoints`를 섹션 경계(`discontinuityAfterIndices`)에서 끊은 연속 구간들.
+        private func continuousRuns() -> [[TrackPoint]] {
+            var runs: [[TrackPoint]] = []
+            var start = 0
+            for index in discontinuityAfterIndices.sorted() where index >= start && index < trackPoints.count - 1 {
+                runs.append(Array(trackPoints[start ... index]))
+                start = index + 1
+            }
+            if start < trackPoints.count {
+                runs.append(Array(trackPoints[start...]))
+            }
+            return runs
         }
 
         /// 선택 구간이 지도 화면에 다 보이지 않으면 카메라를 옮긴다.
