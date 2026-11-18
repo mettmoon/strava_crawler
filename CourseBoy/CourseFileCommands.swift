@@ -12,10 +12,15 @@ struct CourseFileCommands: Commands {
                 importCourseFile()
             }
 
-            Button("Export to TCX...") {
-                handler?.exportTCX()
+            Menu("Export to") {
+                Button("TCX...") {
+                    handler?.exportTCX()
+                }
+                Button("GPX...") {
+                    handler?.exportGPX()
+                }
             }
-            .disabled(handler == nil || handler?.canExportTCX == false)
+            .disabled(handler == nil || handler?.canExport == false)
         }
     }
 

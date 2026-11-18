@@ -52,6 +52,90 @@ enum CourseGPXFileCoder {
         return course
     }
 
+    static func makeGPXData(from course: CourseRecord) throws -> Data {
+        try makeGPXData(
+            title: course.title,
+            tracks: course.adjustedSectionTrackPoints,
+            cuePoints: course.cuePoints
+        )
+    }
+
+    /// 섹션마다 `<trkseg>` 하나, 큐마다 `<wpt>` 하나를 쓴다. 다시 읽으면 섹션이 그대로 나뉜다.
+    static func makeGPXData(
+        title: String,
+        tracks: [[TrackPoint]],
+        cuePoints: [CourseCuePoint]
+    ) throws -> Data {
+        let nonEmptyTracks = tracks.filter { !$0.isEmpty }
+        guard !nonEmptyTracks.isEmpty else { throw CourseGPXFileError.noTrackpoints }
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = trimmedTitle.isEmpty ? "Course" : trimmedTitle
+
+        let root = XMLElement(name: "gpx")
+        root.addNamespace(XMLNode.namespace(withName: "", stringValue: "http://www.topografix.com/GPX/1/1") as! XMLNode)
+        root.addNamespace(XMLNode.namespace(
+            withName: "xsi", stringValue: "http://www.w3.org/2001/XMLSchema-instance"
+        ) as! XMLNode)
+        root.addAttribute(gpxAttribute("version", "1.1"))
+        root.addAttribute(gpxAttribute("creator", "CourseBoy"))
+        root.addAttribute(gpxAttribute(
+            "xsi:schemaLocation",
+            "http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd"
+        ))
+
+        // GPX 1.1 스키마 순서: metadata, wpt, trk.
+        let metadata = XMLElement(name: "metadata")
+        metadata.addChild(XMLElement(name: "name", stringValue: name))
+        root.addChild(metadata)
+
+        for cue in cuePoints.sorted(by: { $0.distanceMeters < $1.distanceMeters }) {
+            let waypoint = XMLElement(name: "wpt")
+            waypoint.addAttribute(gpxAttribute("lat", gpxDecimal(cue.lat, places: 7)))
+            waypoint.addAttribute(gpxAttribute("lon", gpxDecimal(cue.lon, places: 7)))
+            if !cue.name.isEmpty {
+                waypoint.addChild(XMLElement(name: "name", stringValue: cue.name))
+            }
+            if !cue.notes.isEmpty {
+                waypoint.addChild(XMLElement(name: "desc", stringValue: cue.notes))
+            }
+            waypoint.addChild(XMLElement(name: "type", stringValue: cue.pointType))
+            root.addChild(waypoint)
+        }
+
+        let track = XMLElement(name: "trk")
+        track.addChild(XMLElement(name: "name", stringValue: name))
+        for points in nonEmptyTracks {
+            let segment = XMLElement(name: "trkseg")
+            for point in points {
+                let element = XMLElement(name: "trkpt")
+                element.addAttribute(gpxAttribute("lat", gpxDecimal(point.lat, places: 7)))
+                element.addAttribute(gpxAttribute("lon", gpxDecimal(point.lon, places: 7)))
+                if let ele = point.ele {
+                    element.addChild(XMLElement(name: "ele", stringValue: gpxDecimal(ele, places: 2)))
+                }
+                if let time = point.time, !time.isEmpty {
+                    element.addChild(XMLElement(name: "time", stringValue: time))
+                }
+                segment.addChild(element)
+            }
+            track.addChild(segment)
+        }
+        root.addChild(track)
+
+        let doc = XMLDocument(rootElement: root)
+        doc.characterEncoding = "UTF-8"
+        doc.version = "1.0"
+        return doc.xmlData(options: [.nodePrettyPrint])
+    }
+
+    private static func gpxAttribute(_ name: String, _ value: String) -> XMLNode {
+        XMLNode.attribute(withName: name, stringValue: value) as! XMLNode
+    }
+
+    private static func gpxDecimal(_ value: Double, places: Int) -> String {
+        String(format: "%.\(places)f", locale: Locale(identifier: "en_US_POSIX"), value)
+    }
+
     private static func nearestSectionMatch(
         in sections: [[TrackPoint]],
         lat: Double,
@@ -247,6 +331,12 @@ private struct ParsedGPXCourse {
     }
 
     private static func mappedPointType(from values: [String?]) -> String {
+        // 이 앱이 내보낸 GPX는 <type>에 포인트 종류를 그대로 적으므로 일치하면 그 값을 쓴다.
+        let exactType = (values.last ?? nil)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let exactType, cuePointTypes.contains(where: { $0.value == exactType }) {
+            return exactType
+        }
+
         let text = values.compactMap { $0 }.joined(separator: " ").lowercased()
         if text.contains("water") || text.contains("drink") || text.contains("hydration") || text.contains("급수") {
             return "Water"

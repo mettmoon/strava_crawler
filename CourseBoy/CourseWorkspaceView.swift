@@ -201,8 +201,15 @@ struct CourseWorkspaceView: View {
     private func makeFileHandler() -> CourseFileCommandHandler? {
         return CourseFileCommandHandler(
             exportTCX: { saveCourseTCX(course) },
-            canExportTCX: !course.allTrackPoints.isEmpty
+            exportGPX: { saveCourseGPX(course) },
+            canExport: !course.allTrackPoints.isEmpty
         )
+    }
+
+    private func saveCourseGPX(_ course: CourseRecord) {
+        Exporter.saveGPX(filename: course.title) {
+            try? CourseGPXFileCoder.makeGPXData(from: course)
+        }
     }
 
     private func saveCourseTCX(_ course: CourseRecord) {

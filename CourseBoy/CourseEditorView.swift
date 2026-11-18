@@ -165,7 +165,8 @@ struct CourseEditorView: View {
         }
         .focusedSceneValue(\.courseFileCommandHandler, CourseFileCommandHandler(
             exportTCX: { saveDraftTCX() },
-            canExportTCX: !draft.allCourseTrackPoints.isEmpty && draft.hasValidTitle
+            exportGPX: { saveDraftGPX() },
+            canExport: !draft.allCourseTrackPoints.isEmpty && draft.hasValidTitle
         ))
         .confirmationDialog("변경 사항을 버리시겠습니까?", isPresented: $showDiscardConfirm, titleVisibility: .visible) {
             Button("변경 사항 버리기", role: .destructive) { closeConfirmed = true }
@@ -429,6 +430,22 @@ struct CourseEditorView: View {
                 title: title,
                 tracks: draft.allCourseSectionTrackPoints,
                 cuePoints: applyExportOptions(options, to: draft.allCourseCuePoints)
+            )
+        }
+    }
+
+    private func saveDraftGPX() {
+        let title = draft.normalizedTitle
+        guard !title.isEmpty else {
+            NSSound.beep()
+            return
+        }
+
+        Exporter.saveGPX(filename: title) {
+            try? CourseGPXFileCoder.makeGPXData(
+                title: title,
+                tracks: draft.allCourseSectionTrackPoints,
+                cuePoints: draft.allCourseCuePoints
             )
         }
     }

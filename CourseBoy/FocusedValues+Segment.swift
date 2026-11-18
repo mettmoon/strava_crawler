@@ -29,5 +29,7 @@ struct CourseCommandHandler {
 
 struct CourseFileCommandHandler {
     var exportTCX: () -> Void
-    var canExportTCX: Bool
+    var exportGPX: () -> Void
+    /// TCX·GPX 공통. 내보낼 경로가 있을 때만 켠다.
+    var canExport: Bool
 }

@@ -81,6 +81,32 @@ enum Exporter {
         }
     }
 
+    @MainActor
+    @discardableResult
+    static func saveGPX(filename: String, dataBuilder: () -> Data?) -> Bool {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.gpx]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = sanitizedFilename(filename) + ".gpx"
+        panel.prompt = "저장"
+        panel.message = "GPX 파일로 저장할 위치를 선택하세요"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return false }
+        guard let data = dataBuilder() else {
+            NSSound.beep()
+            return false
+        }
+
+        do {
+            try data.write(to: url)
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+            return true
+        } catch {
+            NSSound.beep()
+            return false
+        }
+    }
+
     private static func sanitizedFilename(_ filename: String) -> String {
         let trimmed = filename.trimmingCharacters(in: .whitespacesAndNewlines)
         let base = trimmed.isEmpty ? "Course" : trimmed
