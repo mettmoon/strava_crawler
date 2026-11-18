@@ -6,14 +6,16 @@ enum CourseTCXFileCoder {
         let tcxCourse = try TCXCourse(data: data)
         let title = normalizedTitle(tcxCourse.courseName, fallback: fallbackTitle)
         let course = CourseRecord(title: title, sourceFilePath: sourceFilePath)
-        course.sections = tcxCourse.trackPointSections.compactMap { points in
+        // 섹션 이름은 CourseBoy가 내보낸 TCX의 확장 영역에서만 온다. 없으면 빈 이름이다.
+        course.sections = zip(tcxCourse.trackPointSections, tcxCourse.trackSectionNames).compactMap { points, name in
             guard let first = points.first, let last = points.last else { return nil }
             return CourseSection(
                 routePoints: [
                     CourseRoutePoint(lat: first.lat, lon: first.lon),
                     CourseRoutePoint(lat: last.lat, lon: last.lon),
                 ],
-                legs: [CourseLeg(kind: .routed, trackPoints: points.map(TrackPointCodable.init))]
+                legs: [CourseLeg(kind: .routed, trackPoints: points.map(TrackPointCodable.init))],
+                name: name
             )
         }
         if course.sections.isEmpty { course.sections = [CourseSection()] }
@@ -45,6 +47,7 @@ enum CourseTCXFileCoder {
         try makeTCXData(
             title: course.title,
             tracks: adjustedTracks(course.sectionTracks),
+            trackNames: course.visibleSections.map(\.name),
             cuePoints: course.cuePoints
         )
     }
@@ -53,9 +56,12 @@ enum CourseTCXFileCoder {
         try makeTCXData(title: title, tracks: [trackPoints], cuePoints: cuePoints)
     }
 
+    /// `trackNames`는 `tracks`와 같은 순서의 섹션 이름. TCX의 `<Track>`에는 이름 자리가 없어
+    /// `<Course>`의 확장 영역에 실리며, CourseBoy로 다시 열 때만 복원된다.
     static func makeTCXData(
         title: String,
         tracks: [[TrackPoint]],
+        trackNames: [String] = [],
         cuePoints: [CourseCuePoint]
     ) throws -> Data {
         let trackPoints = tracks.flatMap { $0 }
@@ -79,6 +85,7 @@ enum CourseTCXFileCoder {
         return try TCXCourse.buildCourseData(
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             tracks: tracks,
+            trackNames: trackNames,
             cuePoints: specs
         ).data
     }

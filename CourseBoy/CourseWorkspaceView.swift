@@ -218,6 +218,7 @@ struct CourseWorkspaceView: View {
             return try? CourseTCXFileCoder.makeTCXData(
                 title: course.title,
                 tracks: course.adjustedSectionTrackPoints,
+                trackNames: course.visibleSections.map(\.name),
                 cuePoints: cues
             )
         }

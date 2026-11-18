@@ -429,6 +429,7 @@ struct CourseEditorView: View {
             return try? CourseTCXFileCoder.makeTCXData(
                 title: title,
                 tracks: draft.allCourseSectionTrackPoints,
+                trackNames: draft.allCourseSectionNames,
                 cuePoints: applyExportOptions(options, to: draft.allCourseCuePoints)
             )
         }

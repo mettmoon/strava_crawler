@@ -547,6 +547,11 @@ final class CourseEditorDraft {
         }
     }
 
+    /// `allCourseSectionTrackPoints`와 같은 순서의 섹션 이름.
+    var allCourseSectionNames: [String] {
+        sections.filter { !$0.isHidden }.map(\.name)
+    }
+
     var allCourseCuePoints: [CourseCuePoint] {
         var result: [CourseCuePoint] = []
         var offsetMeters = 0.0
