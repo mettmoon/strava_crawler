@@ -97,7 +97,8 @@ struct SegmentWorkspaceView: View {
                     markers: [],
                     hoverInfo: $hoverInfo,
                     rangeSelection: $rangeSelection,
-                    pinnedDistanceKm: $pinnedDistanceKm
+                    pinnedDistanceKm: $pinnedDistanceKm,
+                    onClearRangeSelection: { rangeSelection = nil }
                 )
             }
         }
