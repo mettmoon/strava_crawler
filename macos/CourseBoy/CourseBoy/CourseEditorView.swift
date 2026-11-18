@@ -740,6 +740,7 @@ private struct CourseEditorCuesheetSidebar: View {
     @State private var newName = ""
     @State private var newType = "Straight"
     @State private var showDeleteSectionConfirm = false
+    @State private var sectionImportCandidates: CourseSectionImportCandidates?
 
     /// distanceMeters 기준 정렬. 동일 거리에서는 추가 순서를 보존.
     private var sortedCues: [CourseCuePoint] {
@@ -831,6 +832,16 @@ private struct CourseEditorCuesheetSidebar: View {
                 }
             )
         }
+        .sheet(item: $sectionImportCandidates) { candidates in
+            CourseSectionImportPicker(
+                candidates: candidates,
+                onAdd: { sections in
+                    insertImportedSections(sections)
+                    sectionImportCandidates = nil
+                },
+                onCancel: { sectionImportCandidates = nil }
+            )
+        }
         .confirmationDialog(
             "선택한 섹션을 삭제하시겠습니까?",
             isPresented: $showDeleteSectionConfirm,
@@ -845,6 +856,50 @@ private struct CourseEditorCuesheetSidebar: View {
             let section = draft.sections[draft.selectedSectionIndex]
             Text("경로 \(formatRouteDistance(section.distanceKm))와 큐시트 \(section.cuePoints.count)개가 함께 삭제됩니다.")
         }
+    }
+
+    /// csb·tcx·gpx 파일을 골라 그 안의 섹션을 넣는다. 섹션이 하나면 바로 넣고, 여러 개면 고르게 한다.
+    private func addSectionsFromFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = CourseSectionImporter.readableContentTypes
+        panel.prompt = "추가"
+        panel.message = "섹션을 가져올 CSB, TCX, GPX 파일을 선택하세요"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let sections = try CourseSectionImporter.sections(from: url)
+            switch sections.count {
+            case 0:
+                showSectionImportError("이 파일에는 추가할 섹션이 없습니다.", detail: url.lastPathComponent)
+            case 1:
+                insertImportedSections(sections)
+            default:
+                sectionImportCandidates = CourseSectionImportCandidates(
+                    fileName: url.lastPathComponent,
+                    sections: sections
+                )
+            }
+        } catch {
+            showSectionImportError("파일에서 섹션을 불러올 수 없습니다.", detail: error.localizedDescription)
+        }
+    }
+
+    private func insertImportedSections(_ sections: [CourseSection]) {
+        draft.insertSections(sections)
+        pinnedDistanceKm = nil
+    }
+
+    private func showSectionImportError(_ message: String, detail: String) {
+        NSSound.beep()
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.informativeText = detail
+        alert.alertStyle = .warning
+        alert.runModal()
     }
 
     private var sectionList: some View {
@@ -887,12 +942,23 @@ private struct CourseEditorCuesheetSidebar: View {
                 .menuStyle(.borderlessButton)
                 .fixedSize()
 
-                Button {
-                    draft.addSection()
+                Menu {
+                    Button {
+                        draft.addSection()
+                    } label: {
+                        Label("빈 섹션 추가", systemImage: "plus")
+                    }
+                    Button {
+                        addSectionsFromFile()
+                    } label: {
+                        Label("파일에서 섹션 추가…", systemImage: "doc.badge.plus")
+                    }
                 } label: {
                     Image(systemName: "plus")
                 }
-                .buttonStyle(.borderless)
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
                 .help("섹션 추가")
             }
             .padding(.horizontal, 12)

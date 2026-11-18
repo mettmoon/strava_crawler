@@ -268,6 +268,15 @@ final class CourseEditorDraft {
         registerUndo(before: old, actionName: "섹션 추가")
     }
 
+    /// 파일 등에서 가져온 섹션들을 선택한 섹션 바로 뒤에 순서대로 넣고, 넣은 첫 섹션을 선택한다.
+    func insertSections(_ newSections: [CourseSection]) {
+        guard let first = newSections.first else { return }
+        let old = takeSnapshot()
+        sections.insert(contentsOf: newSections, at: selectedSectionIndex + 1)
+        selectedSectionID = first.id
+        registerUndo(before: old, actionName: "파일에서 섹션 추가")
+    }
+
     func deleteSelectedSection() {
         let old = takeSnapshot()
         let index = selectedSectionIndex
