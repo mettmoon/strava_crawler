@@ -2,7 +2,7 @@
 
 Strava 경로를 불러와 구간(segment) 정보를 CueSheet(`CoursePoint`)로 넣은 TCX 코스를 만드는 macOS 앱입니다.
 
-iOS 앱은 [CourseBoyMobile](https://github.com/mettmoon/CourseBoyMobile)으로, 코스 파일 파서는 [CourseBoyPreviewCore](https://github.com/mettmoon/CourseBoyPreviewCore)로, Strava·TCX·CueSheet 로직과 `courseboy` CLI는 CourseBoyKit 저장소로 분리했습니다.
+iOS 앱은 [CourseBoyMobile](https://github.com/mettmoon/CourseBoyMobile)으로, 코스 파일 파서는 [CourseBoyPreviewCore](https://github.com/mettmoon/CourseBoyPreviewCore)로, Strava·TCX·CueSheet 로직과 `courseboy` CLI는 [CourseBoyKit](https://github.com/mettmoon/CourseBoyKit)으로 분리했습니다.
 
 ## 구성
 
@@ -12,19 +12,13 @@ iOS 앱은 [CourseBoyMobile](https://github.com/mettmoon/CourseBoyMobile)으로,
 
 ## 빌드
 
-CourseBoyKit 저장소를 이 저장소 옆(`../CourseBoyKit`)에 받아 두어야 빌드됩니다. Xcode 프로젝트가 `../../../CourseBoyKit` 로컬 패키지로 참조합니다.
-
 ```bash
 open macos/CourseBoy/CourseBoy.xcodeproj
 ```
 
-```bash
-swift test --package-path ../CourseBoyKit
-```
-
 ## CLI
 
-이미 받아 둔 TCX와 segments JSON으로 CueSheet가 들어간 TCX를 만듭니다.
+이미 받아 둔 TCX와 segments JSON으로 CueSheet가 들어간 TCX를 만듭니다. CLI는 CourseBoyKit 저장소에 있으므로, 이 저장소 옆(`../CourseBoyKit`)에 받아 둔 경우의 예입니다.
 
 ```bash
 swift run --package-path ../CourseBoyKit courseboy --tcx route.tcx --segments route_segments.json --min-category 2

@@ -1,6 +1,15 @@
 {
-  "originHash" : "90c39a3a369bd95bbe9362cc8da90f9737159990f02f39a6aefc86b311feb1fc",
+  "originHash" : "5b9d723f0acff2e794861721d80d4d0acc1f53ff45a2e67c54ddaa61a70b5866",
   "pins" : [
+    {
+      "identity" : "courseboykit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mettmoon/CourseBoyKit",
+      "state" : {
+        "branch" : "main",
+        "revision" : "9949246942fbffd6473829d2913d425e384e3eb2"
+      }
+    },
     {
       "identity" : "courseboypreviewcore",
       "kind" : "remoteSourceControl",
