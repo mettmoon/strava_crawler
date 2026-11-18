@@ -19,12 +19,12 @@ Icon
 .com.apple.timemachine.donotpresent
 
 # Swift / macOS app build artifacts
-macos/**/.build/
+**/.build/
 .DS_Store
-macos/**/xcuserdata/
-macos/**/*.xcodeproj/project.xcworkspace/xcuserdata/
-macos/**/DerivedData/
-macos/**/.derivedData/
+**/xcuserdata/
+**/*.xcodeproj/project.xcworkspace/xcuserdata/
+**/DerivedData/
+**/.derivedData/
 
 # 예전 Python 도구가 남긴 로컬 파일 (cookies.json에는 Strava 세션 쿠키가 들어 있음)
 cookies.json

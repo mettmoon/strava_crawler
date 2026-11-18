@@ -8,7 +8,10 @@ iOS 앱은 [CourseBoyMobile](https://github.com/mettmoon/CourseBoyMobile)으로,
 
 | 경로 | 내용 |
 | --- | --- |
-| `macos/CourseBoy` | macOS 앱(`CourseBoy`), Finder Quick Look 확장(`CourseBoyMacQuickLook`), 지도 스냅샷 XPC 서비스(`CourseBoyMapSnapshotService`) |
+| `CourseBoy.xcodeproj` | Xcode 프로젝트 |
+| `CourseBoy` | macOS 앱(`CourseBoy`) |
+| `CourseBoyMacQuickLook` | Finder Quick Look 확장 |
+| `CourseBoyMapSnapshotService` | 지도 스냅샷 XPC 서비스 |
 
 ## 의존 패키지
 
@@ -24,7 +27,7 @@ Xcode 프로젝트가 GitHub 원격 패키지(`main` 브랜치)로 참조합니�
 ## 빌드
 
 ```bash
-open macos/CourseBoy/CourseBoy.xcodeproj
+open CourseBoy.xcodeproj
 ```
 
 ## CLI와 분류 규칙
