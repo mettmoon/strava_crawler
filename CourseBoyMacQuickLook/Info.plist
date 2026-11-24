@@ -14,7 +14,7 @@
 			<array>
 				<string>com.garmin.tcx</string>
 				<string>com.topografix.gpx</string>
-				<string>com.peter.courseboy.course-plan</string>
+				<string>com.wejoapps.courseboy.course-plan</string>
 			</array>
 			<key>QLSupportsSearchableItems</key>
 			<false/>

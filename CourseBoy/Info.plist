@@ -13,7 +13,7 @@
 			<string>Owner</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>com.peter.courseboy.course-plan</string>
+				<string>com.wejoapps.courseboy.course-plan</string>
 			</array>
 		</dict>
 		<dict>
@@ -53,7 +53,7 @@
 			<key>UTTypeDescription</key>
 			<string>CourseBoy Course Plan</string>
 			<key>UTTypeIdentifier</key>
-			<string>com.peter.courseboy.course-plan</string>
+			<string>com.wejoapps.courseboy.course-plan</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>

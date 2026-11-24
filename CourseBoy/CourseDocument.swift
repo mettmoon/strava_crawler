@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 extension UTType {
-    static let coursePlan = UTType(exportedAs: "com.peter.courseboy.course-plan", conformingTo: .xml)
+    static let coursePlan = UTType(exportedAs: "com.wejoapps.courseboy.course-plan", conformingTo: .xml)
     static var coursePlanFileExtension: UTType {
         UTType(filenameExtension: "csb", conformingTo: .xml) ?? .coursePlan
     }
