@@ -1,6 +1,7 @@
 import SwiftUI
 import MapKit
 import CourseBoyKit
+import CourseBoyMapFile
 
 final class HighlightPolyline: MKPolyline {}
 final class RangeSelectionPolyline: MKPolyline {}
@@ -179,8 +180,24 @@ struct RouteMapView: View {
     var zoomsToRangeSelection: Bool = false
     /// 값이 바뀔 때마다 카메라를 경로 전체 보기로 되돌린다.
     var zoomResetToken: Int = 0
+    /// `trackPoints` 기준의 노면 분석. 있으면 지도 메뉴에서 경로 색을 `노면`으로 고를 수 있다.
+    var surfaceAnalysis: CourseSurfaceAnalysis? = nil
 
     @AppStorage(MapStyleStorageKey.main) private var mapStyleRaw: String = MapStyleOption.standard.rawValue
+    @AppStorage(RouteColorMode.storageKey) private var routeColorRaw: String = RouteColorMode.section.rawValue
+
+    private var routeColor: Binding<RouteColorMode> {
+        Binding(
+            get: { RouteColorMode(rawValue: routeColorRaw) ?? .section },
+            set: { routeColorRaw = $0.rawValue }
+        )
+    }
+
+    /// 노면 방식으로 그릴 때의 구간. 노면 정보가 없거나 다른 방식이면 nil.
+    private var surfaceRuns: [CourseSurfaceAnalysis.Run]? {
+        guard let surfaceAnalysis, routeColor.wrappedValue == .surface else { return nil }
+        return surfaceAnalysis.runs
+    }
 
     private var mapStyle: Binding<MapStyleOption> {
         Binding(
@@ -206,9 +223,14 @@ struct RouteMapView: View {
                 pinnedDistanceKm: pinnedDistanceKm,
                 zoomsToRangeSelection: zoomsToRangeSelection,
                 zoomResetToken: zoomResetToken,
-                mapStyle: mapStyle.wrappedValue
+                mapStyle: mapStyle.wrappedValue,
+                tileSource: MapFileStore.shared.displayTileSource,
+                surfaceRuns: surfaceRuns
             )
-            MapStylePicker(selection: mapStyle)
+            MapStylePicker(
+                selection: mapStyle,
+                routeColor: surfaceAnalysis == nil ? nil : routeColor
+            )
                 .padding(8)
         }
     }
@@ -230,6 +252,14 @@ private struct RouteMapRepresentable: NSViewRepresentable {
     var zoomsToRangeSelection: Bool = false
     var zoomResetToken: Int = 0
     var mapStyle: MapStyleOption
+    /// 기본 지도 위에 덮을 사용자 지도 파일.
+    var tileSource: GarminTileSource? = nil
+    /// nil이 아니면 코스 선을 한 가지 색으로 칠하고 비포장 구간에 점선을 긋는다.
+    var surfaceRuns: [CourseSurfaceAnalysis.Run]? = nil
+
+    private var appliedStyle: AppliedMapStyle {
+        AppliedMapStyle(style: mapStyle, flat: tileSource != nil)
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -287,8 +317,8 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         map.delegate = context.coordinator
         map.showsCompass = true
         map.showsScale = true
-        applyMapStyle(mapStyle, to: map)
-        coordinator.appliedMapStyle = mapStyle
+        applyMapStyle(mapStyle, to: map, flat: appliedStyle.flat)
+        coordinator.appliedMapStyle = appliedStyle
         map.onRouteMouseMoved = { [weak coordinator] map, point in
             coordinator?.handleMouseMoved(in: map, point: point)
         }
@@ -318,10 +348,13 @@ private struct RouteMapRepresentable: NSViewRepresentable {
 
     func updateNSView(_ map: MKMapView, context: Context) {
         let coordinator = context.coordinator
-        if coordinator.appliedMapStyle != mapStyle {
-            applyMapStyle(mapStyle, to: map)
-            coordinator.appliedMapStyle = mapStyle
+        if coordinator.appliedMapStyle != appliedStyle {
+            applyMapStyle(mapStyle, to: map, flat: appliedStyle.flat)
+            coordinator.appliedMapStyle = appliedStyle
         }
+        map.syncMapFileOverlay(tileSource)
+        // 렌더러를 만들기 전에 정해 둔다. 방식이 바뀌면 아래에서 경로를 다시 그린다.
+        coordinator.routeLineWidth = surfaceRuns == nil ? 3 : 5
         // count + 총거리 + 첫/끝 좌표만으로 트랙 변경을 감지한다.
         // 이전에는 매번 트랙포인트 수만큼 문자열을 만들어 5k+ 포인트에서 큰
         // 할당 비용이 발생했다.
@@ -329,6 +362,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         let colorHexes = effectiveColorHexes
         let signature = tracks.map(trackSignature(for:)).joined(separator: "#")
             + "@" + colorHexes.map { $0 ?? "" }.joined(separator: ",")
+            + (surfaceRuns == nil ? "" : "@surface")
         coordinator.trackPoints = trackPoints
         var pointOffset = 0
         coordinator.discontinuityAfterIndices = Set(tracks.dropLast().map { points in
@@ -341,9 +375,12 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         coordinator.onPinDistance = onPinDistance
 
         if coordinator.builtPointSignature != signature {
-            map.removeOverlays(map.overlays)
+            // 사용자 지도 파일 오버레이는 경로와 상관없으므로 남겨 둔다.
+            map.removeOverlays(map.routeOverlays)
             map.removeAnnotations(map.annotations)
             coordinator.mainPolylines = []
+            coordinator.unpavedOverlay = nil
+            coordinator.appliedUnpavedRuns = nil
             coordinator.builtPointSignature = signature
             coordinator.highlightSignature = []
             coordinator.highlightPolyline = nil
@@ -377,7 +414,9 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             for (index, points) in drawableTracks.enumerated() {
                 let coords = points.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
                 let polyline = MainRoutePolyline(coordinates: coords, count: coords.count)
-                if index < drawableColorHexes.count {
+                if surfaceRuns != nil {
+                    polyline.color = RouteColorMode.surfaceColor
+                } else if index < drawableColorHexes.count {
                     polyline.color = SectionPalette.nsColor(drawableColorHexes[index])
                 }
                 polylines.append(polyline)
@@ -403,6 +442,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             }
         }
 
+        syncUnpaved(map: map, coordinator: coordinator)
         updateHighlight(map: map, coordinator: coordinator)
         updateCuePoints(map: map, coordinator: coordinator)
         coordinator.syncFocusedCue(in: map, focusedID: focusedCueID)
@@ -426,6 +466,31 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             }
         }
         promoteRangeEndpointAnnotationViews(in: map)
+    }
+
+    // MARK: - 비포장 점선
+
+    /// 비포장 구간의 흰 점선을 코스 선 바로 위에 긋는다. 노면 방식이 아니면 걷어 낸다.
+    private func syncUnpaved(map: MKMapView, coordinator: Coordinator) {
+        let runs = surfaceRuns?.filter { $0.surface == .unpaved }
+        guard runs != coordinator.appliedUnpavedRuns else { return }
+        coordinator.appliedUnpavedRuns = runs
+        if let old = coordinator.unpavedOverlay {
+            map.removeOverlay(old)
+            coordinator.unpavedOverlay = nil
+        }
+        guard let runs, !runs.isEmpty,
+              let overlay = CourseUnpavedMultiPolyline.make(
+                  runs: runs,
+                  trackPoints: trackPoints,
+                  breakAfter: coordinator.discontinuityAfterIndices
+              ) else { return }
+        if let top = coordinator.mainPolylines.last {
+            map.insertOverlay(overlay, above: top)
+        } else {
+            map.addOverlay(overlay, level: .aboveRoads)
+        }
+        coordinator.unpavedOverlay = overlay
     }
 
     // MARK: - 하이라이트 overlay만 교체
@@ -459,8 +524,11 @@ private struct RouteMapRepresentable: NSViewRepresentable {
     // MARK: - Coordinator
 
     final class Coordinator: NSObject, MKMapViewDelegate {
-        var appliedMapStyle: MapStyleOption?
+        var appliedMapStyle: AppliedMapStyle?
         var builtPointSignature: String = ""
+        var unpavedOverlay: CourseUnpavedMultiPolyline?
+        var appliedUnpavedRuns: [CourseSurfaceAnalysis.Run]?
+        var routeLineWidth: CGFloat = 3
         var highlightSignature: [Double] = []
         var mainPolylines: [MKPolyline] = []
         var highlightPolyline: HighlightPolyline?
@@ -938,6 +1006,12 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            if let tiles = overlay as? GarminTileOverlay {
+                return GarminMapRenderer(overlay: tiles, mapView: mapView)
+            }
+            if let unpaved = overlay as? CourseUnpavedMultiPolyline {
+                return CourseUnpavedMultiPolyline.renderer(for: unpaved, routeWidth: routeLineWidth)
+            }
             guard let polyline = overlay as? MKPolyline else {
                 return MKOverlayRenderer(overlay: overlay)
             }
@@ -950,7 +1024,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
                 renderer.lineWidth = 5
             } else {
                 renderer.strokeColor = (polyline as? MainRoutePolyline)?.color ?? NSColor.systemOrange
-                renderer.lineWidth = 3
+                renderer.lineWidth = routeLineWidth
             }
             renderer.lineCap = .round
             renderer.lineJoin = .round

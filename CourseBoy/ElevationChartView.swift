@@ -32,6 +32,8 @@ struct ElevationChartView: View {
     var onSearchAtHover: ((RouteHoverInfo) -> Void)? = nil
     /// 차트 배경(아무 곳)을 클릭했을 때 호출. 큐 포커스 해제 등에 사용.
     var onBackgroundClick: (() -> Void)? = nil
+    /// 비포장 구간(km). 이 구간의 고도 선은 점선으로 긋는다.
+    var unpavedRangesKm: [ClosedRange<Double>] = []
 
     @State private var scale: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
@@ -489,6 +491,35 @@ struct ElevationChartView: View {
         }
         let groupEnds = elevationCache.breakBeforeIndices.sorted() + [normalized.count]
 
+        // 비포장 구간은 같은 두께의 점선, 나머지는 실선으로 긋는다.
+        let unpavedClip: Path? = {
+            var path = Path()
+            for range in unpavedRangesKm where range.upperBound > range.lowerBound {
+                let x1 = xPos(range.lowerBound)
+                let x2 = xPos(range.upperBound)
+                path.addRect(CGRect(x: x1, y: 0, width: max(x2 - x1, 0.5), height: size.height))
+            }
+            return path.isEmpty ? nil : path
+        }()
+
+        func strokeElevationLine(_ line: Path, in context: GraphicsContext, color: Color) {
+            guard let unpavedClip else {
+                context.stroke(line, with: .color(color),
+                               style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+                return
+            }
+            var paved = context
+            var outside = Path(CGRect(origin: .zero, size: size))
+            outside.addPath(unpavedClip)
+            paved.clip(to: outside, style: FillStyle(eoFill: true))
+            paved.stroke(line, with: .color(color),
+                         style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+            var unpaved = context
+            unpaved.clip(to: unpavedClip)
+            unpaved.stroke(line, with: .color(color),
+                           style: StrokeStyle(lineWidth: 1.5, lineCap: .butt, lineJoin: .round, dash: [4, 3]))
+        }
+
         func drawElevation(
             in context: GraphicsContext,
             fillTop: Color,
@@ -519,8 +550,7 @@ struct ElevationChartView: View {
                     for index in (groupStart + 1) ..< groupEnd {
                         linePath.addLine(to: denormalize(normalized[index]))
                     }
-                    context.stroke(linePath, with: .color(stroke),
-                                   style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+                    strokeElevationLine(linePath, in: context, color: stroke)
                 }
                 groupStart = groupEnd
             }

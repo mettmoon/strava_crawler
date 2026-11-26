@@ -23,6 +23,9 @@
       "version": {
         "branch": "main",
       },
+    }, {
+      "kind": "local",
+      "path": "../CourseBoyMapFile",
     },
   ],
   "files": [
@@ -106,6 +109,10 @@
         {
           "package": "CourseBoyKit",
           "product-name": "CourseBoyKit",
+          "build-phase": { "build-phase": "frameworks" },
+        }, {
+          "package": "CourseBoyMapFile",
+          "product-name": "CourseBoyMapFile",
           "build-phase": { "build-phase": "frameworks" },
         },
       ],

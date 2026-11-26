@@ -1,5 +1,6 @@
 import SwiftUI
 import CourseBoyKit
+import CourseBoyMapFile
 
 // MARK: - CourseCuesheetSidebar
 
@@ -216,6 +217,8 @@ struct CourseSectionListView: View {
 struct CourseCueInspectorView: View {
     var course: CourseRecord
     var selectedCueID: UUID?
+    /// 지도 파일로 구한 노면. nil이면 노면 섹션을 보이지 않는다.
+    var surfaceStatus: CourseSurfaceStatus? = nil
 
     private var sortedCues: [CourseCuePoint] {
         course.cuePoints.sorted { $0.distanceMeters < $1.distanceMeters }
@@ -278,6 +281,12 @@ struct CourseCueInspectorView: View {
                 infoRow("획득고도", value: formatEle(course.totalElevationGainM), valueColor: .red)
                 infoRow("누적 하강", value: formatEle(course.totalElevationLossM), valueColor: .blue)
                 infoRow("상승 밀도", value: formatElevationDensity(course.totalElevationGainM, totalKm: totalKm))
+            }
+
+            if let surfaceStatus {
+                section(title: "노면", icon: "road.lanes") {
+                    surfaceRows(surfaceStatus)
+                }
             }
 
             section(title: "고도 범위", icon: "mountain.2") {
@@ -387,6 +396,41 @@ struct CourseCueInspectorView: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func surfaceRows(_ status: CourseSurfaceStatus) -> some View {
+        switch status {
+        case .loading:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("지도 파일에서 노면 정보를 읽는 중…")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+        case .unavailable:
+            Text("노면 정보를 가져올 지도 파일을 읽지 못했습니다. 설정 › 지도 파일에서 확인하세요.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+        case .ready(let analysis):
+            // 정보 없음은 0이면 숨긴다.
+            let shown: [RoadSurface] = analysis.unknownKm > 0 ? [.paved, .unpaved, .unknown] : [.paved, .unpaved]
+            SurfaceShareBar(analysis: analysis)
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+                .padding(.bottom, 3)
+            ForEach(shown, id: \.self) { surface in
+                let km = analysis.distanceKm(of: surface)
+                let share = analysis.totalKm > 0 ? km / analysis.totalKm * 100 : 0
+                infoRow(surface.displayName, value: "\(formatKm(km)) (\(String(format: "%.1f", share))%)")
             }
         }
     }

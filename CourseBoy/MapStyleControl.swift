@@ -25,11 +25,13 @@ enum MapStyleOption: String, CaseIterable, Identifiable {
         }
     }
 
-    func makeConfiguration() -> MKMapConfiguration {
+    /// - Parameter flat: 지형 기복을 끈다. 평면인 지도 파일을 덮을 때 쓴다.
+    func makeConfiguration(flat: Bool = false) -> MKMapConfiguration {
+        let elevation: MKMapConfiguration.ElevationStyle = flat ? .flat : .realistic
         switch self {
-        case .standard: return MKStandardMapConfiguration(elevationStyle: .realistic)
-        case .hybrid:   return MKHybridMapConfiguration(elevationStyle: .realistic)
-        case .imagery:  return MKImageryMapConfiguration(elevationStyle: .realistic)
+        case .standard: return MKStandardMapConfiguration(elevationStyle: elevation)
+        case .hybrid:   return MKHybridMapConfiguration(elevationStyle: elevation)
+        case .imagery:  return MKImageryMapConfiguration(elevationStyle: elevation)
         }
     }
 }
@@ -41,24 +43,51 @@ enum MapStyleStorageKey {
 }
 
 /// MKMapView에 선택한 스타일을 적용한다.
-func applyMapStyle(_ style: MapStyleOption, to map: MKMapView) {
-    map.preferredConfiguration = style.makeConfiguration()
+/// - Parameter flat: 지도 파일 오버레이를 덮은 동안에는 지형 기복을 끈다.
+func applyMapStyle(_ style: MapStyleOption, to map: MKMapView, flat: Bool = false) {
+    map.preferredConfiguration = style.makeConfiguration(flat: flat)
+}
+
+/// 지도에 마지막으로 적용한 스타일. 같은 값이면 다시 적용하지 않는다.
+struct AppliedMapStyle: Equatable {
+    var style: MapStyleOption
+    var flat: Bool
 }
 
 /// 지도 우상단에 띄우는 스타일 전환 메뉴. 부모 ZStack 위에 overlay로 사용한다.
 struct MapStylePicker: View {
     @Binding var selection: MapStyleOption
+    /// 있으면 '경로 색' 섹션을 보여준다. 노면 정보가 있는 코스에서만 넘긴다.
+    var routeColor: Binding<RouteColorMode>? = nil
 
     var body: some View {
         Menu {
-            ForEach(MapStyleOption.allCases) { option in
-                Button {
-                    selection = option
-                } label: {
-                    if option == selection {
-                        Label(option.label, systemImage: "checkmark")
-                    } else {
-                        Text(option.label)
+            Section("지도") {
+                ForEach(MapStyleOption.allCases) { option in
+                    Button {
+                        selection = option
+                    } label: {
+                        if option == selection {
+                            Label(option.label, systemImage: "checkmark")
+                        } else {
+                            Text(option.label)
+                        }
+                    }
+                }
+            }
+            MapOverlayMenuSection()
+            if let routeColor {
+                Section("경로 색") {
+                    ForEach(RouteColorMode.allCases) { mode in
+                        Button {
+                            routeColor.wrappedValue = mode
+                        } label: {
+                            if mode == routeColor.wrappedValue {
+                                Label(mode.label, systemImage: "checkmark")
+                            } else {
+                                Text(mode.label)
+                            }
+                        }
                     }
                 }
             }

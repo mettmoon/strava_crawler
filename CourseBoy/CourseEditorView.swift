@@ -1,6 +1,7 @@
 import SwiftUI
 import MapKit
 import CourseBoyKit
+import CourseBoyMapFile
 
 // MARK: - CuePoint 타입 목록
 
@@ -296,6 +297,7 @@ struct CourseEditorView: View {
                     hoverInfo: hoverInfo,
                     pinnedDistanceKm: pinnedDistanceKm,
                     mapStyle: mapStyle.wrappedValue,
+                    tileSource: MapFileStore.shared.displayTileSource,
                     routingProfile: routeProfile.wrappedValue,
                     onSelectCue: { selectedCueID = $0 },
                     onDeselectFocus: { selectedCueID = nil },
@@ -1814,6 +1816,8 @@ struct CourseEditMapView: NSViewRepresentable {
     /// 고정 지점의 코스 누적 거리(km). 선택한 섹션이 아닌 섹션의 지점일 수도 있다.
     var pinnedDistanceKm: Double?
     var mapStyle: MapStyleOption = .standard
+    /// 기본 지도 위에 덮을 사용자 지도 파일.
+    var tileSource: GarminTileSource? = nil
     var routingProfile: OSRMRouteProfile = .defaultProfile
     var onSelectCue: (UUID) -> Void
     var onDeselectFocus: () -> Void
@@ -1835,8 +1839,9 @@ struct CourseEditMapView: NSViewRepresentable {
         map.delegate = context.coordinator
         map.showsCompass = true
         map.showsScale = true
-        applyMapStyle(mapStyle, to: map)
-        context.coordinator.appliedMapStyle = mapStyle
+        let style = AppliedMapStyle(style: mapStyle, flat: tileSource != nil)
+        applyMapStyle(mapStyle, to: map, flat: style.flat)
+        context.coordinator.appliedMapStyle = style
         context.coordinator.mapView = map
         DispatchQueue.main.async { mapViewRef = map }
 
@@ -1854,10 +1859,12 @@ struct CourseEditMapView: NSViewRepresentable {
     }
 
     func updateNSView(_ map: MKMapView, context: Context) {
-        if context.coordinator.appliedMapStyle != mapStyle {
-            applyMapStyle(mapStyle, to: map)
-            context.coordinator.appliedMapStyle = mapStyle
+        let style = AppliedMapStyle(style: mapStyle, flat: tileSource != nil)
+        if context.coordinator.appliedMapStyle != style {
+            applyMapStyle(mapStyle, to: map, flat: style.flat)
+            context.coordinator.appliedMapStyle = style
         }
+        map.syncMapFileOverlay(tileSource)
         context.coordinator.draft = draft
         context.coordinator.onSelectCue = onSelectCue
         context.coordinator.onDeselectFocus = onDeselectFocus
@@ -1886,7 +1893,7 @@ struct CourseEditMapView: NSViewRepresentable {
         var onPinDistance: ((Double) -> Void)?
         var onSearchInVisibleRect: (MKMapRect) -> Void
         var routingProfile: OSRMRouteProfile
-        var appliedMapStyle: MapStyleOption?
+        var appliedMapStyle: AppliedMapStyle?
         weak var mapView: MKMapView?
 
         private var draggingIndex: Int?
@@ -1940,7 +1947,8 @@ struct CourseEditMapView: NSViewRepresentable {
             guard sig != builtRouteSignature else { return }
             builtRouteSignature = sig
 
-            map.removeOverlays(map.overlays)
+            // 사용자 지도 파일 오버레이는 경로와 상관없으므로 남겨 둔다.
+            map.removeOverlays(map.routeOverlays)
             let routeAnns = map.annotations.compactMap { $0 as? RoutePointAnnotation }
             let cueAnns = map.annotations.compactMap { $0 as? CuePointAnnotation }
             map.removeAnnotations(routeAnns + cueAnns)
@@ -2662,6 +2670,9 @@ struct CourseEditMapView: NSViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            if let tiles = overlay as? GarminTileOverlay {
+                return GarminMapRenderer(overlay: tiles, mapView: mapView)
+            }
             if let poly = overlay as? RangeSelectionPolyline {
                 let r = MKPolylineRenderer(polyline: poly)
                 r.strokeColor = NSColor.systemIndigo

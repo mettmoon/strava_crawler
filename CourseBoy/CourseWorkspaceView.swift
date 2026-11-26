@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import CourseBoyKit
+import CourseBoyMapFile
 
 /// 별도 윈도우에서 단일 코스를 보여주는 워크스페이스 (보기 전용).
 /// 좌측 사이드바 없이, 가운데 지도 + 우측 CourseDetailView 인스펙터로 구성된다.
@@ -20,6 +21,8 @@ struct CourseWorkspaceView: View {
     @State private var isInspectorPresented = true
     /// 증가시키면 고도 그래프·지도가 전체 보기로 돌아간다.
     @State private var zoomResetToken = 0
+    /// 설정에서 고른 지도 파일로 구한 노면. 노면 소스가 없으면 nil.
+    @State private var surfaceStatus: CourseSurfaceStatus?
 
     private var selectedCueID: UUID? {
         selectedCueIDs.count == 1 ? selectedCueIDs.first : nil
@@ -54,6 +57,9 @@ struct CourseWorkspaceView: View {
                 }
             }
             .onEscapeKey(isEnabled: rangeSelection != nil) { clearRangeSelection() }
+            .task(id: CourseSurfaceTaskKey(trackPoints: course.allTrackPoints)) {
+                await loadSurface(course.allTrackPoints)
+            }
             .focusedSceneValue(\.courseCommandHandler, makeHandler())
             .focusedSceneValue(\.courseFileCommandHandler, makeFileHandler())
     }
@@ -87,7 +93,7 @@ struct CourseWorkspaceView: View {
                         onClearPin: { pinnedDistanceKm = nil }
                     )
                 } else {
-                    CourseCueInspectorView(course: course, selectedCueID: selectedCueID)
+                    CourseCueInspectorView(course: course, selectedCueID: selectedCueID, surfaceStatus: surfaceStatus)
                 }
             }
             .inspectorColumnWidth(min: 260, ideal: 320, max: 460)
@@ -145,7 +151,8 @@ struct CourseWorkspaceView: View {
                         pinnedDistanceKm = km
                     },
                     zoomsToRangeSelection: true,
-                    zoomResetToken: zoomResetToken
+                    zoomResetToken: zoomResetToken,
+                    surfaceAnalysis: surfaceStatus?.analysis
                 )
                 Divider()
                 ElevationChartView(
@@ -158,12 +165,28 @@ struct CourseWorkspaceView: View {
                     onClearRangeSelection: clearRangeSelection,
                     zoomsToRangeSelection: true,
                     zoomResetToken: zoomResetToken,
-                    onBackgroundClick: { selectedCueIDs.removeAll() }
+                    onBackgroundClick: { selectedCueIDs.removeAll() },
+                    unpavedRangesKm: surfaceStatus?.analysis?.unpavedRuns.map { $0.startKm...$0.endKm } ?? []
                 )
             }
         }
     }
 
+
+    /// 노면 소스가 있으면 코스의 노면을 구한다. 같은 코스·지도 조합의 결과는 저장해 두고 다시 쓴다.
+    private func loadSurface(_ trackPoints: [TrackPoint]) async {
+        let store = MapFileStore.shared
+        guard store.surfaceSource != nil, trackPoints.count >= 2 else {
+            surfaceStatus = nil
+            return
+        }
+        if surfaceStatus?.analysis == nil {
+            surfaceStatus = .loading
+        }
+        let status = await store.surfaceStatus(for: trackPoints)
+        guard !Task.isCancelled else { return }
+        surfaceStatus = status
+    }
 
     private func focusedDistanceKm(for pts: [TrackPoint], course: CourseRecord) -> Double? {
         guard let id = selectedCueID,

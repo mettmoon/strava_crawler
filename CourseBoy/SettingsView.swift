@@ -1,10 +1,18 @@
 import SwiftUI
 
-/// 시스템 메뉴 ‘설정…’ (cmd+,) 화면. Strava 로그인/쿠키.
+/// 시스템 메뉴 ‘설정…’ (cmd+,) 화면. Strava 로그인/쿠키, 지도 파일.
 struct SettingsView: View {
     var body: some View {
-        StravaSettingsView()
-            .frame(width: 480, height: 360)
+        TabView {
+            Tab("Strava", systemImage: "person.crop.circle") {
+                StravaSettingsView()
+                    .frame(width: 480, height: 360)
+            }
+            Tab("지도 파일", systemImage: "map") {
+                MapFileSettingsView()
+                    .frame(width: 520, height: 440)
+            }
+        }
     }
 }
 
