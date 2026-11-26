@@ -212,7 +212,7 @@ private struct ParsedGPXCourse {
             .compactMap { textChild(of: $0, named: "name") }
             .first
 
-        return firstNonEmpty(trackName, routeName, metadataName)
+        return firstNonEmpty(metadataName, trackName, routeName)
     }
 
     private static func parseTrackPointCandidateSections(in root: XMLElement) -> [[PointCandidate]] {
