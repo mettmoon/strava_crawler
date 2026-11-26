@@ -80,6 +80,8 @@ struct CourseEditorView: View {
     @State private var rangeSelection: ChartRangeSelection?
     @State private var pinnedDistanceKm: Double?
     @State private var isInspectorPresented = true
+    /// 증가시키면 고도 그래프·지도가 전체 보기로 돌아간다.
+    @State private var zoomResetToken = 0
 
     // 카카오 검색
     @State private var searchQuery = ""
@@ -163,6 +165,8 @@ struct CourseEditorView: View {
             rangeSelection = nil
             pinnedDistanceKm = nil
         }
+        // ESC는 편집기를 닫지 않고, 구간 선택이 있을 때만 해제한다.
+        .onEscapeKey(isEnabled: rangeSelection != nil) { clearRangeSelection() }
         .focusedSceneValue(\.courseFileCommandHandler, CourseFileCommandHandler(
             exportTCX: { saveDraftTCX() },
             exportGPX: { saveDraftGPX() },
@@ -218,6 +222,12 @@ struct CourseEditorView: View {
         )
     }
 
+    /// 사용자가 구간 선택을 해제(ESC·해제 버튼)하면 그래프·지도를 전체 보기로 되돌린다.
+    private func clearRangeSelection() {
+        rangeSelection = nil
+        zoomResetToken += 1
+    }
+
     private func sectionIndex(containing range: ChartRangeSelection) -> Int? {
         guard range.lengthKm > 0 else { return nil }
         let epsilon = min(0.000_001, range.lengthKm / 2)
@@ -240,7 +250,7 @@ struct CourseEditorView: View {
                     trackPoints: draft.allCourseTrackPoints,
                     rangeSelection: rangeSelection,
                     pinnedDistanceKm: pinnedDistanceKm,
-                    onClearRange: { rangeSelection = nil },
+                    onClearRange: { clearRangeSelection() },
                     onClearPin: { pinnedDistanceKm = nil }
                 )
                 if let range = rangeSelection {
@@ -281,6 +291,8 @@ struct CourseEditorView: View {
                     mapViewRef: $mapViewRef,
                     selectedCueID: selectedCueID,
                     rangeSelection: selectedSectionMapRange,
+                    cameraRangeSelection: rangeSelection,
+                    zoomResetToken: zoomResetToken,
                     hoverInfo: hoverInfo,
                     pinnedDistanceKm: pinnedDistanceKm,
                     mapStyle: mapStyle.wrappedValue,
@@ -338,6 +350,8 @@ struct CourseEditorView: View {
                 rangeSelection: $rangeSelection,
                 pinnedDistanceKm: $pinnedDistanceKm,
                 selectedElevationRangeKm: draft.selectedSectionCourseRangeKm,
+                zoomsToRangeSelection: true,
+                zoomResetToken: zoomResetToken,
                 onAddCueAtHover: { km in
                     addCueFromElevation(distanceKm: km, trackPoints: pts)
                 },
@@ -622,7 +636,6 @@ struct CourseEditorView: View {
                     closeEditor()
                 }
             }
-            .keyboardShortcut(.escape, modifiers: [])
         }
 
         ToolbarItem(placement: .confirmationAction) {
@@ -1792,6 +1805,11 @@ struct CourseEditMapView: NSViewRepresentable {
     @Binding var mapViewRef: MKMapView?
     var selectedCueID: UUID?
     var rangeSelection: ChartRangeSelection?
+    /// 코스 전체 기준(km) 선택 구간. 확정되면 해당 구간으로 카메라를 확대 이동한다.
+    /// `rangeSelection`은 활성 섹션 안의 구간만 그리므로 카메라 이동은 별도로 받는다.
+    var cameraRangeSelection: ChartRangeSelection? = nil
+    /// 값이 바뀔 때마다 카메라를 코스 전체 보기로 되돌린다.
+    var zoomResetToken: Int = 0
     var hoverInfo: RouteHoverInfo?
     /// 고정 지점의 코스 누적 거리(km). 선택한 섹션이 아닌 섹션의 지점일 수도 있다.
     var pinnedDistanceKm: Double?
@@ -1850,6 +1868,8 @@ struct CourseEditMapView: NSViewRepresentable {
         context.coordinator.updateSearchAnnotations(map: map, results: searchResults)
         context.coordinator.syncFocusedCue(in: map, focusedID: selectedCueID)
         context.coordinator.syncRangeSelection(in: map, selection: rangeSelection)
+        context.coordinator.syncCameraRange(in: map, selection: cameraRangeSelection)
+        context.coordinator.syncZoomReset(in: map, token: zoomResetToken)
         context.coordinator.syncHoverLocation(in: map, info: hoverInfo)
         context.coordinator.syncPinnedLocation(in: map, distanceKm: pinnedDistanceKm)
         promoteRangeEndpointAnnotationViews(in: map)
@@ -1877,6 +1897,8 @@ struct CourseEditMapView: NSViewRepresentable {
         private var rangePolyline: RangeSelectionPolyline?
         private var rangeEndpointAnnotations: [RangeEndpointAnnotation] = []
         private var lastRangeSignature: String = ""
+        private var lastCameraRangeSignature: String = ""
+        private var appliedZoomResetToken = 0
         private var hoverAnnotation: HoverAnnotation?
         private var pinnedAnnotation: PinnedLocationAnnotation?
         private var lastPinnedSignature: String = ""
@@ -2054,6 +2076,32 @@ struct CourseEditMapView: NSViewRepresentable {
             map.addAnnotations(anns)
             rangeEndpointAnnotations = anns
             promoteRangeEndpointAnnotationViews(in: map)
+        }
+
+        func syncZoomReset(in map: MKMapView, token: Int) {
+            guard token != appliedZoomResetToken else { return }
+            appliedZoomResetToken = token
+            fitMap(map: map)
+        }
+
+        /// 코스 전체 기준 선택 구간이 새로 확정되면 그 구간이 보이도록 카메라를 이동한다.
+        func syncCameraRange(in map: MKMapView, selection: ChartRangeSelection?) {
+            guard let selection, !selection.isDragging, selection.lengthKm > 0 else {
+                lastCameraRangeSignature = ""
+                return
+            }
+            let sig = String(format: "%.6f|%.6f", selection.lowerKm, selection.upperKm)
+            guard sig != lastCameraRangeSignature else { return }
+            lastCameraRangeSignature = sig
+
+            let rangePts = trackPointsInRange(draft.allCourseTrackPoints, range: selection)
+            guard rangePts.count >= 2 else { return }
+            var rect = MKMapRect.null
+            for pt in rangePts {
+                let p = MKMapPoint(CLLocationCoordinate2D(latitude: pt.lat, longitude: pt.lon))
+                rect = rect.union(MKMapRect(x: p.x, y: p.y, width: 0, height: 0))
+            }
+            fitMapCamera(map, to: rect)
         }
 
         // MARK: 호버 위치 동기화

@@ -20,6 +20,10 @@ struct ElevationChartView: View {
     var highlightedRangeKm: ClosedRange<Double>? = nil
     /// 선택된 거리 구간(km)의 고도 그래프는 기본 주황색으로, 나머지는 비활성 색상으로 그린다.
     var selectedElevationRangeKm: ClosedRange<Double>? = nil
+    /// true면 구간 선택이 확정될 때(드래그 종료 등) 해당 구간이 차트 폭을 꽉 채우도록 확대·스크롤한다.
+    var zoomsToRangeSelection: Bool = false
+    /// 값이 바뀔 때마다 전체 보기(경로 전체가 한 화면)로 되돌린다. ESC로 구간 해제 시 사용.
+    var zoomResetToken: Int = 0
     /// 호버 위치에서 우클릭 → "큐시트 추가하기" 선택 시 호출. 인자: 코스 누적 거리(km).
     var onAddCueAtHover: ((Double) -> Void)? = nil
     /// 호버 위치에서 우클릭 → "여기서 섹션 분할" 선택 시 호출. 인자: 코스 누적 거리(km).
@@ -35,6 +39,12 @@ struct ElevationChartView: View {
     @State private var viewWidth: CGFloat = 0
     @State private var chartBodyHeight: CGFloat = 120
     @State private var showCustomPopover = false
+    /// 가로 스크롤 위치. 구간 확대 시 정확한 x 오프셋으로 이동하는 데 쓴다.
+    @State private var scrollPosition = ScrollPosition(edge: .leading)
+    /// 새 배율로 레이아웃이 끝난 뒤 스크롤할 구간. 콘텐츠 폭 변경을 감지했을 때 적용한다.
+    @State private var pendingRangeScroll: ChartRangeSelection?
+    /// 실제로 레이아웃된 차트 콘텐츠 폭.
+    @State private var laidOutContentWidth: CGFloat = 0
 
     /// Canvas 매 프레임 elevPts/Path 재계산을 피하기 위한 캐시.
     /// SwiftUI View struct 는 매번 재생성되지만, @State 로 참조 타입을 들고 있으면
@@ -167,6 +177,10 @@ struct ElevationChartView: View {
                             // 가로 스크롤 자동이동용 invisible anchors
                             scrollAnchors(contentWidth: contentWidth)
                         }
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+                            laidOutContentWidth = width
+                            applyPendingRangeScroll()
+                        }
                         .onContinuousHover { phase in
                             switch phase {
                             case .active(let location):
@@ -200,12 +214,21 @@ struct ElevationChartView: View {
                             })
                         )
                     }
+                    .scrollPosition($scrollPosition)
                     .onChange(of: focusedDistanceKm) { _, km in
                         guard let km, totalKm > 0 else { return }
                         let bucket = scrollAnchorBucket(forKm: km)
                         withAnimation(.easeInOut(duration: 0.25)) {
                             proxy.scrollTo(bucket, anchor: .center)
                         }
+                    }
+                    .onChange(of: rangeSelection?.wrappedValue) { old, new in
+                        zoomToRangeSelectionIfNeeded(old: old, new: new)
+                    }
+                    .onChange(of: zoomResetToken) {
+                        pendingRangeScroll = nil
+                        resetScale()
+                        scrollPosition.scrollTo(edge: .leading)
                     }
                 }
                 .gesture(
@@ -325,6 +348,38 @@ struct ElevationChartView: View {
         let ratio = min(max(km / totalKm, 0), 1)
         let bucket = Int((ratio * Double(scrollAnchorCount - 1)).rounded())
         return min(max(bucket, 0), scrollAnchorCount - 1)
+    }
+
+    /// 구간 선택이 새로 확정되면 구간이 뷰 폭의 100%가 되도록 확대한 뒤 구간으로 스크롤한다.
+    /// 최대 확대 배율(`maxScale`)을 넘는 짧은 구간은 최대 배율로 가운데 정렬한다.
+    private func zoomToRangeSelectionIfNeeded(old: ChartRangeSelection?, new: ChartRangeSelection?) {
+        guard zoomsToRangeSelection,
+              let new, !new.isDragging, new.lengthKm > 0,
+              totalKm > 0, viewWidth > 0 else { return }
+        if let old, !old.isDragging,
+           old.lowerKm == new.lowerKm, old.upperKm == new.upperKm { return }
+
+        let fitScale = viewWidth / (CGFloat(new.lengthKm) * minPixelsPerKm)
+        let newScale = clamped(fitScale)
+        let newContentWidth = max(viewWidth, naturalWidth * newScale)
+        pendingRangeScroll = new
+        scale = newScale
+        lastScale = newScale
+        // 콘텐츠 폭이 그대로면 geometry 변경 콜백이 오지 않으므로 바로 스크롤한다.
+        // 폭이 바뀌면 실제 레이아웃이 끝난 뒤(onGeometryChange) 스크롤해야 위치가 맞는다.
+        if abs(newContentWidth - laidOutContentWidth) < 0.5 {
+            applyPendingRangeScroll()
+        }
+    }
+
+    private func applyPendingRangeScroll() {
+        guard let range = pendingRangeScroll, totalKm > 0, laidOutContentWidth > 0 else { return }
+        pendingRangeScroll = nil
+        let width = laidOutContentWidth
+        let centerX = CGFloat((range.lowerKm + range.upperKm) / 2 / totalKm) * width
+        let maxOffset = max(0, width - viewWidth)
+        let x = min(max(centerX - viewWidth / 2, 0), maxOffset)
+        scrollPosition.scrollTo(x: x)
     }
 
     // MARK: - 레이블 배치 계산

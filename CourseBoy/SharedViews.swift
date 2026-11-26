@@ -419,3 +419,22 @@ private func directionLabel(for degrees: Double) -> String {
     let index = Int((degrees + 22.5) / 45.0) % labels.count
     return labels[index]
 }
+
+// MARK: - ESC 키 처리
+
+extension View {
+    /// 윈도우 안에서 ESC 키를 눌렀을 때 `action`을 실행한다.
+    /// `isEnabled`가 false면 단축키가 비활성화되어 ESC가 다른 뷰(시트·텍스트 필드 등)로 그대로 전달된다.
+    func onEscapeKey(isEnabled: Bool = true, perform action: @escaping () -> Void) -> some View {
+        background {
+            Button("", action: action)
+                .keyboardShortcut(.escape, modifiers: [])
+                .disabled(!isEnabled)
+                .buttonStyle(.plain)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
+        }
+    }
+}

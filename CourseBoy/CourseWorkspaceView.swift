@@ -18,6 +18,8 @@ struct CourseWorkspaceView: View {
     @State private var rangeSelection: ChartRangeSelection?
     @State private var pinnedDistanceKm: Double?
     @State private var isInspectorPresented = true
+    /// 증가시키면 고도 그래프·지도가 전체 보기로 돌아간다.
+    @State private var zoomResetToken = 0
 
     private var selectedCueID: UUID? {
         selectedCueIDs.count == 1 ? selectedCueIDs.first : nil
@@ -51,6 +53,7 @@ struct CourseWorkspaceView: View {
                     .help("3D 경로 보기")
                 }
             }
+            .onEscapeKey(isEnabled: rangeSelection != nil) { clearRangeSelection() }
             .focusedSceneValue(\.courseCommandHandler, makeHandler())
             .focusedSceneValue(\.courseFileCommandHandler, makeFileHandler())
     }
@@ -140,7 +143,9 @@ struct CourseWorkspaceView: View {
                     pinnedDistanceKm: pinnedDistanceKm,
                     onPinDistance: { km in
                         pinnedDistanceKm = km
-                    }
+                    },
+                    zoomsToRangeSelection: true,
+                    zoomResetToken: zoomResetToken
                 )
                 Divider()
                 ElevationChartView(
@@ -151,11 +156,14 @@ struct CourseWorkspaceView: View {
                     rangeSelection: $rangeSelection,
                     pinnedDistanceKm: $pinnedDistanceKm,
                     onClearRangeSelection: clearRangeSelection,
+                    zoomsToRangeSelection: true,
+                    zoomResetToken: zoomResetToken,
                     onBackgroundClick: { selectedCueIDs.removeAll() }
                 )
             }
         }
     }
+
 
     private func focusedDistanceKm(for pts: [TrackPoint], course: CourseRecord) -> Double? {
         guard let id = selectedCueID,
@@ -278,13 +286,15 @@ struct CourseWorkspaceView: View {
         }
     }
 
-    /// 구간 선택을 해제한다. 큐 두 개를 골라 생긴 구간이면 그 큐 선택도 함께 비워,
+    /// 구간 선택을 해제한다(ESC·해제 버튼). 큐 두 개를 골라 생긴 구간이면 그 큐 선택도 함께 비워,
     /// 큐는 선택돼 있는데 구간만 없는 어긋난 상태가 남지 않게 한다.
+    /// 그래프·지도는 전체 보기로 되돌린다.
     private func clearRangeSelection() {
         rangeSelection = nil
         if selectedCueIDs.count == 2 {
             selectedCueIDs.removeAll()
         }
+        zoomResetToken += 1
     }
 
     private func cueDistanceKm(_ cue: CourseCuePoint, trackPoints pts: [TrackPoint]) -> Double {

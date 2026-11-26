@@ -100,6 +100,30 @@ func promoteRangeEndpointAnnotationViews(in map: MKMapView) {
     DispatchQueue.main.async(execute: promote)
 }
 
+/// 선택 구간 등 지정한 영역이 지도에 꽉 차도록 카메라를 애니메이션으로 이동한다.
+/// 너무 작은 영역(직선 구간 등)은 최소 크기로 넓혀서 과도하게 확대되지 않게 한다.
+func fitMapCamera(_ map: MKMapView, to rect: MKMapRect, minimumMeters: Double = 300) {
+    guard !rect.isNull else { return }
+    let center = MKMapPoint(x: rect.midX, y: rect.midY)
+    let minSize = minimumMeters * MKMapPointsPerMeterAtLatitude(center.coordinate.latitude)
+    let width = max(rect.width, minSize)
+    let height = max(rect.height, minSize)
+    let target = MKMapRect(
+        x: center.x - width / 2,
+        y: center.y - height / 2,
+        width: width,
+        height: height
+    )
+    let padding = NSEdgeInsets(top: 48, left: 48, bottom: 48, right: 48)
+    if map.frame.size == .zero {
+        DispatchQueue.main.async {
+            map.setVisibleMapRect(target, edgePadding: padding, animated: false)
+        }
+    } else {
+        map.setVisibleMapRect(target, edgePadding: padding, animated: true)
+    }
+}
+
 final class HoverMapView: MKMapView {
     var onRouteMouseMoved: ((HoverMapView, CGPoint) -> Void)?
     var onRouteMouseExited: ((HoverMapView) -> Void)?
@@ -151,6 +175,10 @@ struct RouteMapView: View {
     var pinnedDistanceKm: Double? = nil
     /// 지도에서 경로 위 클릭 시 호출. 인자: 누적 거리(km).
     var onPinDistance: ((Double) -> Void)? = nil
+    /// true면 구간 선택이 확정될 때 선택 구간으로 카메라를 확대 이동한다.
+    var zoomsToRangeSelection: Bool = false
+    /// 값이 바뀔 때마다 카메라를 경로 전체 보기로 되돌린다.
+    var zoomResetToken: Int = 0
 
     @AppStorage(MapStyleStorageKey.main) private var mapStyleRaw: String = MapStyleOption.standard.rawValue
 
@@ -176,6 +204,8 @@ struct RouteMapView: View {
                 hoverInfo: $hoverInfo,
                 rangeSelection: rangeSelection,
                 pinnedDistanceKm: pinnedDistanceKm,
+                zoomsToRangeSelection: zoomsToRangeSelection,
+                zoomResetToken: zoomResetToken,
                 mapStyle: mapStyle.wrappedValue
             )
             MapStylePicker(selection: mapStyle)
@@ -197,6 +227,8 @@ private struct RouteMapRepresentable: NSViewRepresentable {
     @Binding var hoverInfo: RouteHoverInfo?
     var rangeSelection: ChartRangeSelection? = nil
     var pinnedDistanceKm: Double? = nil
+    var zoomsToRangeSelection: Bool = false
+    var zoomResetToken: Int = 0
     var mapStyle: MapStyleOption
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -375,8 +407,24 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         updateCuePoints(map: map, coordinator: coordinator)
         coordinator.syncFocusedCue(in: map, focusedID: focusedCueID)
         coordinator.syncHoverPresentation(in: map, info: hoverInfo)
-        coordinator.syncRangeSelection(in: map, selection: rangeSelection)
+        coordinator.syncRangeSelection(
+            in: map,
+            selection: rangeSelection,
+            fitsCamera: zoomsToRangeSelection
+        )
         coordinator.syncPinnedLocation(in: map, distanceKm: pinnedDistanceKm)
+        if coordinator.appliedZoomResetToken != zoomResetToken {
+            coordinator.appliedZoomResetToken = zoomResetToken
+            let fullRect = coordinator.mainPolylines.reduce(MKMapRect.null) {
+                $0.union($1.boundingMapRect)
+            }
+            if !fullRect.isNull {
+                map.setVisibleMapRect(
+                    fullRect.insetBy(dx: -fullRect.width * 0.1, dy: -fullRect.height * 0.1),
+                    animated: true
+                )
+            }
+        }
         promoteRangeEndpointAnnotationViews(in: map)
     }
 
@@ -429,6 +477,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         var rangePolylines: [RangeSelectionPolyline] = []
         var rangeEndpointAnnotations: [RangeEndpointAnnotation] = []
         var lastRangeSignature: String = ""
+        var appliedZoomResetToken: Int = 0
         var pinnedAnnotation: PinnedLocationAnnotation?
         var lastPinnedSignature: String = ""
         /// 카메라 이동을 판단한 마지막 핀 거리. 트랙 재구성 시 annotation만 다시
@@ -582,7 +631,11 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             map.selectAnnotation(annotation, animated: true)
         }
 
-        func syncRangeSelection(in map: MKMapView, selection: ChartRangeSelection?) {
+        func syncRangeSelection(
+            in map: MKMapView,
+            selection: ChartRangeSelection?,
+            fitsCamera: Bool = false
+        ) {
             let sig: String = {
                 guard let s = selection, s.lengthKm > 0 else { return "" }
                 return String(format: "%.6f|%.6f|%d", s.lowerKm, s.upperKm, s.isDragging ? 1 : 0)
@@ -644,7 +697,11 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             promoteRangeEndpointAnnotationViews(in: map)
 
             if !selection.isDragging {
-                revealRangeIfNeeded(in: map, rangeRect: rangeRect)
+                if fitsCamera {
+                    fitMapCamera(map, to: rangeRect)
+                } else {
+                    revealRangeIfNeeded(in: map, rangeRect: rangeRect)
+                }
             }
         }
 
