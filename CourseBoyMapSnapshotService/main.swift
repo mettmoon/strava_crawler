@@ -90,19 +90,21 @@ final class MapSnapshotRenderer: NSObject, MapSnapshotServiceProtocol {
                 snapshot.point(for: coordinate)
             }
 
-            // 조각마다 따로 이어 그려서 섹션이 바뀌는 곳은 선이 끊긴다.
-            let path = NSBezierPath()
+            // 조각마다 따로 그려서 섹션이 바뀌는 곳은 선이 끊긴다.
+            // 수만 개 점을 경로 하나로 stroke 하면 겹친 윤곽을 채우느라 수십 초가 걸리므로,
+            // 조각별로 나눠 그리고 화면에서 1pt 안쪽으로 붙은 점은 건너뛴다.
+            NSColor.systemBlue.setStroke()
             for segment in segments where segment.count >= 2 {
-                path.move(to: point(segment[0]))
-                for coordinate in segment.dropFirst() {
-                    path.line(to: point(coordinate))
+                let screenPoints = simplified(segment.map(point), minimumDistance: 1)
+                guard screenPoints.count >= 2 else { continue }
+                let path = NSBezierPath()
+                path.move(to: screenPoints[0])
+                for screenPoint in screenPoints.dropFirst() {
+                    path.line(to: screenPoint)
                 }
-            }
-            if !path.isEmpty {
                 path.lineWidth = 4
                 path.lineJoinStyle = .round
                 path.lineCapStyle = .round
-                NSColor.systemBlue.setStroke()
                 path.stroke()
             }
 
@@ -129,6 +131,25 @@ final class MapSnapshotRenderer: NSObject, MapSnapshotServiceProtocol {
             let bitmap = NSBitmapImageRep(data: tiff)
         else { return nil }
         return bitmap.representation(using: .png, properties: [:])
+    }
+
+    /// 직전에 남긴 점과 `minimumDistance`보다 가까운 점은 버린다. 끝점은 항상 남긴다.
+    private static func simplified(_ points: [NSPoint], minimumDistance: CGFloat) -> [NSPoint] {
+        guard var last = points.first else { return [] }
+        let minimumSquared = minimumDistance * minimumDistance
+        var result = [last]
+        for point in points.dropFirst() {
+            let dx = point.x - last.x
+            let dy = point.y - last.y
+            if dx * dx + dy * dy >= minimumSquared {
+                result.append(point)
+                last = point
+            }
+        }
+        if let end = points.last, result.last != end {
+            result.append(end)
+        }
+        return result
     }
 
     private static func color(for marker: MapSnapshotRequest.Marker) -> NSColor {
