@@ -62,17 +62,29 @@ struct ElevationChartView: View {
     }
 
     private func normalizedElevationPoints(minEle: Double, eleSpan: Double) -> [CGPoint] {
-        // trackPoints.count + 처음/끝 좌표 + eleRange 로 시그니처.
-        let boundaryCount = zip(trackPoints, trackPoints.dropFirst()).reduce(0) { count, pair in
-            let isDifferentLocation = pair.0.lat != pair.1.lat || pair.0.lon != pair.1.lon
-            return count + (pair.1.cumKm <= pair.0.cumKm + 0.000_000_1 && isDifferentLocation ? 1 : 0)
+        // trackPoints.count + 처음/끝 좌표 + eleRange + 고도 내용으로 시그니처.
+        // 고도는 나중에 채워질 수 있어(DEM 조회) 점 개수·거리·최저/최고가 그대로여도
+        // 고도 있는 점 수와 합이 바뀌면 다시 계산해야 한다.
+        var boundaryCount = 0
+        var elevatedCount = 0
+        var eleSum = 0.0
+        for (index, tp) in trackPoints.enumerated() {
+            if let e = tp.ele {
+                elevatedCount += 1
+                eleSum += e
+            }
+            guard index > 0 else { continue }
+            let previous = trackPoints[index - 1]
+            let isDifferentLocation = previous.lat != tp.lat || previous.lon != tp.lon
+            if tp.cumKm <= previous.cumKm + 0.000_000_1 && isDifferentLocation { boundaryCount += 1 }
         }
         let sig = String(
-            format: "%d|%.4f|%.4f|%.2f|%.2f|%d",
+            format: "%d|%.4f|%.4f|%.2f|%.2f|%d|%d|%.3f",
             trackPoints.count,
             trackPoints.first?.cumKm ?? 0,
             trackPoints.last?.cumKm ?? 0,
-            minEle, eleSpan, boundaryCount
+            minEle, eleSpan, boundaryCount,
+            elevatedCount, eleSum
         )
         if elevationCache.signature == sig {
             return elevationCache.normalized

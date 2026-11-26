@@ -97,6 +97,7 @@ struct CourseEditorView: View {
     @AppStorage(RouteColorMode.storageKey) private var routeColorRaw: String = RouteColorMode.section.rawValue
     /// 설정에서 고른 지도 파일로 구한 코스 전체의 노면. 노면 소스가 없으면 nil.
     @State private var surfaceStatus: CourseSurfaceStatus?
+    @State private var elevationFillStatus: ElevationFillStatus?
 
     private var routeColor: Binding<RouteColorMode> {
         Binding(
@@ -187,6 +188,9 @@ struct CourseEditorView: View {
         .onEscapeKey(isEnabled: rangeSelection != nil) { clearRangeSelection() }
         .task(id: CourseSurfaceTaskKey(trackPoints: draft.allCourseTrackPoints)) {
             await loadSurface()
+        }
+        .task(id: draft.elevationFillKey) {
+            await fillMissingElevations()
         }
         .focusedSceneValue(\.courseFileCommandHandler, CourseFileCommandHandler(
             exportTCX: { saveDraftTCX() },
@@ -355,6 +359,16 @@ struct CourseEditorView: View {
             .frame(minHeight: 200)
             elevationPane
                 .frame(minHeight: 120)
+                .overlay(alignment: .top) {
+                    if let elevationFillStatus {
+                        Label(elevationFillStatus.message, systemImage: elevationFillStatus.symbol)
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .padding(6)
+                    }
+                }
         }
     }
 
@@ -396,6 +410,38 @@ struct CourseEditorView: View {
     }
 
     /// 노면 소스가 있으면 코스 전체의 노면을 구한다. 편집하는 동안 잦게 바뀌므로 잠깐 기다렸다가 계산한다.
+    /// OSRM 경로·직선 구간처럼 고도가 없는 leg에 DEM 고도를 채운다.
+    /// 조회 한도에 걸리면 간격을 늘려 가며 다시 시도한다.
+    private func fillMissingElevations() async {
+        let legs = draft.legsMissingElevation
+        guard !legs.isEmpty else {
+            elevationFillStatus = nil
+            return
+        }
+        // 점을 끌어 옮기는 동안 연달아 바뀌므로 잠깐 기다렸다가 조회한다.
+        var retryDelays: [Duration] = [.milliseconds(300), .seconds(15), .seconds(30), .seconds(60)]
+        while !retryDelays.isEmpty {
+            try? await Task.sleep(for: retryDelays.removeFirst())
+            guard !Task.isCancelled else { return }
+            if elevationFillStatus != .failed { elevationFillStatus = .loading }
+            let results = await ElevationService.shared.fillMissingElevations(legs.map(\.trackPoints))
+            guard !Task.isCancelled else { return }
+            var filled: [UUID: [TrackPointCodable]] = [:]
+            for (leg, points) in zip(legs, results) {
+                if let points { filled[leg.id] = points }
+            }
+            if filled.count == legs.count {
+                elevationFillStatus = nil
+                draft.applyFilledElevations(filled)
+                return
+            }
+            elevationFillStatus = .failed
+            // 일부라도 채우면 빠진 leg 목록이 바뀌어 이 task가 새로 시작된다.
+            draft.applyFilledElevations(filled)
+        }
+        elevationFillStatus = .gaveUp
+    }
+
     private func loadSurface() async {
         let store = MapFileStore.shared
         let points = draft.allCourseTrackPoints
@@ -1995,7 +2041,9 @@ struct CourseEditMapView: NSViewRepresentable {
                 let legs = section.legs.map { leg in
                     let first = leg.trackPoints.first
                     let last = leg.trackPoints.last
-                    return "\(leg.kind.rawValue):\(leg.trackPoints.count):\(first?.lat ?? 0),\(first?.lon ?? 0):\(last?.lat ?? 0),\(last?.lon ?? 0)"
+                    // 경사도 색은 고도에 따라 달라지므로 고도 채우기 뒤에도 다시 그리게 한다.
+                    let hasEle = first?.ele != nil && last?.ele != nil
+                    return "\(leg.kind.rawValue):\(leg.trackPoints.count):\(first?.lat ?? 0),\(first?.lon ?? 0):\(last?.lat ?? 0),\(last?.lon ?? 0):\(hasEle)"
                 }.joined(separator: ",")
                 return "\(section.id):\(section.colorHex ?? ""):\(section.isHidden):\(legs)"
             }.joined(separator: "|") + "#active=\(draft.selectedSectionID)" + "#color=\(routeColorMode.rawValue)"

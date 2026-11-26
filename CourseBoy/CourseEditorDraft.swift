@@ -104,9 +104,11 @@ final class CourseEditorDraft {
                 parts.append("0")
                 continue
             }
+            // 고도 채우기는 좌표를 그대로 두고 ele만 바꾸므로 끝점 고도 유무도 넣는다.
             parts.append(String(
-                format: "%d:%.6f,%.6f→%.6f,%.6f",
-                seg.count, first.lat, first.lon, last.lat, last.lon
+                format: "%d:%.6f,%.6f→%.6f,%.6f:%d%d",
+                seg.count, first.lat, first.lon, last.lat, last.lon,
+                first.ele == nil ? 0 : 1, last.ele == nil ? 0 : 1
             ))
         }
         return parts.joined(separator: "|")
@@ -564,6 +566,43 @@ final class CourseEditorDraft {
             offsetMeters += section.distanceKm * 1000
         }
         return result.sorted { $0.distanceMeters < $1.distanceMeters }
+    }
+
+    // MARK: - 고도 채우기
+
+    /// 고도가 하나라도 빠진 leg. OSRM 경로·직선 구간·고도 없는 가져오기 파일이 여기에 걸린다.
+    var legsMissingElevation: [CourseLeg] {
+        sections.flatMap(\.legs).filter { leg in
+            leg.trackPoints.contains { $0.ele == nil }
+        }
+    }
+
+    /// `legsMissingElevation`이 바뀔 때만 달라지는 키. 고도 채우기 task의 id로 쓴다.
+    var elevationFillKey: String {
+        legsMissingElevation.map { leg in
+            let first = leg.trackPoints.first
+            return "\(leg.id):\(leg.trackPoints.count):\(first?.lat ?? 0),\(first?.lon ?? 0)"
+        }.joined(separator: "|")
+    }
+
+    /// 조회한 고도를 leg에 넣는다. 그사이 형상이 바뀐 leg는 건너뛴다.
+    /// 사용자 편집이 아니므로 undo에 올리지 않는다.
+    func applyFilledElevations(_ filled: [UUID: [TrackPointCodable]]) {
+        guard !filled.isEmpty else { return }
+        var updated = sections
+        var changed = false
+        for sectionIndex in updated.indices {
+            for legIndex in updated[sectionIndex].legs.indices {
+                let leg = updated[sectionIndex].legs[legIndex]
+                guard let points = filled[leg.id],
+                      points.count == leg.trackPoints.count,
+                      zip(points, leg.trackPoints).allSatisfy({ $0.lat == $1.lat && $0.lon == $1.lon })
+                else { continue }
+                updated[sectionIndex].legs[legIndex].trackPoints = points
+                changed = true
+            }
+        }
+        if changed { sections = updated }
     }
 
     private func replaceLegTrackPoints(_ points: [[TrackPointCodable]]) {
