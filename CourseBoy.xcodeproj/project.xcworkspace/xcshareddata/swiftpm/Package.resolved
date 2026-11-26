@@ -1,5 +1,5 @@
 {
-  "originHash" : "5b9d723f0acff2e794861721d80d4d0acc1f53ff45a2e67c54ddaa61a70b5866",
+  "originHash" : "b906ca748c58e5080d215bff7b0f8b97a02557963ccb23f5c61f5a4636479b75",
   "pins" : [
     {
       "identity" : "courseboykit",
@@ -8,6 +8,15 @@
       "state" : {
         "branch" : "main",
         "revision" : "4307f51c57cb85a60d4a237dc3f3d2830f5552ff"
+      }
+    },
+    {
+      "identity" : "courseboymapfile",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mettmoon/CourseBoyMapFile",
+      "state" : {
+        "branch" : "main",
+        "revision" : "898284aa3ac2c904f82cd3903e30d88eb0adf1d9"
       }
     },
     {

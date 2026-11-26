@@ -15,13 +15,13 @@ iOS 앱은 [CourseBoyMobile](https://github.com/mettmoon/CourseBoyMobile)으로,
 
 ## 의존 패키지
 
-Xcode 프로젝트가 GitHub 원격 패키지(`main` 브랜치)로 참조합니다. `CourseBoyMapFile`만 이 저장소 옆 폴더를 로컬 패키지로 참조합니다. 고정된 리비전은 `Package.resolved`에 있습니다.
+Xcode 프로젝트가 GitHub 원격 패키지(`main` 브랜치)로 참조합니다. 고정된 리비전은 `Package.resolved`에 있습니다.
 
 | 패키지 | 제품 |
 | --- | --- |
 | [CourseBoyKit](https://github.com/mettmoon/CourseBoyKit) | `CourseBoyKit` |
 | [CourseBoyPreviewCore](https://github.com/mettmoon/CourseBoyPreviewCore) | `CoursePreviewCore` |
-| `../CourseBoyMapFile` (로컬 패키지, 아직 원격 저장소 없음) | `CourseBoyMapFile` — Garmin IMG 지도 오버레이와 노면 정보 |
+| [CourseBoyMapFile](https://github.com/mettmoon/CourseBoyMapFile) | `CourseBoyMapFile` — Garmin IMG 지도 오버레이와 노면 정보 |
 
 패키지를 고친 뒤에는 Xcode에서 File → Packages → Update to Latest Package Versions로 갱신하고 바뀐 `Package.resolved`를 커밋합니다.
 

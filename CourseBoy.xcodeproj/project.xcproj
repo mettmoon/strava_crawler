@@ -24,8 +24,11 @@
         "branch": "main",
       },
     }, {
-      "kind": "local",
-      "path": "../CourseBoyMapFile",
+      "kind": "remote",
+      "repository": "https://github.com/mettmoon/CourseBoyMapFile",
+      "version": {
+        "branch": "main",
+      },
     },
   ],
   "files": [
