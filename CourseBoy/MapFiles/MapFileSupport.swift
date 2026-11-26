@@ -49,7 +49,8 @@ struct CourseSurfaceTaskKey: Equatable {
     var totalKm: Double
 
     @MainActor
-    init(trackPoints: [TrackPoint], store: MapFileStore = .shared) {
+    init(trackPoints: [TrackPoint]) {
+        let store = MapFileStore.shared
         sourceID = store.surfaceSource?.id
         sourceFingerprint = store.surfaceSource?.fingerprint
         count = trackPoints.count
@@ -118,25 +119,47 @@ struct SurfaceShareBar: View {
 
 // MARK: - 경로 색
 
-/// 지도에서 코스 선을 칠하는 방식.
+/// 지도에서 코스 선을 칠하는 방식. 모바일 앱의 경로 색상(CourseRouteColoring)과 같은 항목이다.
 enum RouteColorMode: String, CaseIterable, Identifiable {
-    /// 섹션마다 정한 색(기본).
-    case section
+    /// 순간 경사도에 따라 칠한다.
+    case grade
     /// 한 가지 색으로 칠하고 비포장 구간에 흰 점선을 긋는다. 노면 정보가 있을 때만 고를 수 있다.
     case surface
+    /// 한 가지 색으로 칠한다.
+    case solid
+    /// 섹션마다 정한 색(기본).
+    case section
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
-        case .section: return "섹션 색"
+        case .grade: return "경사도"
         case .surface: return "노면"
+        case .solid: return "단색"
+        case .section: return "섹션 색"
         }
     }
 
+    /// 메뉴에 내놓을 방식. 노면 정보가 없으면 노면 방식은 뺀다.
+    static func options(hasSurface: Bool) -> [RouteColorMode] {
+        hasSurface ? allCases : allCases.filter { $0 != .surface }
+    }
+
     static let storageKey = "routeColor.main"
-    /// 노면 방식의 코스 선 색.
-    static let surfaceColor = NSColor.systemIndigo
+    /// 노면 방식의 코스 선 색. 비포장 구간의 흰 점선이 잘 보이도록 짙은 색을 쓴다.
+    static let surfaceColor = NSColor(red: 0.25, green: 0.32, blue: 0.85, alpha: 1)
+    /// 단색 방식의 코스 선 색. 모바일 앱의 단색과 같다.
+    static let solidColor = NSColor(red: 0.88, green: 0.21, blue: 0.17, alpha: 1)
+
+    /// 코스 선 두께.
+    var lineWidth: CGFloat {
+        switch self {
+        case .surface: return 5
+        case .grade: return 4
+        case .solid, .section: return 3
+        }
+    }
 }
 
 /// 비포장 구간들. 코스 선 한가운데에 흰 점선을 그어 비포장임을 표시한다.

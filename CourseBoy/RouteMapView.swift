@@ -182,6 +182,8 @@ struct RouteMapView: View {
     var zoomResetToken: Int = 0
     /// `trackPoints` 기준의 노면 분석. 있으면 지도 메뉴에서 경로 색을 `노면`으로 고를 수 있다.
     var surfaceAnalysis: CourseSurfaceAnalysis? = nil
+    /// 지도 메뉴에서 경로 색을 고를 수 있게 할지.
+    var showsRouteColorMenu: Bool = true
 
     @AppStorage(MapStyleStorageKey.main) private var mapStyleRaw: String = MapStyleOption.standard.rawValue
     @AppStorage(RouteColorMode.storageKey) private var routeColorRaw: String = RouteColorMode.section.rawValue
@@ -193,9 +195,15 @@ struct RouteMapView: View {
         )
     }
 
+    /// 실제로 칠할 방식. 노면을 골랐어도 이 코스에 노면 정보가 없으면 섹션 색으로 칠한다.
+    private var effectiveRouteColor: RouteColorMode {
+        let mode = routeColor.wrappedValue
+        return mode == .surface && surfaceAnalysis == nil ? .section : mode
+    }
+
     /// 노면 방식으로 그릴 때의 구간. 노면 정보가 없거나 다른 방식이면 nil.
     private var surfaceRuns: [CourseSurfaceAnalysis.Run]? {
-        guard let surfaceAnalysis, routeColor.wrappedValue == .surface else { return nil }
+        guard let surfaceAnalysis, effectiveRouteColor == .surface else { return nil }
         return surfaceAnalysis.runs
     }
 
@@ -225,11 +233,13 @@ struct RouteMapView: View {
                 zoomResetToken: zoomResetToken,
                 mapStyle: mapStyle.wrappedValue,
                 tileSource: MapFileStore.shared.displayTileSource,
+                routeColorMode: effectiveRouteColor,
                 surfaceRuns: surfaceRuns
             )
             MapStylePicker(
                 selection: mapStyle,
-                routeColor: surfaceAnalysis == nil ? nil : routeColor
+                routeColor: showsRouteColorMenu ? routeColor : nil,
+                routeColorOptions: RouteColorMode.options(hasSurface: surfaceAnalysis != nil)
             )
                 .padding(8)
         }
@@ -254,7 +264,9 @@ private struct RouteMapRepresentable: NSViewRepresentable {
     var mapStyle: MapStyleOption
     /// 기본 지도 위에 덮을 사용자 지도 파일.
     var tileSource: GarminTileSource? = nil
-    /// nil이 아니면 코스 선을 한 가지 색으로 칠하고 비포장 구간에 점선을 긋는다.
+    /// 코스 선을 칠하는 방식.
+    var routeColorMode: RouteColorMode = .section
+    /// 노면 방식일 때의 노면 구간. 비포장 구간에 점선을 긋는다.
     var surfaceRuns: [CourseSurfaceAnalysis.Run]? = nil
 
     private var appliedStyle: AppliedMapStyle {
@@ -354,7 +366,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         }
         map.syncMapFileOverlay(tileSource)
         // 렌더러를 만들기 전에 정해 둔다. 방식이 바뀌면 아래에서 경로를 다시 그린다.
-        coordinator.routeLineWidth = surfaceRuns == nil ? 3 : 5
+        coordinator.routeLineWidth = routeColorMode.lineWidth
         // count + 총거리 + 첫/끝 좌표만으로 트랙 변경을 감지한다.
         // 이전에는 매번 트랙포인트 수만큼 문자열을 만들어 5k+ 포인트에서 큰
         // 할당 비용이 발생했다.
@@ -362,7 +374,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         let colorHexes = effectiveColorHexes
         let signature = tracks.map(trackSignature(for:)).joined(separator: "#")
             + "@" + colorHexes.map { $0 ?? "" }.joined(separator: ",")
-            + (surfaceRuns == nil ? "" : "@surface")
+            + "@" + routeColorMode.rawValue
         coordinator.trackPoints = trackPoints
         var pointOffset = 0
         coordinator.discontinuityAfterIndices = Set(tracks.dropLast().map { points in
@@ -413,11 +425,27 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             // 섹션 순서대로 추가하므로 뒤쪽 섹션일수록 위에 그려진다(편집 화면과 같은 z-순서).
             for (index, points) in drawableTracks.enumerated() {
                 let coords = points.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+                if routeColorMode == .grade {
+                    // 섹션마다 경사도 구간을 나눠, 구간마다 그 경사 색의 선을 긋는다.
+                    for run in RouteGradeColoring.runs(for: points) {
+                        let runCoords = Array(coords[run.startIndex...run.endIndex])
+                        let polyline = MainRoutePolyline(coordinates: runCoords, count: runCoords.count)
+                        polyline.color = run.band.color
+                        polylines.append(polyline)
+                    }
+                    fitRect = fitRect.union(MKPolyline(coordinates: coords, count: coords.count).boundingMapRect)
+                    continue
+                }
                 let polyline = MainRoutePolyline(coordinates: coords, count: coords.count)
-                if surfaceRuns != nil {
+                switch routeColorMode {
+                case .surface:
                     polyline.color = RouteColorMode.surfaceColor
-                } else if index < drawableColorHexes.count {
-                    polyline.color = SectionPalette.nsColor(drawableColorHexes[index])
+                case .solid:
+                    polyline.color = RouteColorMode.solidColor
+                case .section, .grade:
+                    if index < drawableColorHexes.count {
+                        polyline.color = SectionPalette.nsColor(drawableColorHexes[index])
+                    }
                 }
                 polylines.append(polyline)
                 fitRect = fitRect.union(polyline.boundingMapRect)

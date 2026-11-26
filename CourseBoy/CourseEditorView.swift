@@ -93,6 +93,23 @@ struct CourseEditorView: View {
 
     @AppStorage(MapStyleStorageKey.editor) private var mapStyleRaw: String = MapStyleOption.standard.rawValue
     @AppStorage(RouteProfileStorageKey.editor) private var routeProfileRaw: String = OSRMRouteProfile.defaultProfile.rawValue
+    /// 경로 색은 보기 화면과 같은 설정을 쓴다.
+    @AppStorage(RouteColorMode.storageKey) private var routeColorRaw: String = RouteColorMode.section.rawValue
+    /// 설정에서 고른 지도 파일로 구한 코스 전체의 노면. 노면 소스가 없으면 nil.
+    @State private var surfaceStatus: CourseSurfaceStatus?
+
+    private var routeColor: Binding<RouteColorMode> {
+        Binding(
+            get: { RouteColorMode(rawValue: routeColorRaw) ?? .section },
+            set: { routeColorRaw = $0.rawValue }
+        )
+    }
+
+    /// 실제로 칠할 방식. 노면을 골랐어도 노면 정보가 없으면 섹션 색으로 칠한다.
+    private var effectiveRouteColor: RouteColorMode {
+        let mode = routeColor.wrappedValue
+        return mode == .surface && surfaceStatus?.analysis == nil ? .section : mode
+    }
 
     private var mapStyle: Binding<MapStyleOption> {
         Binding(
@@ -168,6 +185,9 @@ struct CourseEditorView: View {
         }
         // ESC는 편집기를 닫지 않고, 구간 선택이 있을 때만 해제한다.
         .onEscapeKey(isEnabled: rangeSelection != nil) { clearRangeSelection() }
+        .task(id: CourseSurfaceTaskKey(trackPoints: draft.allCourseTrackPoints)) {
+            await loadSurface()
+        }
         .focusedSceneValue(\.courseFileCommandHandler, CourseFileCommandHandler(
             exportTCX: { saveDraftTCX() },
             exportGPX: { saveDraftGPX() },
@@ -298,6 +318,8 @@ struct CourseEditorView: View {
                     pinnedDistanceKm: pinnedDistanceKm,
                     mapStyle: mapStyle.wrappedValue,
                     tileSource: MapFileStore.shared.displayTileSource,
+                    routeColorMode: effectiveRouteColor,
+                    unpavedRuns: effectiveRouteColor == .surface ? surfaceStatus?.analysis?.unpavedRuns : nil,
                     routingProfile: routeProfile.wrappedValue,
                     onSelectCue: { selectedCueID = $0 },
                     onDeselectFocus: { selectedCueID = nil },
@@ -313,7 +335,11 @@ struct CourseEditorView: View {
                 // 지도 도구(장소 검색·지도 종류)는 지도 우상단에 모아 둔다.
                 HStack(spacing: 6) {
                     placeSearchField
-                    MapStylePicker(selection: mapStyle)
+                    MapStylePicker(
+                        selection: mapStyle,
+                        routeColor: routeColor,
+                        routeColorOptions: RouteColorMode.options(hasSurface: surfaceStatus?.analysis != nil)
+                    )
                 }
                 .padding(8)
             }
@@ -363,9 +389,28 @@ struct CourseEditorView: View {
                 onSearchAtHover: { _ in
                     triggerSearch()
                 },
-                onBackgroundClick: { selectedCueID = nil }
+                onBackgroundClick: { selectedCueID = nil },
+                unpavedRangesKm: surfaceStatus?.analysis?.unpavedRuns.map { $0.startKm...$0.endKm } ?? []
             )
         }
+    }
+
+    /// 노면 소스가 있으면 코스 전체의 노면을 구한다. 편집하는 동안 잦게 바뀌므로 잠깐 기다렸다가 계산한다.
+    private func loadSurface() async {
+        let store = MapFileStore.shared
+        let points = draft.allCourseTrackPoints
+        guard store.surfaceSource != nil, points.count >= 2 else {
+            surfaceStatus = nil
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(400))
+        guard !Task.isCancelled else { return }
+        if surfaceStatus?.analysis == nil {
+            surfaceStatus = .loading
+        }
+        let status = await store.surfaceStatus(for: points)
+        guard !Task.isCancelled else { return }
+        surfaceStatus = status
     }
 
     private func focusedDistanceKm() -> Double? {
@@ -1818,6 +1863,10 @@ struct CourseEditMapView: NSViewRepresentable {
     var mapStyle: MapStyleOption = .standard
     /// 기본 지도 위에 덮을 사용자 지도 파일.
     var tileSource: GarminTileSource? = nil
+    /// 코스 선을 칠하는 방식.
+    var routeColorMode: RouteColorMode = .section
+    /// 노면 방식일 때 흰 점선을 그을 비포장 구간. 인덱스는 `draft.allCourseTrackPoints` 기준이다.
+    var unpavedRuns: [CourseSurfaceAnalysis.Run]? = nil
     var routingProfile: OSRMRouteProfile = .defaultProfile
     var onSelectCue: (UUID) -> Void
     var onDeselectFocus: () -> Void
@@ -1871,7 +1920,9 @@ struct CourseEditMapView: NSViewRepresentable {
         context.coordinator.onPinDistance = onPinDistance
         context.coordinator.onSearchInVisibleRect = onSearchInVisibleRect
         context.coordinator.routingProfile = routingProfile
+        context.coordinator.routeColorMode = routeColorMode
         context.coordinator.refresh()
+        context.coordinator.syncUnpaved(in: map, runs: unpavedRuns)
         context.coordinator.updateSearchAnnotations(map: map, results: searchResults)
         context.coordinator.syncFocusedCue(in: map, focusedID: selectedCueID)
         context.coordinator.syncRangeSelection(in: map, selection: rangeSelection)
@@ -1894,7 +1945,13 @@ struct CourseEditMapView: NSViewRepresentable {
         var onSearchInVisibleRect: (MKMapRect) -> Void
         var routingProfile: OSRMRouteProfile
         var appliedMapStyle: AppliedMapStyle?
+        var routeColorMode: RouteColorMode = .section
         weak var mapView: MKMapView?
+        private var unpavedOverlay: CourseUnpavedMultiPolyline?
+        private var appliedUnpavedRuns: [CourseSurfaceAnalysis.Run]?
+
+        /// 코스 선 두께. 노면 방식은 흰 점선이 들어가도록 더 굵게 긋는다.
+        private var routeLineWidth: CGFloat { max(4, routeColorMode.lineWidth) }
 
         private var draggingIndex: Int?
         private var needsFitOnFirstLoad = true
@@ -1941,7 +1998,7 @@ struct CourseEditMapView: NSViewRepresentable {
                     return "\(leg.kind.rawValue):\(leg.trackPoints.count):\(first?.lat ?? 0),\(first?.lon ?? 0):\(last?.lat ?? 0),\(last?.lon ?? 0)"
                 }.joined(separator: ",")
                 return "\(section.id):\(section.colorHex ?? ""):\(section.isHidden):\(legs)"
-            }.joined(separator: "|") + "#active=\(draft.selectedSectionID)"
+            }.joined(separator: "|") + "#active=\(draft.selectedSectionID)" + "#color=\(routeColorMode.rawValue)"
             let cueSig = draft.cuePoints.map { "\($0.id):\($0.lat),\($0.lon),\($0.pointType),\($0.name)" }.joined(separator: "|")
             let sig = routeSig + "##" + cueSig
             guard sig != builtRouteSignature else { return }
@@ -1949,6 +2006,8 @@ struct CourseEditMapView: NSViewRepresentable {
 
             // 사용자 지도 파일 오버레이는 경로와 상관없으므로 남겨 둔다.
             map.removeOverlays(map.routeOverlays)
+            unpavedOverlay = nil
+            appliedUnpavedRuns = nil
             let routeAnns = map.annotations.compactMap { $0 as? RoutePointAnnotation }
             let cueAnns = map.annotations.compactMap { $0 as? CuePointAnnotation }
             map.removeAnnotations(routeAnns + cueAnns)
@@ -1963,11 +2022,30 @@ struct CourseEditMapView: NSViewRepresentable {
             // z-index는 레이어 순서의 오름차순이다. 나중에 추가한 오버레이가 위에 그려지므로
             // 리스트 순서대로 추가하면 아래쪽(뒤) 섹션이 맵에서 위에 온다.
             for section in draft.sections where !section.isHidden {
-                let color = SectionPalette.nsColor(section.colorHex)
+                let color: NSColor
+                switch routeColorMode {
+                case .surface: color = RouteColorMode.surfaceColor
+                case .solid: color = RouteColorMode.solidColor
+                case .section, .grade: color = SectionPalette.nsColor(section.colorHex)
+                }
                 for leg in section.legs {
                     guard leg.trackPoints.count >= 2 else { continue }
                     let coords = leg.trackPoints.map {
                         CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
+                    }
+                    if routeColorMode == .grade {
+                        // 구간(leg)마다 경사도 구간을 나눠 그 경사 색으로 긋는다. 직선 구간의 점선은 그대로다.
+                        let points = leg.trackPoints.map {
+                            TrackPoint(lat: $0.lat, lon: $0.lon, ele: $0.ele, time: $0.time, cumKm: $0.cumKm)
+                        }
+                        for run in RouteGradeColoring.runs(for: points) {
+                            let runCoords = Array(coords[run.startIndex...run.endIndex])
+                            let polyline = SegmentPolyline(coordinates: runCoords, count: runCoords.count)
+                            polyline.kind = leg.kind
+                            polyline.color = run.band.color
+                            map.addOverlay(polyline, level: .aboveRoads)
+                        }
+                        continue
                     }
                     let polyline = SegmentPolyline(coordinates: coords, count: coords.count)
                     polyline.kind = leg.kind
@@ -1996,6 +2074,36 @@ struct CourseEditMapView: NSViewRepresentable {
         }
 
         // MARK: 검색 결과 어노테이션
+
+        /// 비포장 구간의 흰 점선을 코스 선 위에 긋는다. 노면 방식이 아니면(runs가 nil) 걷어 낸다.
+        /// 섹션이 바뀌는 곳에서는 점선을 끊는다.
+        func syncUnpaved(in map: MKMapView, runs: [CourseSurfaceAnalysis.Run]?) {
+            guard runs != appliedUnpavedRuns else { return }
+            appliedUnpavedRuns = runs
+            if let unpavedOverlay {
+                map.removeOverlay(unpavedOverlay)
+                self.unpavedOverlay = nil
+            }
+            guard let runs, !runs.isEmpty else { return }
+            var breaks = Set<Int>()
+            var end = -1
+            for points in draft.allCourseSectionTrackPoints {
+                end += points.count
+                breaks.insert(end)
+            }
+            guard let overlay = CourseUnpavedMultiPolyline.make(
+                runs: runs,
+                trackPoints: draft.allCourseTrackPoints,
+                breakAfter: breaks
+            ) else { return }
+            // 코스 선보다 위, 구간 선택 선보다 아래에 둔다.
+            if let range = rangePolyline {
+                map.insertOverlay(overlay, below: range)
+            } else {
+                map.addOverlay(overlay, level: .aboveRoads)
+            }
+            unpavedOverlay = overlay
+        }
 
         func updateSearchAnnotations(map: MKMapView, results: [KakaoLocalResult]) {
             let sig = results.map(\.id).joined(separator: ",")
@@ -2673,6 +2781,9 @@ struct CourseEditMapView: NSViewRepresentable {
             if let tiles = overlay as? GarminTileOverlay {
                 return GarminMapRenderer(overlay: tiles, mapView: mapView)
             }
+            if let unpaved = overlay as? CourseUnpavedMultiPolyline {
+                return CourseUnpavedMultiPolyline.renderer(for: unpaved, routeWidth: routeLineWidth)
+            }
             if let poly = overlay as? RangeSelectionPolyline {
                 let r = MKPolylineRenderer(polyline: poly)
                 r.strokeColor = NSColor.systemIndigo
@@ -2684,7 +2795,7 @@ struct CourseEditMapView: NSViewRepresentable {
                 let r = MKPolylineRenderer(polyline: poly)
                 // 섹션마다 지정한 색으로 그린다. 선택 여부로 흐리게 하거나 굵기를 바꾸지 않는다.
                 r.strokeColor = poly.color
-                r.lineWidth = 4
+                r.lineWidth = routeLineWidth
                 if poly.kind == .straight {
                     r.lineDashPattern = [7, 5]
                 }

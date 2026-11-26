@@ -57,37 +57,32 @@ struct AppliedMapStyle: Equatable {
 /// 지도 우상단에 띄우는 스타일 전환 메뉴. 부모 ZStack 위에 overlay로 사용한다.
 struct MapStylePicker: View {
     @Binding var selection: MapStyleOption
-    /// 있으면 '경로 색' 섹션을 보여준다. 노면 정보가 있는 코스에서만 넘긴다.
+    /// 있으면 '경로 색' 섹션을 보여준다.
     var routeColor: Binding<RouteColorMode>? = nil
+    /// '경로 색' 섹션에 내놓을 방식.
+    var routeColorOptions: [RouteColorMode] = RouteColorMode.allCases
 
     var body: some View {
         Menu {
+            // 고른 항목에 체크 표시가 붙도록 켜고 끄는 항목으로 둔다. 메뉴 안의 Label 아이콘은
+            // 메뉴가 처음 만들어질 때의 값으로 남아, 고른 뒤에도 체크가 옮겨 가지 않았다.
+            // 이미 고른 것을 다시 눌러도 꺼지지 않고 그대로 둔다.
             Section("지도") {
                 ForEach(MapStyleOption.allCases) { option in
-                    Button {
-                        selection = option
-                    } label: {
-                        if option == selection {
-                            Label(option.label, systemImage: "checkmark")
-                        } else {
-                            Text(option.label)
-                        }
-                    }
+                    Toggle(option.label, isOn: Binding(
+                        get: { selection == option },
+                        set: { if $0 { selection = option } }
+                    ))
                 }
             }
             MapOverlayMenuSection()
             if let routeColor {
                 Section("경로 색") {
-                    ForEach(RouteColorMode.allCases) { mode in
-                        Button {
-                            routeColor.wrappedValue = mode
-                        } label: {
-                            if mode == routeColor.wrappedValue {
-                                Label(mode.label, systemImage: "checkmark")
-                            } else {
-                                Text(mode.label)
-                            }
-                        }
+                    ForEach(routeColorOptions) { mode in
+                        Toggle(mode.label, isOn: Binding(
+                            get: { routeColor.wrappedValue == mode },
+                            set: { if $0 { routeColor.wrappedValue = mode } }
+                        ))
                     }
                 }
             }
