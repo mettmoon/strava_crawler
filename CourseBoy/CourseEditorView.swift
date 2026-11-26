@@ -318,7 +318,7 @@ struct CourseEditorView: View {
                     rangeSelection: selectedSectionMapRange,
                     cameraRangeSelection: rangeSelection,
                     zoomResetToken: zoomResetToken,
-                    hoverInfo: hoverInfo,
+                    hoverInfo: $hoverInfo,
                     pinnedDistanceKm: pinnedDistanceKm,
                     mapStyle: mapStyle.wrappedValue,
                     tileSource: MapFileStore.shared.displayTileSource,
@@ -1903,7 +1903,8 @@ struct CourseEditMapView: NSViewRepresentable {
     var cameraRangeSelection: ChartRangeSelection? = nil
     /// 값이 바뀔 때마다 카메라를 코스 전체 보기로 되돌린다.
     var zoomResetToken: Int = 0
-    var hoverInfo: RouteHoverInfo?
+    /// 고도 그래프와 지도가 함께 쓰는 hover 지점. 거리는 코스 전체 기준(km)이다.
+    @Binding var hoverInfo: RouteHoverInfo?
     /// 고정 지점의 코스 누적 거리(km). 선택한 섹션이 아닌 섹션의 지점일 수도 있다.
     var pinnedDistanceKm: Double?
     var mapStyle: MapStyleOption = .standard
@@ -1929,8 +1930,24 @@ struct CourseEditMapView: NSViewRepresentable {
                     onSearchInVisibleRect: onSearchInVisibleRect)
     }
 
+    static func dismantleNSView(_ map: MKMapView, coordinator: Coordinator) {
+        if let hover = map as? HoverMapView {
+            hover.onRouteMouseMoved = nil
+            hover.onRouteMouseExited = nil
+        }
+        coordinator.hoverInfoBinding = nil
+        coordinator.removeTooltip()
+    }
+
     func makeNSView(context: Context) -> MKMapView {
-        let map = MKMapView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+        let map = HoverMapView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+        let coordinator = context.coordinator
+        map.onRouteMouseMoved = { [weak coordinator] map, point in
+            coordinator?.handleMouseMoved(in: map, point: point)
+        }
+        map.onRouteMouseExited = { [weak coordinator] map in
+            coordinator?.clearHover(in: map)
+        }
         map.delegate = context.coordinator
         map.showsCompass = true
         map.showsScale = true
@@ -1961,6 +1978,7 @@ struct CourseEditMapView: NSViewRepresentable {
         }
         map.syncMapFileOverlay(tileSource)
         context.coordinator.draft = draft
+        context.coordinator.hoverInfoBinding = $hoverInfo
         context.coordinator.onSelectCue = onSelectCue
         context.coordinator.onDeselectFocus = onDeselectFocus
         context.coordinator.onPinDistance = onPinDistance
@@ -2010,6 +2028,14 @@ struct CourseEditMapView: NSViewRepresentable {
         private var lastCameraRangeSignature: String = ""
         private var appliedZoomResetToken = 0
         private var hoverAnnotation: HoverAnnotation?
+        var hoverInfoBinding: Binding<RouteHoverInfo?>?
+        private let tooltip = RouteHoverTooltip()
+        /// 지도 위 마우스로 hover 중이면 true. 이때는 말풍선을 마우스 옆에 둔다.
+        private var mapMouseHoverActive = false
+        /// 보이는 모든 섹션을 이은 코스 트랙(km는 코스 전체 기준)과 섹션 경계 인덱스.
+        /// 마우스가 움직일 때마다 다시 만들지 않도록 경로가 바뀔 때만 갱신한다.
+        private var courseTrackPoints: [TrackPoint] = []
+        private var courseSectionBreaks: Set<Int> = []
         private var pinnedAnnotation: PinnedLocationAnnotation?
         private var lastPinnedSignature: String = ""
         /// refresh()로 annotation만 다시 그릴 때(같은 거리)는 카메라를 움직이지 않도록 별도로 기억한다.
@@ -2051,6 +2077,7 @@ struct CourseEditMapView: NSViewRepresentable {
             let sig = routeSig + "##" + cueSig
             guard sig != builtRouteSignature else { return }
             builtRouteSignature = sig
+            rebuildCourseTrack()
 
             // 사용자 지도 파일 오버레이는 경로와 상관없으므로 남겨 둔다.
             map.removeOverlays(map.routeOverlays)
@@ -2111,7 +2138,10 @@ struct CourseEditMapView: NSViewRepresentable {
             lastFocusedCueID = nil
             // range overlay는 syncRangeSelection이 별도로 다시 만든다.
             lastRangeSignature = ""
+            // hover·고정 지점은 다음 sync에서 새 경로 기준으로 다시 놓는다.
+            if let hoverAnnotation { map.removeAnnotation(hoverAnnotation) }
             hoverAnnotation = nil
+            if let pinnedAnnotation { map.removeAnnotation(pinnedAnnotation) }
             pinnedAnnotation = nil
             lastPinnedSignature = ""
 
@@ -2272,12 +2302,57 @@ struct CourseEditMapView: NSViewRepresentable {
 
         func syncHoverLocation(in map: MKMapView, info: RouteHoverInfo?) {
             guard let info else {
-                if let existing = hoverAnnotation {
-                    map.removeAnnotation(existing)
-                    hoverAnnotation = nil
-                }
+                mapMouseHoverActive = false
+                removeHoverDot(in: map)
+                tooltip.hide()
                 return
             }
+            updateHoverDot(in: map, info: info)
+            // 고도 그래프에서 hover하면 경로 위 지점 옆에 말풍선을 띄운다.
+            if !mapMouseHoverActive {
+                tooltip.show(in: map, atRoutePointOf: info)
+            }
+        }
+
+        /// 지도 위 마우스가 경로 가까이 오면 그 지점을 잡아 고도 그래프와 함께 표시한다.
+        func handleMouseMoved(in map: HoverMapView, point: CGPoint) {
+            guard courseTrackPoints.count >= 2,
+                  let projection = nearestProjectionOnMap(
+                      map, pts: courseTrackPoints, to: point, breakAfter: courseSectionBreaks
+                  ),
+                  projection.screenDistance <= Self.hoverHitThreshold,
+                  let info = routeHoverInfo(
+                      trackPoints: courseTrackPoints,
+                      segmentStartIndex: projection.segmentStartIndex,
+                      fraction: projection.fraction
+                  ) else {
+                clearHover(in: map)
+                return
+            }
+            mapMouseHoverActive = true
+            hoverInfoBinding?.wrappedValue = info
+            updateHoverDot(in: map, info: info)
+            tooltip.show(in: map, at: point, info: info)
+        }
+
+        func clearHover(in map: MKMapView) {
+            let wasMapHover = mapMouseHoverActive
+            mapMouseHoverActive = false
+            // 경로에서 먼 곳을 지나는 동안 매번 nil을 써서 화면을 다시 그리지 않게 한다.
+            if wasMapHover || hoverAnnotation != nil {
+                hoverInfoBinding?.wrappedValue = nil
+            }
+            removeHoverDot(in: map)
+            tooltip.hide()
+        }
+
+        func removeTooltip() {
+            tooltip.remove()
+        }
+
+        private static let hoverHitThreshold: CGFloat = 10
+
+        private func updateHoverDot(in map: MKMapView, info: RouteHoverInfo) {
             let coord = CLLocationCoordinate2D(latitude: info.lat, longitude: info.lon)
             if let existing = hoverAnnotation {
                 existing.coordinate = coord
@@ -2287,6 +2362,25 @@ struct CourseEditMapView: NSViewRepresentable {
                 map.addAnnotation(annotation)
                 hoverAnnotation = annotation
             }
+        }
+
+        private func removeHoverDot(in map: MKMapView) {
+            if let existing = hoverAnnotation {
+                map.removeAnnotation(existing)
+                hoverAnnotation = nil
+            }
+        }
+
+        private func rebuildCourseTrack() {
+            let sections = draft.allCourseSectionTrackPoints
+            courseTrackPoints = sections.flatMap { $0 }
+            var breaks = Set<Int>()
+            var end = -1
+            for points in sections.dropLast() {
+                end += points.count
+                breaks.insert(end)
+            }
+            courseSectionBreaks = breaks
         }
 
         func syncPinnedLocation(in map: MKMapView, distanceKm: Double?) {
@@ -2714,13 +2808,15 @@ struct CourseEditMapView: NSViewRepresentable {
                 return v
             }
             if annotation is HoverAnnotation {
+                // 마우스 바로 밑에 놓이므로 클릭을 가로채지 않게 해, 밑의 RoutePoint 드래그·큐 선택이 그대로 되게 한다.
                 let identifier = "hoverPoint"
                 let view = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
-                    ?? MKAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+                    ?? ClickThroughAnnotationView(annotation: annotation, reuseIdentifier: identifier)
                 view.annotation = annotation
                 view.image = Self.hoverDotImage
                 view.displayPriority = .required
                 view.canShowCallout = false
+                view.isEnabled = false
                 view.zPriority = .max
                 return view
             }

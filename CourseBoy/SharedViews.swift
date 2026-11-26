@@ -7,15 +7,18 @@ import CourseBoyKit
 
 /// 지도 위 화면 좌표(`screenPoint`)에서 트랙 폴리라인에 가장 가까운 점을 찾아
 /// 세그먼트 시작 인덱스, 세그먼트 내 비율(0..1), 화면 거리(pt)를 리턴한다.
+/// `breakAfter`에 든 인덱스 `i`의 점과 다음 점 사이(섹션 경계)는 이어진 선으로 보지 않는다.
 func nearestProjectionOnMap(
     _ map: MKMapView,
     pts: [TrackPoint],
-    to screenPoint: CGPoint
+    to screenPoint: CGPoint,
+    breakAfter: Set<Int> = []
 ) -> (segmentStartIndex: Int, fraction: Double, screenDistance: CGFloat)? {
     guard pts.count >= 2 else { return nil }
     var best: (segmentStartIndex: Int, fraction: Double, screenDistance: CGFloat)?
 
     for i in 0..<(pts.count - 1) {
+        if breakAfter.contains(i) { continue }
         let a = pts[i]
         let b = pts[i + 1]
         let p1 = map.convert(CLLocationCoordinate2D(latitude: a.lat, longitude: a.lon), toPointTo: map)
@@ -37,6 +40,11 @@ func nearestProjectionOnMap(
     }
 
     return best
+}
+
+/// 마우스 이벤트를 밑의 지도·annotation으로 그대로 흘려보내는 annotation view.
+final class ClickThroughAnnotationView: MKAnnotationView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 // MARK: - 지도 마커 이미지 (Hover / Pinned)

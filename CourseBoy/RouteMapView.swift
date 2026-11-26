@@ -156,6 +156,100 @@ final class HoverMapView: MKMapView {
     }
 }
 
+/// 경로 위 지점의 방향·거리·고도·경사를 지도 위에 띄우는 말풍선. 보기·편집 지도가 함께 쓴다.
+final class RouteHoverTooltip {
+    private weak var bubble: NSVisualEffectView?
+    private weak var label: NSTextField?
+
+    /// 지도 좌표계의 `point` 옆에 말풍선을 띄운다. 지도 가장자리를 넘지 않도록 자리를 옮긴다.
+    func show(in map: MKMapView, at point: CGPoint, info: RouteHoverInfo) {
+        let (bubble, label) = ensure(in: map)
+        label.stringValue = """
+        방향 \(formatRouteDirection(info))
+        거리 \(formatRouteDistance(info.distanceKm))
+        고도 \(formatRouteElevation(info.elevationMeters))
+        경사 \(formatRouteGrade(info.gradePercent))
+        """
+
+        let maxTextSize = CGSize(width: 180, height: 100)
+        let textSize = label.attributedStringValue.boundingRect(
+            with: maxTextSize,
+            options: [.usesLineFragmentOrigin]
+        ).size
+        let width = min(max(126, ceil(textSize.width) + 18), 198)
+        let height = ceil(textSize.height) + 14
+
+        var origin = CGPoint(x: point.x + 14, y: point.y + 14)
+        if origin.x + width > map.bounds.maxX - 8 {
+            origin.x = point.x - width - 14
+        }
+        if origin.y + height > map.bounds.maxY - 8 {
+            origin.y = point.y - height - 14
+        }
+        origin.x = min(max(origin.x, map.bounds.minX + 8), map.bounds.maxX - width - 8)
+        origin.y = min(max(origin.y, map.bounds.minY + 8), map.bounds.maxY - height - 8)
+
+        bubble.frame = CGRect(x: origin.x, y: origin.y, width: width, height: height)
+        bubble.isHidden = false
+    }
+
+    /// 경로 위 지점 자체에 말풍선을 띄운다(고도 그래프 hover 등 지도 밖에서 위치가 정해질 때).
+    func show(in map: MKMapView, atRoutePointOf info: RouteHoverInfo) {
+        let point = map.convert(
+            CLLocationCoordinate2D(latitude: info.lat, longitude: info.lon),
+            toPointTo: map
+        )
+        show(in: map, at: point, info: info)
+    }
+
+    func hide() {
+        bubble?.isHidden = true
+    }
+
+    func remove() {
+        bubble?.removeFromSuperview()
+        bubble = nil
+        label = nil
+    }
+
+    private func ensure(in map: MKMapView) -> (NSVisualEffectView, NSTextField) {
+        if let bubble, let label, bubble.superview === map {
+            return (bubble, label)
+        }
+        remove()
+
+        let bubble = NSVisualEffectView(frame: CGRect(x: 0, y: 0, width: 150, height: 60))
+        bubble.material = .hudWindow
+        bubble.blendingMode = .withinWindow
+        bubble.state = .active
+        bubble.wantsLayer = true
+        bubble.layer?.cornerRadius = 6
+        bubble.layer?.borderWidth = 1
+        bubble.layer?.borderColor = NSColor.separatorColor.cgColor
+        bubble.isHidden = true
+
+        let label = NSTextField(labelWithString: "")
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        label.textColor = .labelColor
+        label.maximumNumberOfLines = 4
+        label.lineBreakMode = .byClipping
+
+        bubble.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: bubble.leadingAnchor, constant: 9),
+            label.trailingAnchor.constraint(equalTo: bubble.trailingAnchor, constant: -9),
+            label.topAnchor.constraint(equalTo: bubble.topAnchor, constant: 7),
+            label.bottomAnchor.constraint(equalTo: bubble.bottomAnchor, constant: -7),
+        ])
+
+        map.addSubview(bubble)
+        self.bubble = bubble
+        self.label = label
+        return (bubble, label)
+    }
+}
+
 struct RouteMapView: View {
     let trackPoints: [TrackPoint]
     /// 비어 있지 않으면 지도 polyline을 섹션 경계에서 끊어 그린다.
@@ -673,8 +767,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
         }
 
         private let hoverHitThreshold: CGFloat = 10
-        private weak var tooltipView: NSVisualEffectView?
-        private weak var tooltipLabel: NSTextField?
+        private let tooltip = RouteHoverTooltip()
         private var mapMouseHoverActive = false
 
         func handleMouseMoved(in map: HoverMapView, point: CGPoint) {
@@ -693,7 +786,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             mapMouseHoverActive = true
             hoverInfo?.wrappedValue = info
             updateHoverDot(in: map, info: info)
-            showTooltip(in: map, at: point, info: info)
+            tooltip.show(in: map, at: point, info: info)
         }
 
         func clearHover(in map: MKMapView) {
@@ -874,7 +967,7 @@ private struct RouteMapRepresentable: NSViewRepresentable {
 
             updateHoverDot(in: map, info: info)
             if !mapMouseHoverActive {
-                showTooltipAtRoutePoint(in: map, info: info)
+                tooltip.show(in: map, atRoutePointOf: info)
             }
         }
 
@@ -897,22 +990,12 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             }
         }
 
-        private func showTooltipAtRoutePoint(in map: MKMapView, info: RouteHoverInfo) {
-            let point = map.convert(
-                CLLocationCoordinate2D(latitude: info.lat, longitude: info.lon),
-                toPointTo: map
-            )
-            showTooltip(in: map, at: point, info: info)
-        }
-
         func hideTooltip() {
-            tooltipView?.isHidden = true
+            tooltip.hide()
         }
 
         func removeTooltip() {
-            tooltipView?.removeFromSuperview()
-            tooltipView = nil
-            tooltipLabel = nil
+            tooltip.remove()
         }
 
         private func nearestProjection(
@@ -950,73 +1033,6 @@ private struct RouteMapRepresentable: NSViewRepresentable {
             }
 
             return best
-        }
-
-        private func showTooltip(in map: MKMapView, at point: CGPoint, info: RouteHoverInfo) {
-            let (bubble, label) = ensureTooltip(in: map)
-            label.stringValue = """
-            방향 \(formatRouteDirection(info))
-            거리 \(formatRouteDistance(info.distanceKm))
-            고도 \(formatRouteElevation(info.elevationMeters))
-            경사 \(formatRouteGrade(info.gradePercent))
-            """
-
-            let maxTextSize = CGSize(width: 180, height: 100)
-            let textSize = label.attributedStringValue.boundingRect(
-                with: maxTextSize,
-                options: [.usesLineFragmentOrigin]
-            ).size
-            let width = min(max(126, ceil(textSize.width) + 18), 198)
-            let height = ceil(textSize.height) + 14
-
-            var origin = CGPoint(x: point.x + 14, y: point.y + 14)
-            if origin.x + width > map.bounds.maxX - 8 {
-                origin.x = point.x - width - 14
-            }
-            if origin.y + height > map.bounds.maxY - 8 {
-                origin.y = point.y - height - 14
-            }
-            origin.x = min(max(origin.x, map.bounds.minX + 8), map.bounds.maxX - width - 8)
-            origin.y = min(max(origin.y, map.bounds.minY + 8), map.bounds.maxY - height - 8)
-
-            bubble.frame = CGRect(x: origin.x, y: origin.y, width: width, height: height)
-            bubble.isHidden = false
-        }
-
-        private func ensureTooltip(in map: MKMapView) -> (NSVisualEffectView, NSTextField) {
-            if let tooltipView, let tooltipLabel {
-                return (tooltipView, tooltipLabel)
-            }
-
-            let bubble = NSVisualEffectView(frame: CGRect(x: 0, y: 0, width: 150, height: 60))
-            bubble.material = .hudWindow
-            bubble.blendingMode = .withinWindow
-            bubble.state = .active
-            bubble.wantsLayer = true
-            bubble.layer?.cornerRadius = 6
-            bubble.layer?.borderWidth = 1
-            bubble.layer?.borderColor = NSColor.separatorColor.cgColor
-            bubble.isHidden = true
-
-            let label = NSTextField(labelWithString: "")
-            label.translatesAutoresizingMaskIntoConstraints = false
-            label.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
-            label.textColor = .labelColor
-            label.maximumNumberOfLines = 4
-            label.lineBreakMode = .byClipping
-
-            bubble.addSubview(label)
-            NSLayoutConstraint.activate([
-                label.leadingAnchor.constraint(equalTo: bubble.leadingAnchor, constant: 9),
-                label.trailingAnchor.constraint(equalTo: bubble.trailingAnchor, constant: -9),
-                label.topAnchor.constraint(equalTo: bubble.topAnchor, constant: 7),
-                label.bottomAnchor.constraint(equalTo: bubble.bottomAnchor, constant: -7),
-            ])
-
-            map.addSubview(bubble)
-            tooltipView = bubble
-            tooltipLabel = label
-            return (bubble, label)
         }
 
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
