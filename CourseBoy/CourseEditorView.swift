@@ -868,6 +868,9 @@ private struct CourseEditorCuesheetSidebar: View {
                     Text("경로 위를 우클릭하거나\n+ 버튼으로 추가하세요.")
                         .font(.caption)
                 }
+                // macOS에서는 내용 크기만 차지해 사이드바 전체가 세로 가운데로 내려가므로,
+                // 남는 높이를 채워 섹션 목록이 큐시트가 있을 때처럼 위에 붙게 한다.
+                .frame(maxHeight: .infinity)
             } else {
                 List(selection: $selectedCueID) {
                     ForEach(sortedCues) { cue in
